@@ -30,24 +30,6 @@
 
 #include <tinyxml2.h>
 
-//class Indentation {
-//public:
-//	Indentation& increase() { level++; return *this; }
-//	Indentation& decrease() { if (--level < 0) level = 0; return *this; }
-//
-//private:
-//	friend std::ostream& operator<<(std::ostream& stream, const Indentation& val);
-//
-//	int level = 0;
-//} indent;
-//
-//std::ostream& operator<<(std::ostream& os, const Indentation& val) {
-//	for (int i = 0; i < val.level; ++i) {
-//		os << "    ";
-//	}
-//	return os;
-//}
-
 class IndentingOStreambuf : public std::streambuf
 {
 	std::streambuf*     myDest;
@@ -263,7 +245,6 @@ struct VkData
   std::map<std::string, ScalarData>             scalars;
   std::map<std::string, StructData>             structs;
   std::set<std::string>                         tags;
-  std::string                                   typesafeCheck;
   std::string                                   version;
   std::set<std::string>                         vkTypes;
   std::string                                   vulkanLicenseHeader;
@@ -611,12 +592,12 @@ std::string findTag(std::string const& name, std::set<std::string> const& tags)
 
 std::string generateEnumNameForFlags(std::string const& name)
 {
-  // create a string, where the substring "Flags" is replaced by "FlagBits"
-  std::string generatedName = name;
-  size_t pos = generatedName.rfind("Flags");
-  assert(pos != std::string::npos);
-  generatedName.replace(pos, 5, "FlagBits");
-  return generatedName;
+	// create a string, where the substring "Flags" is replaced by "FlagBits"
+	std::string generatedName = name;
+	size_t pos = generatedName.rfind("Flags");
+	assert(pos != std::string::npos);
+	generatedName.replace(pos, 5, "FlagBits");
+	return generatedName;
 }
 
 bool hasPointerParam(std::vector<ParamData> const& params)
@@ -852,28 +833,31 @@ std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, 
 
 void readComment(tinyxml2::XMLElement * element, std::string & header)
 {
-  assert(element->GetText());
-  assert(header.empty());
-  header = element->GetText();
-  assert(header.find("\nCopyright") == 0);
+	assert(element->GetText());
+	assert(header.empty());
+	header = element->GetText();
+	assert(header.find("\nCopyright") == 0);
 
-  // erase the part after the Copyright text
-  size_t pos = header.find("\n\n-----");
-  assert(pos != std::string::npos);
-  header.erase(pos);
+	// erase the part after the Copyright text
+	size_t pos = header.find("\n\n-----");
+	assert(pos != std::string::npos);
+	header.erase(pos);
 
-  // replace any '\n' with "\n// "
-  for (size_t pos = header.find('\n'); pos != std::string::npos; pos = header.find('\n', pos + 1))
-  {
-    header.replace(pos, 1, "\n// ");
-  }
+	// replace any '\n' with "\n// to make comments of the license text"
+	for (size_t pos = header.find('\n'); pos != std::string::npos; pos = header.find('\n', pos + 1))
+	{
+		header.replace(pos, 1, "\n// ");
+	}
 
-  // and add a little message on our own
-  header += "\n\n// This header is generated from the Khronos Vulkan XML API Registry.";
+	// and add a little message on our own
+	header += "\n\n// This header is generated from the Khronos Vulkan XML API Registry.";
 }
 
 void readEnums( tinyxml2::XMLElement * element, VkData & vkData )
 {
+	// TODO: Remember to add the name to dependencies or types if not done already
+	// And fix names for bitmasks (should contain 'FlagBits')
+
   if (!element->Attribute("name"))
   {
     throw std::runtime_error(std::string("spec error: enums element is missing the name attribute"));
@@ -1184,109 +1168,116 @@ tinyxml2::XMLNode* readType(tinyxml2::XMLNode* element, std::string & type, std:
   return element;
 }
 
-void readTypeBasetype( tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies )
+void readTypeBasetype(tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies)
 {
-  tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-  assert( typeElement && ( strcmp( typeElement->Value(), "type" ) == 0 ) && typeElement->GetText() );
-  std::string type = typeElement->GetText();
-  assert( ( type == "uint32_t" ) || ( type == "uint64_t" ) );
+	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
+	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
+	std::string type = typeElement->GetText();
+	assert((type == "uint32_t") || (type == "uint64_t"));
 
-  tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-  assert( nameElement && ( strcmp( nameElement->Value(), "name" ) == 0 ) && nameElement->GetText() );
-  std::string name = strip( nameElement->GetText(), "Vk" );
+	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+	std::string name = strip(nameElement->GetText(), "Vk");
 
-  // skip "Flags",
-  if ( name != "Flags" )
-  {
-    dependencies.push_back( DependencyData( DependencyData::Category::SCALAR, name ) );
-    dependencies.back().dependencies.insert( type );
-  }
-  else
-  {
-    assert( type == "uint32_t" );
-  }
+	dependencies.push_back(DependencyData(DependencyData::Category::SCALAR, name));
+	dependencies.back().dependencies.insert(type);
 }
 
 void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 {
-  tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-  assert( typeElement && ( strcmp( typeElement->Value(), "type" ) == 0 ) && typeElement->GetText() && ( strcmp( typeElement->GetText(), "VkFlags" ) == 0 ) );
-  std::string type = typeElement->GetText();
+	assert(strcmp(element->GetText(), "typedef ") == 0);
+	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
+	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText() && (strcmp(typeElement->GetText(), "VkFlags") == 0));
+	std::string type = typeElement->GetText();
 
-  tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-  assert( nameElement && ( strcmp( nameElement->Value(), "name" ) == 0 ) && nameElement->GetText() );
-  std::string name = strip( nameElement->GetText(), "Vk" );
+	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+	std::string name = strip(nameElement->GetText(), "Vk");
 
-  assert( !nameElement->NextSiblingElement() );
+	assert(!nameElement->NextSiblingElement());
 
-  std::string requires;
-  if (element->Attribute("requires"))
-  {
-    requires = strip(element->Attribute("requires"), "Vk");
-  }
-  else
-  {
-    // Generate FlagBits name, add a DependencyData for that name, and add it to the list of enums and vulkan types
-    requires = generateEnumNameForFlags(name);
-    vkData.dependencies.push_back(DependencyData(DependencyData::Category::ENUM, requires));
-    vkData.enums.insert(std::make_pair(requires, EnumData(requires, true)));
-    vkData.vkTypes.insert(requires);
-  }
+	// TODO: The actual enums of bitmasks are defined as for example VkQueueFlagBits
+	// with 'Bits' at the end. The actual type used by functions is VkQueueFlags
+	// and here it's declared to be used in the API. It's always typedefed to VkFlags
+	// which in turn is a uint32_t. The require (if present) is for the bits enum.
+	// The bits type is declared later using an enum category and is defined in
+	// an enums section later. I could probably do something like ignoring this
+	// kind of dependencies (bitmasks with requirements, I assume they don't have
+	// any real dependency and it's just C's implicit "values should be from here")
+	// and modify enums that are bitmasks to remove the bits part of the name
+	// and add an s. It should be easy enough because in the enums tag there is
+	// an attribute of the type which can be enum or bitmask (if those are required
+	// and the only available ones can be seen in registry). So in other words:
+	// in this particular function I just extract some names to assert that the
+	// dependencies are the ones I think. I probably don't have to push any dependencies
+	// as that will be done in the enums category. All in all this function
+	// should just verify my assumptions.
 
-  // add a DependencyData for the bitmask name, with the required type as its first dependency
-  vkData.dependencies.push_back( DependencyData( DependencyData::Category::FLAGS, name ) );
-  vkData.dependencies.back().dependencies.insert( requires );
+	std::string requires;
+	if (element->Attribute("requires"))
+	{
+		requires = strip(element->Attribute("requires"), "Vk");
+	}
+	else
+	{
+		// Generate FlagBits name, add a DependencyData for that name, and add it to the list of enums and vulkan types
+		requires = generateEnumNameForFlags(name);
+		vkData.dependencies.push_back(DependencyData(DependencyData::Category::ENUM, requires));
+		vkData.enums.insert(std::make_pair(requires, EnumData(requires, true)));
+		vkData.vkTypes.insert(requires);
+	}
 
-  vkData.flags.insert(std::make_pair(name, FlagData()));
+	// add a DependencyData for the bitmask name, with the required type as its first dependency
+	vkData.dependencies.push_back(DependencyData(DependencyData::Category::FLAGS, name));
+	vkData.dependencies.back().dependencies.insert(requires);
 
-  assert( vkData.vkTypes.find( name ) == vkData.vkTypes.end() );
-  vkData.vkTypes.insert( name );
+	vkData.flags.insert(std::make_pair(name, FlagData()));
+
+	assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
+	vkData.vkTypes.insert(name);
 }
 
-void readTypeDefine( tinyxml2::XMLElement * element, VkData & vkData )
+void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
 {
-  tinyxml2::XMLElement * child = element->FirstChildElement();
-  if (child && (strcmp(child->GetText(), "VK_HEADER_VERSION") == 0))
-  {
-    vkData.version = element->LastChild()->ToText()->Value();
-  }
-  else if (element->Attribute("name") && strcmp(element->Attribute("name"), "VK_DEFINE_NON_DISPATCHABLE_HANDLE") == 0)
-  {
-    // filter out the check for the different types of VK_DEFINE_NON_DISPATCHABLE_HANDLE
-    std::string text = element->LastChild()->ToText()->Value();
-    size_t start = text.find("#if defined(__LP64__)");
-    size_t end = text.find_first_of("\r\n", start + 1);
-    vkData.typesafeCheck = text.substr(start, end - start);
-  }
-  // ignore all the other defines
+	tinyxml2::XMLElement * child = element->FirstChildElement();
+	if (child && (strcmp(child->GetText(), "VK_HEADER_VERSION") == 0))
+	{
+		vkData.version = element->LastChild()->ToText()->Value();
+	}
+
+	// ignore all the other defines
 }
 
-void readTypeFuncpointer( tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies )
+void readTypeFuncpointer(tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies)
 {
-  tinyxml2::XMLElement * child = element->FirstChildElement();
-  assert( child && ( strcmp( child->Value(), "name" ) == 0 ) && child->GetText() );
+	tinyxml2::XMLElement * child = element->FirstChildElement();
+	assert(child && (strcmp(child->Value(), "name") == 0) && child->GetText());
 
-  dependencies.push_back( DependencyData( DependencyData::Category::FUNC_POINTER, child->GetText() ) );
+	dependencies.push_back(DependencyData(DependencyData::Category::FUNC_POINTER, child->GetText()));
 }
 
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
 {
-  tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-  assert( typeElement && ( strcmp( typeElement->Value(), "type" ) == 0 ) && typeElement->GetText() );
+	// TODO: I can probably always declare handles the same way as a u64 or something
+	// Dependencies on parents should not be necessary as I always just make aliases
+	// of these.
+
+	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
+	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
 #if !defined(NDEBUG)
-  std::string type = typeElement->GetText();
-  assert((type.find("VK_DEFINE_HANDLE") == 0) || (type.find("VK_DEFINE_NON_DISPATCHABLE_HANDLE") == 0));
+	std::string type = typeElement->GetText();
+	assert((type.find("VK_DEFINE_HANDLE") == 0) || (type.find("VK_DEFINE_NON_DISPATCHABLE_HANDLE") == 0));
 #endif
 
-  tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-  assert( nameElement && ( strcmp( nameElement->Value(), "name" ) == 0 ) && nameElement->GetText() );
-  std::string name = strip( nameElement->GetText(), "Vk" );
+	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+	std::string name = strip(nameElement->GetText(), "Vk");
 
-  vkData.dependencies.push_back( DependencyData( DependencyData::Category::HANDLE, name ) );
-  assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
-  vkData.vkTypes.insert(name);
-  assert(vkData.handles.find(name) == vkData.handles.end());
-  vkData.handles[name];
+	vkData.dependencies.push_back(DependencyData(DependencyData::Category::HANDLE, name));
+	assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
+	vkData.vkTypes.insert(name);
+	assert(vkData.handles.find(name) == vkData.handles.end());
+	vkData.handles[name];
 }
 
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion )
@@ -1337,64 +1328,83 @@ void readTypeStructMember(tinyxml2::XMLElement * element, std::vector<MemberData
 
 void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags)
 {
-  tags.insert("EXT");
-  tags.insert("KHR");
-  for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    assert(child->Attribute("name"));
-    tags.insert(child->Attribute("name"));
-  }
+	tags.insert("EXT");
+	tags.insert("KHR");
+	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+	{
+		assert(child->Attribute("name"));
+		tags.insert(child->Attribute("name"));
+	}
 }
 
 void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 {
-  for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    assert( strcmp( child->Value(), "type" ) == 0 );
-    std::string type = child->Value();
-    assert( type == "type" );
-    if ( child->Attribute( "category" ) )
-    {
-      std::string category = child->Attribute( "category" );
-      if ( category == "basetype" )
-      {
-        readTypeBasetype( child, vkData.dependencies );
-      }
-      else if ( category == "bitmask" )
-      {
-        readTypeBitmask( child, vkData);
-      }
-      else if ( category == "define" )
-      {
-        readTypeDefine( child, vkData );
-      }
-      else if ( category == "funcpointer" )
-      {
-        readTypeFuncpointer( child, vkData.dependencies );
-      }
-      else if ( category == "handle" )
-      {
-        readTypeHandle( child, vkData );
-      }
-      else if ( category == "struct" )
-      {
-        readTypeStruct( child, vkData, false );
-      }
-      else if ( category == "union" )
-      {
-        readTypeStruct( child, vkData, true );
-      }
-      else
-      {
-        assert( ( category == "enum" ) || ( category == "include" ) );
-      }
-    }
-    else
-    {
-      assert( child->Attribute( "name" ) );
-      vkData.dependencies.push_back( DependencyData( DependencyData::Category::REQUIRED, child->Attribute( "name" ) ) );
-    }
-  }
+	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+	{
+		assert(strcmp(child->Value(), "type") == 0);
+		std::string type = child->Value();
+		assert(type == "type");
+		if (child->Attribute("category"))
+		{
+			std::string category = child->Attribute("category");
+
+			if (category == "basetype")
+			{
+				// C code for scalar typedefs.
+				readTypeBasetype(child, vkData.dependencies);
+			}
+			else if (category == "bitmask")
+			{
+				// C typedefs for enums that are bitmasks.
+				// TODO: Could probably be ignored (else clause)
+				readTypeBitmask(child, vkData);
+			}
+			else if (category == "define")
+			{
+				// C code for #define directives. Generally not interested in
+				// defines, but we can get Vulkan header version here.
+				readTypeDefine(child, vkData);
+			}
+			else if (category == "funcpointer")
+			{
+				// C typedefs for function pointers.
+				// TODO: I think they are used to make sure we insert definitions
+				// for these before they are used. Note that their argument types are never
+				// actually saved, which is something I may have to do.
+				readTypeFuncpointer(child, vkData.dependencies);
+			}
+			else if (category == "handle")
+			{
+				// C macros that define handle types such as VkInstance
+				readTypeHandle(child, vkData);
+			}
+			else if (category == "struct")
+			{
+				readTypeStruct(child, vkData, false);
+			}
+			else if (category == "union")
+			{
+				readTypeStruct(child, vkData, true);
+			}
+			else
+			{
+				// enum: The type is a C enum. No body and name must match an enums tag so this is read later
+				// include: C code for #include directives
+				assert((category == "enum") || (category == "include"));
+			}
+		}
+		// Unspecified category: non-complex definition. Type contains C code.
+		// These are basic types that we depend on in other types.
+		// TODO: Can have an optional 'requires' attribute that to my knowledge
+		// indicates what header file this definition is found. I don't quite
+		// know how to deal with that right now. Hopefully it's just little
+		// enough OS stuff that it can be hardcoded.
+		else
+		{
+			assert(child->Attribute("name"));
+			vkData.dependencies.push_back(DependencyData(DependencyData::Category::REQUIRED, child->Attribute("name")));
+		}
+	}
 }
 
 std::string reduceName(std::string const& name, bool singular)
@@ -3432,10 +3442,12 @@ int main(int argc, char **argv)
 		tinyxml2::XMLError error = doc.LoadFile(filename.c_str());
 		if (error != tinyxml2::XML_SUCCESS)
 		{
-			std::cout << "VkGenerate: failed to load file " << argv[1] << " . Error code: " << error << std::endl;
+			std::cout << "VkGenerate: failed to load file " << filename << ". Error code: " << error << std::endl;
 			return -1;
 		}
 
+		// The very first element is expected to be a registry, and it should
+		// be the only root element.
 		tinyxml2::XMLElement * registryElement = doc.FirstChildElement();
 		assert(strcmp(registryElement->Value(), "registry") == 0);
 		assert(!registryElement->NextSiblingElement());
