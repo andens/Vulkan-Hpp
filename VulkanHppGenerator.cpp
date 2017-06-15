@@ -30,576 +30,67 @@
 
 #include <tinyxml2.h>
 
-const std::string exceptionHeader = R"(
-#if defined(_MSC_VER) && (_MSC_VER == 1800)
-# define noexcept _NOEXCEPT
-#endif
-
-  class ErrorCategoryImpl : public std::error_category
-  {
-    public:
-    virtual const char* name() const noexcept override { return "vk::Result"; }
-    virtual std::string message(int ev) const override { return to_string(static_cast<Result>(ev)); }
-  };
-
-#if defined(_MSC_VER) && (_MSC_VER == 1800)
-# undef noexcept
-#endif
-
-  VULKAN_HPP_INLINE const std::error_category& errorCategory()
-  {
-    static ErrorCategoryImpl instance;
-    return instance;
-  }
-
-  VULKAN_HPP_INLINE std::error_code make_error_code(Result e)
-  {
-    return std::error_code(static_cast<int>(e), errorCategory());
-  }
-
-  VULKAN_HPP_INLINE std::error_condition make_error_condition(Result e)
-  {
-    return std::error_condition(static_cast<int>(e), errorCategory());
-  }
-)";
-
-const std::string exceptionClassesHeader = R"(
-#if defined(_MSC_VER) && (_MSC_VER == 1800)
-# define noexcept _NOEXCEPT
-#endif
-
-  class Error
-  {
-    public:
-    virtual ~Error() = default;
-
-    virtual const char* what() const noexcept = 0;
-  };
-
-  class LogicError : public Error, public std::logic_error
-  {
-    public:
-    explicit LogicError( const std::string& what )
-      : Error(), std::logic_error(what) {}
-    explicit LogicError( char const * what )
-      : Error(), std::logic_error(what) {}
-    virtual ~LogicError() = default;
-
-    virtual const char* what() const noexcept { return std::logic_error::what(); }
-  };
-
-  class SystemError : public Error, public std::system_error
-  {
-    public:
-    SystemError( std::error_code ec )
-      : Error(), std::system_error(ec) {}
-    SystemError( std::error_code ec, std::string const& what )
-      : Error(), std::system_error(ec, what) {}
-    SystemError( std::error_code ec, char const * what )
-      : Error(), std::system_error(ec, what) {}
-    SystemError( int ev, std::error_category const& ecat )
-      : Error(), std::system_error(ev, ecat) {}
-    SystemError( int ev, std::error_category const& ecat, std::string const& what)
-      : Error(), std::system_error(ev, ecat, what) {}
-    SystemError( int ev, std::error_category const& ecat, char const * what)
-      : Error(), std::system_error(ev, ecat, what) {}
-    virtual ~SystemError() = default;
-
-    virtual const char* what() const noexcept { return std::system_error::what(); }
-  };
-
-#if defined(_MSC_VER) && (_MSC_VER == 1800)
-# undef noexcept
-#endif
-
-)";
-
-const std::string flagsHeader = R"(
-  template <typename FlagBitsType> struct FlagTraits
-  {
-    enum { allFlags = 0 };
-  };
-
-  template <typename BitType, typename MaskType = VkFlags>
-  class Flags
-  {
-  public:
-    Flags()
-      : m_mask(0)
-    {
-    }
-
-    Flags(BitType bit)
-      : m_mask(static_cast<MaskType>(bit))
-    {
-    }
-
-    Flags(Flags<BitType> const& rhs)
-      : m_mask(rhs.m_mask)
-    {
-    }
-
-    Flags<BitType> & operator=(Flags<BitType> const& rhs)
-    {
-      m_mask = rhs.m_mask;
-      return *this;
-    }
-
-    Flags<BitType> & operator|=(Flags<BitType> const& rhs)
-    {
-      m_mask |= rhs.m_mask;
-      return *this;
-    }
-
-    Flags<BitType> & operator&=(Flags<BitType> const& rhs)
-    {
-      m_mask &= rhs.m_mask;
-      return *this;
-    }
-
-    Flags<BitType> & operator^=(Flags<BitType> const& rhs)
-    {
-      m_mask ^= rhs.m_mask;
-      return *this;
-    }
-
-    Flags<BitType> operator|(Flags<BitType> const& rhs) const
-    {
-      Flags<BitType> result(*this);
-      result |= rhs;
-      return result;
-    }
-
-    Flags<BitType> operator&(Flags<BitType> const& rhs) const
-    {
-      Flags<BitType> result(*this);
-      result &= rhs;
-      return result;
-    }
-
-    Flags<BitType> operator^(Flags<BitType> const& rhs) const
-    {
-      Flags<BitType> result(*this);
-      result ^= rhs;
-      return result;
-    }
-
-    bool operator!() const
-    {
-      return !m_mask;
-    }
-
-    Flags<BitType> operator~() const
-    {
-      Flags<BitType> result(*this);
-      result.m_mask ^= FlagTraits<BitType>::allFlags;
-      return result;
-    }
-
-    bool operator==(Flags<BitType> const& rhs) const
-    {
-      return m_mask == rhs.m_mask;
-    }
-
-    bool operator!=(Flags<BitType> const& rhs) const
-    {
-      return m_mask != rhs.m_mask;
-    }
-
-    explicit operator bool() const
-    {
-      return !!m_mask;
-    }
-
-    explicit operator MaskType() const
-    {
-        return m_mask;
-    }
-
-  private:
-    MaskType  m_mask;
-  };
-
-  template <typename BitType>
-  Flags<BitType> operator|(BitType bit, Flags<BitType> const& flags)
-  {
-    return flags | bit;
-  }
-
-  template <typename BitType>
-  Flags<BitType> operator&(BitType bit, Flags<BitType> const& flags)
-  {
-    return flags & bit;
-  }
-
-  template <typename BitType>
-  Flags<BitType> operator^(BitType bit, Flags<BitType> const& flags)
-  {
-    return flags ^ bit;
-  }
-
-)";
-
-const std::string optionalClassHeader = R"(
-  template <typename RefType>
-  class Optional
-  {
-  public:
-    Optional(RefType & reference) { m_ptr = &reference; }
-    Optional(RefType * ptr) { m_ptr = ptr; }
-    Optional(std::nullptr_t) { m_ptr = nullptr; }
-
-    operator RefType*() const { return m_ptr; }
-    RefType const* operator->() const { return m_ptr; }
-    explicit operator bool() const { return !!m_ptr; }
-
-  private:
-    RefType *m_ptr;
-  };
-)";
-
-const std::string arrayProxyHeader = R"(
-#ifndef VULKAN_HPP_DISABLE_ENHANCED_MODE
-  template <typename T>
-  class ArrayProxy
-  {
-  public:
-    ArrayProxy(std::nullptr_t)
-      : m_count(0)
-      , m_ptr(nullptr)
-    {}
-
-    ArrayProxy(T & ptr)
-      : m_count(1)
-      , m_ptr(&ptr)
-    {}
-
-    ArrayProxy(uint32_t count, T * ptr)
-      : m_count(count)
-      , m_ptr(ptr)
-    {}
-
-    template <size_t N>
-    ArrayProxy(std::array<typename std::remove_const<T>::type, N> & data)
-      : m_count(N)
-      , m_ptr(data.data())
-    {}
-
-    template <size_t N>
-    ArrayProxy(std::array<typename std::remove_const<T>::type, N> const& data)
-      : m_count(N)
-      , m_ptr(data.data())
-    {}
-
-    template <class Allocator = std::allocator<typename std::remove_const<T>::type>>
-    ArrayProxy(std::vector<typename std::remove_const<T>::type, Allocator> & data)
-      : m_count(static_cast<uint32_t>(data.size()))
-      , m_ptr(data.data())
-    {}
-
-    template <class Allocator = std::allocator<typename std::remove_const<T>::type>>
-    ArrayProxy(std::vector<typename std::remove_const<T>::type, Allocator> const& data)
-      : m_count(static_cast<uint32_t>(data.size()))
-      , m_ptr(data.data())
-    {}
-
-    ArrayProxy(std::initializer_list<T> const& data)
-      : m_count(static_cast<uint32_t>(data.end() - data.begin()))
-      , m_ptr(data.begin())
-    {}
-
-    const T * begin() const
-    {
-      return m_ptr;
-    }
-
-    const T * end() const
-    {
-      return m_ptr + m_count;
-    }
-
-    const T & front() const
-    {
-      assert(m_count && m_ptr);
-      return *m_ptr;
-    }
-
-    const T & back() const
-    {
-      assert(m_count && m_ptr);
-      return *(m_ptr + m_count - 1);
-    }
-
-    bool empty() const
-    {
-      return (m_count == 0);
-    }
-
-    uint32_t size() const
-    {
-      return m_count;
-    }
-
-    T * data() const
-    {
-      return m_ptr;
-    }
-
-  private:
-    uint32_t  m_count;
-    T *       m_ptr;
-  };
-#endif
-)";
-
-const std::string versionCheckHeader = R"(
-#if !defined(VULKAN_HPP_HAS_UNRESTRICTED_UNIONS)
-# if defined(__clang__)
-#  if __has_feature(cxx_unrestricted_unions)
-#   define VULKAN_HPP_HAS_UNRESTRICTED_UNIONS
-#  endif
-# elif defined(__GNUC__)
-#  define GCC_VERSION (__GNUC__ * 10000 + __GNUC_MINOR__ * 100 + __GNUC_PATCHLEVEL__)
-#  if 40600 <= GCC_VERSION
-#   define VULKAN_HPP_HAS_UNRESTRICTED_UNIONS
-#  endif
-# elif defined(_MSC_VER)
-#  if 1900 <= _MSC_VER
-#   define VULKAN_HPP_HAS_UNRESTRICTED_UNIONS
-#  endif
-# endif
-#endif
-)";
-
-const std::string inlineHeader = R"(
-#if !defined(VULKAN_HPP_INLINE)
-# if defined(__clang___)
-#  if __has_attribute(always_inline)
-#   define VULKAN_HPP_INLINE __attribute__((always_inline)) __inline__
-#  else
-#    define VULKAN_HPP_INLINE inline
-#  endif
-# elif defined(__GNUC__)
-#  define VULKAN_HPP_INLINE __attribute__((always_inline)) __inline__
-# elif defined(_MSC_VER)
-#  define VULKAN_HPP_INLINE __forceinline
-# else
-#  define VULKAN_HPP_INLINE inline
-# endif
-#endif
-)";
-
-const std::string explicitHeader = R"(
-#if defined(VULKAN_HPP_TYPESAFE_CONVERSION)
-# define VULKAN_HPP_TYPESAFE_EXPLICIT
-#else
-# define VULKAN_HPP_TYPESAFE_EXPLICIT explicit
-#endif
-)";
-
-const std::string resultValueHeader = R"(
-  template <typename T>
-  struct ResultValue
-  {
-    ResultValue( Result r, T & v )
-      : result( r )
-      , value( v )
-    {}
-
-    Result  result;
-    T       value;
-
-    operator std::tuple<Result&, T&>() { return std::tuple<Result&, T&>(result, value); }
-  };
-
-  template <typename T>
-  struct ResultValueType
-  {
-#ifdef VULKAN_HPP_NO_EXCEPTIONS
-    typedef ResultValue<T>  type;
-#else
-    typedef T              type;
-#endif
-  };
-
-  template <>
-  struct ResultValueType<void>
-  {
-#ifdef VULKAN_HPP_NO_EXCEPTIONS
-    typedef Result type;
-#else
-    typedef void   type;
-#endif
-  };
-)";
-
-const std::string createResultValueHeader = R"(
-  VULKAN_HPP_INLINE ResultValueType<void>::type createResultValue( Result result, char const * message )
-  {
-#ifdef VULKAN_HPP_NO_EXCEPTIONS
-    assert( result == Result::eSuccess );
-    return result;
-#else
-    if ( result != Result::eSuccess )
-    {
-      throwResultException( result, message );
-    }
-#endif
-  }
-
-  template <typename T>
-  VULKAN_HPP_INLINE typename ResultValueType<T>::type createResultValue( Result result, T & data, char const * message )
-  {
-#ifdef VULKAN_HPP_NO_EXCEPTIONS
-    assert( result == Result::eSuccess );
-    return ResultValue<T>( result, data );
-#else
-    if ( result != Result::eSuccess )
-    {
-      throwResultException( result, message );
-    }
-    return data;
-#endif
-  }
-
-  VULKAN_HPP_INLINE Result createResultValue( Result result, char const * message, std::initializer_list<Result> successCodes )
-  {
-#ifdef VULKAN_HPP_NO_EXCEPTIONS
-    assert( std::find( successCodes.begin(), successCodes.end(), result ) != successCodes.end() );
-#else
-    if ( std::find( successCodes.begin(), successCodes.end(), result ) == successCodes.end() )
-    {
-      throwResultException( result, message );
-    }
-#endif
-    return result;
-  }
-
-  template <typename T>
-  VULKAN_HPP_INLINE ResultValue<T> createResultValue( Result result, T & data, char const * message, std::initializer_list<Result> successCodes )
-  {
-#ifdef VULKAN_HPP_NO_EXCEPTIONS
-    assert( std::find( successCodes.begin(), successCodes.end(), result ) != successCodes.end() );
-#else
-    if ( std::find( successCodes.begin(), successCodes.end(), result ) == successCodes.end() )
-    {
-      throwResultException( result, message );
-    }
-#endif
-    return ResultValue<T>( result, data );
-  }
-
-)";
-
-const std::string uniqueHandleHeader = R"(
-#if defined(VULKAN_HPP_NO_EXCEPTIONS) && !defined(VULKAN_HPP_NO_SMART_HANDLE)
-#  define VULKAN_HPP_NO_SMART_HANDLE
-#endif
-
-#ifndef VULKAN_HPP_NO_SMART_HANDLE
-  template <typename Type, typename Deleter>
-  class UniqueHandle
-  {
-  public:
-    explicit UniqueHandle( Type const& value = Type(), Deleter const& deleter = Deleter() )
-      : m_value( value )
-      , m_deleter( deleter )
-    {}
-
-    UniqueHandle( UniqueHandle const& ) = delete;
-
-    UniqueHandle( UniqueHandle && other )
-      : m_value( other.release() )
-      , m_deleter( std::move( other.m_deleter ) )
-    {}
-
-    ~UniqueHandle()
-    {
-      destroy();
-    }
-
-    UniqueHandle & operator=( UniqueHandle const& ) = delete;
-
-    UniqueHandle & operator=( UniqueHandle && other )
-    {
-      reset( other.release() );
-      m_deleter = std::move( other.m_deleter );
-      return *this;
-    }
-
-    explicit operator bool() const
-    {
-      return m_value.operator bool();
-    }
-
-    Type const* operator->() const
-    {
-      return &m_value;
-    }
-
-    Type const& operator*() const
-    {
-      return m_value;
-    }
-
-    Type get() const
-    {
-      return m_value;
-    }
-
-    Deleter & getDeleter()
-    {
-      return m_deleter;
-    }
-
-    Deleter const& getDeleter() const
-    {
-      return m_deleter;
-    }
-
-    void reset( Type const& value = Type() )
-    {
-      if ( m_value != value )
-      {
-        destroy();
-        m_value = value;
-      }
-    }
-
-    Type release()
-    {
-      Type value = m_value;
-      m_value = nullptr;
-      return value;
-    }
-
-    void swap( UniqueHandle<Type, Deleter> & rhs )
-    {
-      std::swap(m_value, rhs.m_value);
-      std::swap(m_deleter, rhs.m_deleter);
-    }
-
-  private:
-    void destroy()
-    {
-      if ( m_value )
-      {
-        m_deleter( m_value );
-      }
-    }
-
-  private:
-    Type    m_value;
-    Deleter m_deleter;
-  };
-
-  template <typename Type, typename Deleter>
-  VULKAN_HPP_INLINE void swap( UniqueHandle<Type,Deleter> & lhs, UniqueHandle<Type,Deleter> & rhs )
-  {
-    lhs.swap( rhs );
-  }
-#endif
-
+//class Indentation {
+//public:
+//	Indentation& increase() { level++; return *this; }
+//	Indentation& decrease() { if (--level < 0) level = 0; return *this; }
+//
+//private:
+//	friend std::ostream& operator<<(std::ostream& stream, const Indentation& val);
+//
+//	int level = 0;
+//} indent;
+//
+//std::ostream& operator<<(std::ostream& os, const Indentation& val) {
+//	for (int i = 0; i < val.level; ++i) {
+//		os << "    ";
+//	}
+//	return os;
+//}
+
+class IndentingOStreambuf : public std::streambuf
+{
+	std::streambuf*     myDest;
+	bool                myIsAtStartOfLine;
+	std::string         myIndent;
+	std::ostream*       myOwner;
+protected:
+	virtual int         overflow(int ch)
+	{
+		if (myIsAtStartOfLine && ch != '\n') {
+			myDest->sputn(myIndent.data(), myIndent.size());
+		}
+		myIsAtStartOfLine = ch == '\n';
+		return myDest->sputc(ch);
+	}
+public:
+	explicit            IndentingOStreambuf(
+		std::streambuf* dest, int indent = 4)
+		: myDest(dest)
+		, myIsAtStartOfLine(true)
+		, myIndent(indent, ' ')
+		, myOwner(NULL)
+	{
+	}
+	explicit            IndentingOStreambuf(
+		std::ostream& dest, int indent = 4)
+		: myDest(dest.rdbuf())
+		, myIsAtStartOfLine(true)
+		, myIndent(indent, ' ')
+		, myOwner(&dest)
+	{
+		myOwner->rdbuf(this);
+	}
+	virtual             ~IndentingOStreambuf()
+	{
+		if (myOwner != NULL) {
+			myOwner->rdbuf(myDest);
+		}
+	}
+} *indent;
+
+const std::string flagsMacro = R"(
+FLAGSMACRO
 )";
 
 std::string replaceWithMap(std::string const &input, std::map<std::string, std::string> replacements)
@@ -839,8 +330,6 @@ void writeCallVectorParameter(std::ostream & os, CommandData const& commandData,
 void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData);
 void writeDeleterClasses(std::ostream & os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData);
 void writeDeleterForwardDeclarations(std::ostream &os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData);
-void writeEnumsToString(std::ostream & os, EnumData const& enumData);
-void writeFlagsToString(std::ostream & os, std::string const& flagsName, EnumData const &enumData);
 void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique);
 void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
 void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
@@ -869,8 +358,6 @@ void writeTypeCommand(std::ostream &os, std::string const& indentation, VkData c
 void writeTypeEnum(std::ostream & os, EnumData const& enumData);
 bool isErrorEnum(std::string const& enumName);
 std::string stripErrorEnumPrefix(std::string const& enumName);
-void writeExceptionsForEnum(std::ostream & os, EnumData const& enumData);
-void writeThrowExceptions(std::ostream& os, EnumData const& enumData);
 void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData const& flagData, EnumData const& enumData);
 void writeTypeHandle(std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, HandleData const& handle, std::list<DependencyData> const& dependencies);
 void writeTypeScalar( std::ostream & os, DependencyData const& dependencyData );
@@ -878,7 +365,6 @@ void writeTypeStruct( std::ostream & os, VkData const& vkData, DependencyData co
 void writeTypeUnion( std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, std::map<std::string,std::string> const& defaultValues );
 void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues);
 void writeVersionCheck(std::ostream & os, std::string const& version);
-void writeTypesafeCheck(std::ostream & os, std::string const& typesafeCheck);
 
 void EnumData::addEnumMember(std::string const &name, std::string const& tag)
 {
@@ -3335,66 +2821,6 @@ std::string stripErrorEnumPrefix(std::string const& enumName)
   return strip(enumName, "eError");
 }
 
-// Intended only for `enum class Result`!
-void writeExceptionsForEnum( std::ostream & os, EnumData const& enumData)
-{
-  std::string templateString =
-R"(  class ${className} : public SystemError
-  {
-  public:
-    ${className}( std::string const& message )
-      : SystemError( make_error_code( ${enumName}::${enumMemberName} ), message ) {}
-    ${className}( char const * message )
-      : SystemError( make_error_code( ${enumName}::${enumMemberName} ), message ) {}
-  };
-)";
-  
-  enterProtect(os, enumData.protect);
-  for (size_t i = 0; i < enumData.members.size(); i++)
-  {
-    if (!isErrorEnum(enumData.members[i].name))
-    {
-      continue;
-    }
-    os << replaceWithMap(templateString,
-    { { "className", stripErrorEnumPrefix(enumData.members[i].name) + "Error"},
-      { "enumName", enumData.name},
-      { "enumMemberName", enumData.members[i].name}
-    });
-  }
-  leaveProtect(os, enumData.protect);
-  os << std::endl;
-}
-
-void writeThrowExceptions( std::ostream & os, EnumData const& enumData)
-{
-  enterProtect(os, enumData.protect);
-  os << 
-R"(  VULKAN_HPP_INLINE void throwResultException( Result result, char const * message )
-  {
-    assert ( static_cast<long long int>(result) < 0 );
-    switch ( result )
-    {
-)";
-  for ( size_t i=0 ; i<enumData.members.size() ; i++ )
-  {
-    if (!isErrorEnum(enumData.members[i].name))
-    {
-      continue;
-    }
-    const std::string strippedExceptionName = stripErrorEnumPrefix(enumData.members[i].name);
-    os << "    case " << enumData.name << "::" << enumData.members[i].name << ": "
-        << "throw " << strippedExceptionName << "Error ( message );" << std::endl;
-  }
-  os <<
-R"(    default: throw SystemError( make_error_code( result ) );
-    }
-  }
-)";
-  leaveProtect(os, enumData.protect);
-  os << std::endl;
-}
-
 void writeDeleterClasses(std::ostream & os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData)
 {
   // A Deleter class for each of the Unique* classes... but only if smart handles are not switched off
@@ -3542,63 +2968,6 @@ void writeDeleterForwardDeclarations(std::ostream &os, std::pair<std::string, st
   }
   os << "#endif /*VULKAN_HPP_NO_SMART_HANDLE*/" << std::endl
     << std::endl;
-}
-
-void writeEnumsToString(std::ostream & os, EnumData const& enumData)
-{
-  // the helper functions to make strings out of enum values
-  enterProtect(os, enumData.protect);
-  os << "  VULKAN_HPP_INLINE std::string to_string(" << enumData.name << (enumData.members.empty() ? ")" : " value)") << std::endl
-      << "  {" << std::endl;
-  if (enumData.members.empty())
-  {
-    // no enum values in this enum -> return "(void)"
-    os << "    return \"(void)\";" << std::endl;
-  }
-  else
-  {
-    // otherwise switch over the value and return the a stringized version of that value (without leading 'e')
-    os << "    switch (value)" << std::endl
-        << "    {" << std::endl;
-    for (auto const& member : enumData.members)
-    {
-      os << "    case " << enumData.name << "::" << member.name << ": return \"" << member.name.substr(1) << "\";" << std::endl;
-    }
-    os << "    default: return \"invalid\";" << std::endl
-        << "    }" << std::endl;
-  }
-  os << "  }" << std::endl;
-  leaveProtect(os, enumData.protect);
-  os << std::endl;
-}
-
-void writeFlagsToString(std::ostream & os, std::string const& flagsName, EnumData const &enumData)
-{
-  // the helper functions to make strings out of flag values
-  enterProtect(os, enumData.protect);
-  os << "  VULKAN_HPP_INLINE std::string to_string(" << flagsName << (enumData.members.empty() ? ")" : " value)") << std::endl
-      << "  {" << std::endl;
-  if (enumData.members.empty())
-  {
-    // no flags values in this enum -> return "{}"
-    os << "    return \"{}\";" << std::endl;
-  }
-  else
-  {
-    os << "    if (!value) return \"{}\";" << std::endl
-        << "    std::string result;" << std::endl;
-
-    // 'or' together all the bits in the value
-    for (auto itMember = enumData.members.begin(); itMember != enumData.members.end(); ++itMember)
-    {
-      os << "    if (value & " << enumData.name << "::" << itMember->name << ") result += \"" << itMember->name.substr(1) << " | \";" << std::endl;
-    }
-    // cut off the last three characters from the result (being " | ")
-    os << "    return \"{\" + result.substr(0, result.size() - 3) + \"}\";" << std::endl;
-  }
-  os << "  }" << std::endl;
-  leaveProtect(os, enumData.protect);
-  os << std::endl;
 }
 
 void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData const& flagData, EnumData const& enumData)
@@ -4044,178 +3413,132 @@ void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, s
 
 void writeVersionCheck(std::ostream & os, std::string const& version)
 {
-  os << "static_assert( VK_HEADER_VERSION == " << version << " , \"Wrong VK_HEADER_VERSION!\" );" << std::endl
-      << std::endl;
+	os << "const VK_HEADER_VERSION: u32 = " << version << ";" << std::endl;
+	os << std::endl;
+	os << "pub fn VK_MAKE_VERSION(major: u32, minor: u32, patch: u32) -> u32 {" << std::endl;
+	os << "    (major << 22) | (minor << 12) | patch" << std::endl;
+	os << "}" << std::endl;
 }
 
-void writeTypesafeCheck(std::ostream & os, std::string const& typesafeCheck)
+int main(int argc, char **argv)
 {
-  os << "// 32-bit vulkan is not typesafe for handles, so don't allow copy constructors on this platform by default." << std::endl
-      << "// To enable this feature on 32-bit platforms please define VULKAN_HPP_TYPESAFE_CONVERSION" << std::endl
-      << typesafeCheck << std::endl
-      << "# if !defined( VULKAN_HPP_TYPESAFE_CONVERSION )" << std::endl
-      << "#  define VULKAN_HPP_TYPESAFE_CONVERSION" << std::endl
-      << "# endif" << std::endl
-      << "#endif" << std::endl;
-}
+	try {
+		tinyxml2::XMLDocument doc;
 
-int main( int argc, char **argv )
-{
-  try {
-    tinyxml2::XMLDocument doc;
+		std::string filename = (argc == 1) ? VK_SPEC : argv[1];
+		std::cout << "Loading vk.xml from " << filename << std::endl;
+		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
 
-    std::string filename = (argc == 1) ? VK_SPEC : argv[1];
-    std::cout << "Loading vk.xml from " << filename << std::endl;
-    std::cout << "Writing vulkan.hpp to " << VULKAN_HPP << std::endl;
+		tinyxml2::XMLError error = doc.LoadFile(filename.c_str());
+		if (error != tinyxml2::XML_SUCCESS)
+		{
+			std::cout << "VkGenerate: failed to load file " << argv[1] << " . Error code: " << error << std::endl;
+			return -1;
+		}
 
-    tinyxml2::XMLError error = doc.LoadFile(filename.c_str());
-    if (error != tinyxml2::XML_SUCCESS)
-    {
-      std::cout << "VkGenerate: failed to load file " << argv[1] << " . Error code: " << error << std::endl;
-      return -1;
-    }
+		tinyxml2::XMLElement * registryElement = doc.FirstChildElement();
+		assert(strcmp(registryElement->Value(), "registry") == 0);
+		assert(!registryElement->NextSiblingElement());
 
-    tinyxml2::XMLElement * registryElement = doc.FirstChildElement();
-    assert(strcmp(registryElement->Value(), "registry") == 0);
-    assert(!registryElement->NextSiblingElement());
+		VkData vkData;
+		vkData.handles[""];         // insert the default "handle" without class (for createInstance, and such)
+		vkData.tags.insert("KHX");  // insert a non-listed tag
 
-    VkData vkData;
-    vkData.handles[""];         // insert the default "handle" without class (for createInstance, and such)
-    vkData.tags.insert("KHX");  // insert a non-listed tag
+		for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(child->Value());
+			const std::string value = child->Value();
+			if (value == "commands")
+			{
+				readCommands(child, vkData);
+			}
+			else if (value == "comment")
+			{
+				// get the vulkan license header and skip any leading spaces
+				readComment(child, vkData.vulkanLicenseHeader);
+				vkData.vulkanLicenseHeader.erase(vkData.vulkanLicenseHeader.begin(), std::find_if(vkData.vulkanLicenseHeader.begin(), vkData.vulkanLicenseHeader.end(), [](char c) { return !std::isspace(c); }));
+			}
+			else if (value == "enums")
+			{
+				readEnums(child, vkData);
+			}
+			else if (value == "extensions")
+			{
+				readExtensions(child, vkData);
+			}
+			else if (value == "tags")
+			{
+				readTags(child, vkData.tags);
+			}
+			else if (value == "types")
+			{
+				readTypes(child, vkData);
+			}
+			else
+			{
+				assert((value == "feature") || (value == "vendorids"));
+			}
+		}
 
-    for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
-    {
-      assert(child->Value());
-      const std::string value = child->Value();
-      if (value == "commands")
-      {
-        readCommands(child, vkData);
-      }
-      else if (value == "comment")
-      {
-        // get the vulkan license header and skip any leading spaces
-        readComment(child, vkData.vulkanLicenseHeader);
-        vkData.vulkanLicenseHeader.erase(vkData.vulkanLicenseHeader.begin(), std::find_if(vkData.vulkanLicenseHeader.begin(), vkData.vulkanLicenseHeader.end(), [](char c) { return !std::isspace(c); }));
-      }
-      else if (value == "enums")
-      {
-        readEnums(child, vkData);
-      }
-      else if (value == "extensions")
-      {
-        readExtensions(child, vkData);
-      }
-      else if (value == "tags")
-      {
-        readTags(child, vkData.tags);
-      }
-      else if (value == "types")
-      {
-        readTypes(child, vkData);
-      }
-      else
-      {
-        assert((value == "feature") || (value == "vendorids"));
-      }
-    }
+		sortDependencies(vkData.dependencies);
 
-    sortDependencies(vkData.dependencies);
+		std::map<std::string, std::string> defaultValues;
+		createDefaults(vkData, defaultValues);
 
-    std::map<std::string, std::string> defaultValues;
-    createDefaults(vkData, defaultValues);
+		std::ofstream ofs(VULKAN_HPP);
+		ofs << vkData.vulkanLicenseHeader << std::endl
+			<< R"(
+#![allow(non_camel_case_types)]
+#![allow(non_snake_case)]
 
-    std::ofstream ofs(VULKAN_HPP);
-    ofs << vkData.vulkanLicenseHeader << std::endl
-      << R"(
-#ifndef VULKAN_HPP
-#define VULKAN_HPP
+pub mod core {
+    extern crate libloading;
+    use ::std::{mem, ptr};
+    use ::std::os::raw::{c_void, c_char};
+    use ::std::ffi::CString;
+    use ::std::ops::{BitOr, BitAnd};
+    use ::std::fmt;
+)" << std::endl;
 
-#include <algorithm>
-#include <array>
-#include <cassert>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-#include <initializer_list>
-#include <string>
-#include <system_error>
-#include <tuple>
-#include <type_traits>
-#include <vulkan/vulkan.h>
-#ifndef VULKAN_HPP_DISABLE_ENHANCED_MODE
-# include <memory>
-# include <vector>
-#endif /*VULKAN_HPP_DISABLE_ENHANCED_MODE*/
-)";
+		indent = new IndentingOStreambuf(ofs);
 
-    writeVersionCheck(ofs, vkData.version);
-    writeTypesafeCheck(ofs, vkData.typesafeCheck);
-    ofs << versionCheckHeader
-      << inlineHeader
-      << explicitHeader
-      << std::endl
-      << "namespace vk" << std::endl
-      << "{" << std::endl
-      << flagsHeader
-      << optionalClassHeader
-      << arrayProxyHeader
-      << uniqueHandleHeader;
+		writeVersionCheck(ofs, vkData.version);
 
-    // first of all, write out vk::Result and the exception handling stuff
-    std::list<DependencyData>::const_iterator it = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [](DependencyData const& dp) { return dp.name == "Result"; });
-    assert(it != vkData.dependencies.end());
-    writeTypeEnum(ofs, vkData.enums.find(it->name)->second);
-    writeEnumsToString(ofs, vkData.enums.find(it->name)->second);
-    ofs << exceptionHeader;
-    ofs << exceptionClassesHeader;
-    writeExceptionsForEnum(ofs, vkData.enums.find(it->name)->second);
-    writeThrowExceptions(ofs, vkData.enums.find(it->name)->second);
-    vkData.dependencies.erase(it);
+		ofs << std::endl;
 
-    ofs << "} // namespace vk" << std::endl
-      << std::endl
-      << "namespace std" << std::endl
-      << "{" << std::endl
-      << "  template <>" << std::endl
-      << "  struct is_error_code_enum<vk::Result> : public true_type" << std::endl
-      << "  {};" << std::endl
-      << "}" << std::endl
-      << std::endl
-      << "namespace vk" << std::endl
-      << "{" << std::endl
-      << resultValueHeader
-      << createResultValueHeader;
+		ofs << "TYPE ALIAS FOR STUFF HERE?" << std::endl;
+		ofs << "OPAQUE TYPES HERE?" << std::endl;
+		ofs << "SOME CONSTANTS HERE?" << std::endl;
 
-    assert(vkData.deleterTypes.find("") != vkData.deleterTypes.end());
-    writeTypes(ofs, vkData, defaultValues);
+		ofs << std::endl;
 
-    // write all the to_string functions for enums and flags
-    for (auto it = vkData.dependencies.begin(); it != vkData.dependencies.end(); ++it)
-    {
-      switch (it->category)
-      {
-      case DependencyData::Category::ENUM:
-        assert(vkData.enums.find(it->name) != vkData.enums.end());
-        writeEnumsToString(ofs, vkData.enums.find(it->name)->second);
-        break;
-      case DependencyData::Category::FLAGS:
-        writeFlagsToString(ofs, it->name, vkData.enums.find(*it->dependencies.begin())->second);
-        break;
-      }
-    }
+		ofs << flagsMacro;
 
-    ofs << "} // namespace vk" << std::endl
-      << std::endl
-      << "#endif" << std::endl;
-  }
-  catch (std::exception const& e)
-  {
-    std::cout << "caught exception: " << e.what() << std::endl;
-    return -1;
-  }
-  catch (...)
-  {
-    std::cout << "caught unknown exception" << std::endl;
-    return -1;
-  }
+		ofs << std::endl;
+
+		// First of all, write out vk::Result
+		std::list<DependencyData>::const_iterator it = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [](DependencyData const& dp) { return dp.name == "Result"; });
+		assert(it != vkData.dependencies.end());
+		writeTypeEnum(ofs, vkData.enums.find(it->name)->second);
+
+		// Remove vk::Result because it has been handled
+		vkData.dependencies.erase(it);
+
+		ofs << std::endl;
+
+		assert(vkData.deleterTypes.find("") != vkData.deleterTypes.end());
+		writeTypes(ofs, vkData, defaultValues);
+
+		ofs << "} // mod core" << std::endl;
+	}
+	catch (std::exception const& e)
+	{
+		std::cout << "caught exception: " << e.what() << std::endl;
+		return -1;
+	}
+	catch (...)
+	{
+		std::cout << "caught unknown exception" << std::endl;
+		return -1;
+	}
 }
