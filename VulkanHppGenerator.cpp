@@ -71,6 +71,103 @@ public:
 	}
 } *indent;
 
+class Type {
+	friend class Types;
+
+public:
+	enum class Kind {
+		IntrinsicC = 0,
+		X11,
+		Android,
+		Mir,
+		Wayland,
+		Windows,
+		Xcb,
+		C_MAX,
+		VulkanUndefined,
+	};
+
+	bool isCType() {
+		return _kind < Kind::C_MAX;
+	}
+
+private:
+	Type(std::string type, Kind kind) : _type(type), _kind(kind) {}
+
+private:
+	std::string _type;
+	Kind _kind;
+};
+
+class Types {
+public:
+	Types()
+	{
+#define INSERT_MAP(k, v, kind) (assert(_ctypes.insert(std::make_pair(k, new Type(v, kind))).second == true))
+
+		// I'm working under the assumption that the C and OS types used will
+		// be a comparatively small set so that I can deal with those manually.
+		// This way I can assume that types not existing at the time I need them
+		// are Vulkan types that will be defined later. In other words, I can
+		// defer definitions of Vulkan types in particular and have a separate
+		// API for them.
+		INSERT_MAP("void", "c_void", Type::Kind::IntrinsicC);
+		INSERT_MAP("char", "c_char", Type::Kind::IntrinsicC);
+		INSERT_MAP("float", "f32", Type::Kind::IntrinsicC);
+		INSERT_MAP("uint8_t", "u8", Type::Kind::IntrinsicC);
+		INSERT_MAP("uint32_t", "u32", Type::Kind::IntrinsicC);
+		INSERT_MAP("uint64_t", "u64", Type::Kind::IntrinsicC);
+		INSERT_MAP("int32_t", "i32", Type::Kind::IntrinsicC);
+		INSERT_MAP("size_t", "usize", Type::Kind::IntrinsicC); // unsigned according to reference
+
+		INSERT_MAP("Display", "Display", Type::Kind::X11);
+		INSERT_MAP("VisualID", "VisualID", Type::Kind::X11);
+		INSERT_MAP("Window", "Window", Type::Kind::X11);
+		INSERT_MAP("RROutput", "RROutput", Type::Kind::X11);
+
+		INSERT_MAP("ANativeWindow", "ANativeWindow", Type::Kind::Android);
+
+		INSERT_MAP("MirConnection", "MirConnection", Type::Kind::Mir);
+		INSERT_MAP("MirSurface", "MirSurface", Type::Kind::Mir);
+
+		INSERT_MAP("wl_display", "wl_display", Type::Kind::Wayland);
+		INSERT_MAP("wl_surface", "wl_surface", Type::Kind::Wayland);
+
+		INSERT_MAP("HINSTANCE", "HINSTANCE", Type::Kind::Windows);
+		INSERT_MAP("HWND", "HWND", Type::Kind::Windows);
+		INSERT_MAP("HANDLE", "HANDLE", Type::Kind::Windows);
+		INSERT_MAP("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", Type::Kind::Windows);
+		INSERT_MAP("DWORD", "DWORD", Type::Kind::Windows);
+		INSERT_MAP("LPCWSTR", "LPCWSTR", Type::Kind::Windows);
+
+		INSERT_MAP("xcb_connection_t", "xcb_connection_t", Type::Kind::Xcb);
+		INSERT_MAP("xcb_visualid_t", "xcb_visualid_t", Type::Kind::Xcb);
+		INSERT_MAP("xcb_window_t", "xcb_window_t", Type::Kind::Xcb);
+
+#undef INSERT_MAP
+	}
+
+	Type* getType(const std::string& type) {
+		assert(type != "int"); // Deliberately omitted as it's not used
+
+		// If we can find a C type we return it immediately.
+		auto it = _ctypes.find(type);
+		if (it != _ctypes.end()) {
+			return it->second;
+		}
+
+		// If we did not find a C type, we can assume that it's a Vulkan type.
+		// These types are treated separately and can be defined at a later
+		// time.
+		assert(strncmp(type.c_str(), "Vk", 2) == 0);
+		assert(false);
+		return nullptr; // Remove this later
+	}
+
+private:
+	std::map<std::string, Type*> _ctypes;
+} typeOracle;
+
 const std::string flagsMacro = R"(
 FLAGSMACRO
 )";
@@ -1338,11 +1435,13 @@ void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags)
 
 void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 {
+	// The types tag consists of individual type tags that each describe types used in the API.
 	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
 	{
 		assert(strcmp(child->Value(), "type") == 0);
 		std::string type = child->Value();
 		assert(type == "type");
+
 		if (child->Attribute("category"))
 		{
 			std::string category = child->Attribute("category");
@@ -1389,20 +1488,27 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 			}
 			else
 			{
-				// enum: The type is a C enum. No body and name must match an enums tag so this is read later
+				// enum: The type is a C enum. No body and name must match an enums tag so this is read later in 'registry > enums' tags.
 				// include: C code for #include directives
 				assert((category == "enum") || (category == "include"));
 			}
 		}
-		// Unspecified category: non-complex definition. Type contains C code.
-		// These are basic types that we depend on in other types.
-		// TODO: Can have an optional 'requires' attribute that to my knowledge
-		// indicates what header file this definition is found. I don't quite
-		// know how to deal with that right now. Hopefully it's just little
-		// enough OS stuff that it can be hardcoded.
+		// Unspecified category: non-structured definition. These should be some
+		// C type.
 		else
 		{
+			assert(child->FirstChildElement() == nullptr);
 			assert(child->Attribute("name"));
+
+			std::string name = child->Attribute("name");
+			if (name == "int")
+			{
+				continue;
+			}
+
+			Type* t = typeOracle.getType(child->Attribute("name"));
+			assert(t && t->isCType());
+
 			// TODO: Removed dependencies
 			//vkData.dependencies.push_back(DependencyData(DependencyData::Category::REQUIRED, child->Attribute("name")));
 		}
@@ -3418,41 +3524,50 @@ int main(int argc, char **argv)
 		vkData.handles[""];         // insert the default "handle" without class (for createInstance, and such)
 		vkData.tags.insert("KHX");  // insert a non-listed tag
 
+		// The root tag contains zero or more of the following tags. Order may change.
 		for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
 			assert(child->Value());
 			const std::string value = child->Value();
-			if (value == "commands")
+
+			if (value == "comment")
 			{
-				readCommands(child, vkData);
-			}
-			else if (value == "comment")
-			{
-				// get the vulkan license header and skip any leading spaces
+				// Get the vulkan license header and skip any leading spaces
 				readComment(child, vkData.vulkanLicenseHeader);
 				vkData.vulkanLicenseHeader.erase(vkData.vulkanLicenseHeader.begin(), std::find_if(vkData.vulkanLicenseHeader.begin(), vkData.vulkanLicenseHeader.end(), [](char c) { return !std::isspace(c); }));
 			}
-			else if (value == "enums")
-			{
-				readEnums(child, vkData);
-			}
-			else if (value == "extensions")
-			{
-				readExtensions(child, vkData);
-			}
 			else if (value == "tags")
 			{
+				// Author IDs for extensions and layers
 				readTags(child, vkData.tags);
 			}
 			else if (value == "types")
 			{
+				// Defines API types
 				readTypes(child, vkData);
+			}
+			else if (value == "enums")
+			{
+				// Enum definitions
+				readEnums(child, vkData);
+			}
+			else if (value == "commands")
+			{
+				// Function definitions
+				readCommands(child, vkData);
+			}
+			else if (value == "extensions")
+			{
+				// Extension interfaces
+				readExtensions(child, vkData);
 			}
 			else
 			{
 				assert((value == "feature") || (value == "vendorids"));
 			}
 		}
+
+		// Finished parsing the spec.
 
 		// TODO: Removed dependencies
 
