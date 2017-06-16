@@ -85,6 +85,8 @@ public:
 		Xcb,
 		C_MAX,
 		VulkanUndefined,
+		VulkanTypedef,
+		VulkanBitmasks,
 	};
 
 	bool isCType() {
@@ -103,7 +105,7 @@ class Types {
 public:
 	Types()
 	{
-#define INSERT_MAP(k, v, kind) (assert(_ctypes.insert(std::make_pair(k, new Type(v, kind))).second == true))
+#define INSERT_C_TYPE(type, rustType, kind) (assert(_ctypes.insert(std::make_pair(type, new Type(rustType, kind))).second == true))
 
 		// I'm working under the assumption that the C and OS types used will
 		// be a comparatively small set so that I can deal with those manually.
@@ -111,40 +113,41 @@ public:
 		// are Vulkan types that will be defined later. In other words, I can
 		// defer definitions of Vulkan types in particular and have a separate
 		// API for them.
-		INSERT_MAP("void", "c_void", Type::Kind::IntrinsicC);
-		INSERT_MAP("char", "c_char", Type::Kind::IntrinsicC);
-		INSERT_MAP("float", "f32", Type::Kind::IntrinsicC);
-		INSERT_MAP("uint8_t", "u8", Type::Kind::IntrinsicC);
-		INSERT_MAP("uint32_t", "u32", Type::Kind::IntrinsicC);
-		INSERT_MAP("uint64_t", "u64", Type::Kind::IntrinsicC);
-		INSERT_MAP("int32_t", "i32", Type::Kind::IntrinsicC);
-		INSERT_MAP("size_t", "usize", Type::Kind::IntrinsicC); // unsigned according to reference
+		INSERT_C_TYPE("void", "()", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("void*", "*mut c_void", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("char", "c_char", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("float", "f32", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("uint8_t", "u8", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("uint32_t", "u32", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("uint64_t", "u64", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("int32_t", "i32", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("size_t", "usize", Type::Kind::IntrinsicC); // unsigned according to reference
 
-		INSERT_MAP("Display", "Display", Type::Kind::X11);
-		INSERT_MAP("VisualID", "VisualID", Type::Kind::X11);
-		INSERT_MAP("Window", "Window", Type::Kind::X11);
-		INSERT_MAP("RROutput", "RROutput", Type::Kind::X11);
+		INSERT_C_TYPE("Display", "Display", Type::Kind::X11);
+		INSERT_C_TYPE("VisualID", "VisualID", Type::Kind::X11);
+		INSERT_C_TYPE("Window", "Window", Type::Kind::X11);
+		INSERT_C_TYPE("RROutput", "RROutput", Type::Kind::X11);
 
-		INSERT_MAP("ANativeWindow", "ANativeWindow", Type::Kind::Android);
+		INSERT_C_TYPE("ANativeWindow", "ANativeWindow", Type::Kind::Android);
 
-		INSERT_MAP("MirConnection", "MirConnection", Type::Kind::Mir);
-		INSERT_MAP("MirSurface", "MirSurface", Type::Kind::Mir);
+		INSERT_C_TYPE("MirConnection", "MirConnection", Type::Kind::Mir);
+		INSERT_C_TYPE("MirSurface", "MirSurface", Type::Kind::Mir);
 
-		INSERT_MAP("wl_display", "wl_display", Type::Kind::Wayland);
-		INSERT_MAP("wl_surface", "wl_surface", Type::Kind::Wayland);
+		INSERT_C_TYPE("wl_display", "wl_display", Type::Kind::Wayland);
+		INSERT_C_TYPE("wl_surface", "wl_surface", Type::Kind::Wayland);
 
-		INSERT_MAP("HINSTANCE", "HINSTANCE", Type::Kind::Windows);
-		INSERT_MAP("HWND", "HWND", Type::Kind::Windows);
-		INSERT_MAP("HANDLE", "HANDLE", Type::Kind::Windows);
-		INSERT_MAP("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", Type::Kind::Windows);
-		INSERT_MAP("DWORD", "DWORD", Type::Kind::Windows);
-		INSERT_MAP("LPCWSTR", "LPCWSTR", Type::Kind::Windows);
+		INSERT_C_TYPE("HINSTANCE", "HINSTANCE", Type::Kind::Windows);
+		INSERT_C_TYPE("HWND", "HWND", Type::Kind::Windows);
+		INSERT_C_TYPE("HANDLE", "HANDLE", Type::Kind::Windows);
+		INSERT_C_TYPE("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", Type::Kind::Windows);
+		INSERT_C_TYPE("DWORD", "DWORD", Type::Kind::Windows);
+		INSERT_C_TYPE("LPCWSTR", "LPCWSTR", Type::Kind::Windows);
 
-		INSERT_MAP("xcb_connection_t", "xcb_connection_t", Type::Kind::Xcb);
-		INSERT_MAP("xcb_visualid_t", "xcb_visualid_t", Type::Kind::Xcb);
-		INSERT_MAP("xcb_window_t", "xcb_window_t", Type::Kind::Xcb);
+		INSERT_C_TYPE("xcb_connection_t", "xcb_connection_t", Type::Kind::Xcb);
+		INSERT_C_TYPE("xcb_visualid_t", "xcb_visualid_t", Type::Kind::Xcb);
+		INSERT_C_TYPE("xcb_window_t", "xcb_window_t", Type::Kind::Xcb);
 
-#undef INSERT_MAP
+#undef INSERT_C_TYPE
 	}
 
 	Type* getType(const std::string& type) {
@@ -164,8 +167,29 @@ public:
 		return nullptr; // Remove this later
 	}
 
+#define INSERT_VULKAN_TYPE(type, kind) (assert(_vulkanTypes.insert(std::make_pair(type, new Type(type, kind))).second == true))
+
+	void typeDef(const std::string& type, const std::string& name) {
+		assert(strncmp(name.c_str(), "Vk", 2) == 0);
+		assert(_typedefs.insert({ name, type }).second == true);
+		INSERT_VULKAN_TYPE(name, Type::Kind::VulkanTypedef);
+	}
+
+	void defineBitmasks(const std::string& name) {
+		assert(strncmp(name.c_str(), "Vk", 2) == 0);
+		INSERT_VULKAN_TYPE(name, Type::Kind::VulkanBitmasks);
+	}
+
+#undef INSERT_VULKAN_TYPE
+
+	const std::map<std::string, std::string>& typeDefs() {
+		return _typedefs;
+	}
+
 private:
 	std::map<std::string, Type*> _ctypes;
+	std::map<std::string, Type*> _vulkanTypes;
+	std::map<std::string, std::string> _typedefs; // typedef <Value> <Key>
 } typeOracle;
 
 const std::string flagsMacro = R"(
@@ -1253,11 +1277,23 @@ void readTypeBasetype(tinyxml2::XMLElement * element)
 	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
 	std::string type = typeElement->GetText();
-	assert((type == "uint32_t") || (type == "uint64_t"));
+	if (type == "uint32_t") {
+		type = "u32";
+	}
+	else if (type == "uint64_t") {
+		type = "u64";
+	}
+	else {
+		assert(false);
+	}
 
 	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	std::string name = strip(nameElement->GetText(), "Vk");
+	// TODO: Removed stripping Vk
+	//std::string name = strip(nameElement->GetText(), "Vk");
+	std::string name = nameElement->GetText();
+
+	typeOracle.typeDef(type, name);
 
 	// TODO: Removed dependencies
 
@@ -1274,57 +1310,24 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 
 	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	std::string name = strip(nameElement->GetText(), "Vk");
+	// TODO: Removed strip
+	//std::string name = strip(nameElement->GetText(), "Vk");
+	std::string name = nameElement->GetText();
 
 	assert(!nameElement->NextSiblingElement());
 
-	// TODO: The actual enums of bitmasks are defined as for example VkQueueFlagBits
-	// with 'Bits' at the end. The actual type used by functions is VkQueueFlags
-	// and here it's declared to be used in the API. It's always typedefed to VkFlags
-	// which in turn is a uint32_t. The require (if present) is for the bits enum.
-	// The bits type is declared later using an enum category and is defined in
-	// an enums section later. I could probably do something like ignoring this
-	// kind of dependencies (bitmasks with requirements, I assume they don't have
-	// any real dependency and it's just C's implicit "values should be from here")
-	// and modify enums that are bitmasks to remove the bits part of the name
-	// and add an s. It should be easy enough because in the enums tag there is
-	// an attribute of the type which can be enum or bitmask (if those are required
-	// and the only available ones can be seen in registry). So in other words:
-	// in this particular function I just extract some names to assert that the
-	// dependencies are the ones I think. I probably don't have to push any dependencies
-	// as that will be done in the enums category. All in all this function
-	// should just verify my assumptions.
+	// In the regular C API, bitmasks are defined like for example VkQueueFlags
+	// which is a typedef to VkFlags. This is the typedef that is used by the
+	// various functions. The actual values are defined in enums tags with names
+	// similar to VkQueueFlagBits, i.e. with 'Bits' at the end, using implicit
+	// compatibility in C. Enums without members are not present in enums tags
+	// and thus will remain as unknown Vulkan types (in functions that use them)
+	// if I were to only define them in enums tags. For C this is not a problem,
+	// but since I use Rust's type system I need to at least have empty enums.
+	// By telling the type oracle about these types they are no longer unknown
+	// but rather treated as actual enums that can be empty.
 
-	// On another note: some of the bitmasks do not have a requires attributes but
-	// there is still a "bits" version defined later in the spec... These enums
-	// are just retarded. I think this has to do with some enums being empty
-
-	std::string requires;
-	if (element->Attribute("requires"))
-	{
-		requires = strip(element->Attribute("requires"), "Vk");
-	}
-	else
-	{
-		// TODO: Removed dependencies
-
-		//// Generate FlagBits name, add a DependencyData for that name, and add it to the list of enums and vulkan types
-		//requires = generateEnumNameForFlags(name);
-		//vkData.dependencies.push_back(DependencyData(DependencyData::Category::ENUM, requires));
-		//vkData.enums.insert(std::make_pair(requires, EnumData(requires, true)));
-		//vkData.vkTypes.insert(requires);
-	}
-
-	// TODO: Removed dependencies
-
-	//// add a DependencyData for the bitmask name, with the required type as its first dependency
-	//vkData.dependencies.push_back(DependencyData(DependencyData::Category::FLAGS, name));
-	//vkData.dependencies.back().dependencies.insert(requires);
-
-	vkData.flags.insert(std::make_pair(name, FlagData()));
-
-	assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
-	vkData.vkTypes.insert(name);
+	typeOracle.defineBitmasks(name);
 }
 
 void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1340,8 +1343,107 @@ void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
 
 void readTypeFuncpointer(tinyxml2::XMLElement * element)
 {
+	assert(false);
+	// IMPORTANT: I think it's built up as follows:
+	// I first have a text node of the typedef stuff, followed by a name tag of
+	// the function name. After this is a text that opens parameter list. For a
+	// void function this is the only thing before the type tag ends. If there
+	// are parameters, I think each of them have a text node (perhaps optional)
+	// before the type tag (my previous solution with comma followed by const on
+	// a new line didn't catch anything following the comma, so I think a new
+	// node begins there). Then the type tag itself followed by a text node.
+	// This repeats until the main type tag ends. I can probably loop over nodes
+	// and use ToElement to see if I have found type tags where expected.
+
+	assert(element->GetText());
+	std::string text = element->GetText(); // The typedef <ret> part
+
 	tinyxml2::XMLElement * child = element->FirstChildElement();
 	assert(child && (strcmp(child->Value(), "name") == 0) && child->GetText());
+	std::string name = child->GetText(); // The type def name
+
+	// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
+	// group 1.
+	std::regex re(R"(^typedef ([^ ]+) \(VKAPI_PTR \*$)");
+	auto it = std::sregex_iterator(text.begin(), text.end(), re);
+	auto end = std::sregex_iterator();
+
+	assert(it != end);
+
+	std::smatch match = *it;
+	std::string returnType = match[1].str();
+
+	// Text node of the parantheses after the name
+	tinyxml2::XMLNode * textNode = child->NextSibling();
+	assert(textNode && textNode->Value());
+	text = textNode->Value();
+
+	// If there is an upcoming sibling, match the parantheses after the name,
+	// optional new line with leading spaces and optional
+	// const. The latter indicates that the upcoming type has a const modifier.
+	// Match group 1 contains whether or not const was present. If we don't have an
+	// upcoming sibling we don't bother since it's a function taking no parameters.
+	bool nextTypeConst = false;
+	std::regex paramRegex(R"(^\)\(\n[ ]+(const )?$)");
+	if (child->NextSiblingElement()) {
+		it = std::sregex_iterator(text.begin(), text.end(), paramRegex);
+
+		assert(it != end);
+
+		match = *it;
+		nextTypeConst = match[1].matched;
+	}
+
+	while (child = child->NextSiblingElement()) {
+		bool thisConst = nextTypeConst;
+		nextTypeConst = false;
+
+		assert(strcmp(child->Value(), "type") == 0 && child->GetText() && !child->FirstChildElement());
+		std::string type = child->GetText();
+
+		// Text after the type containing parameter name
+		textNode = child->NextSibling();
+		assert(textNode && textNode->Value());
+		text = textNode->Value();
+
+		// Match optional asterisk (group 1), a bunch of spaces, the parameter
+		// name (group 2), and the rest (group 3).
+		paramRegex = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
+
+		it = std::sregex_iterator(text.begin(), text.end(), paramRegex);
+
+		assert(it != end);
+
+		match = *it;
+
+		bool pointer = match[1].matched;
+		std::string param = match[2].str();
+
+		// If the rest is not the end of the parameter list, make a new regex
+		// to see if the next parameter is const.
+		std::string rest = match[3].str();
+		if (rest != ");") {
+			paramRegex = std::regex(R"(^,(\n[ ]+(const )?)?$)");
+
+			it = std::sregex_iterator(rest.begin(), rest.end(), paramRegex);
+			assert(it != end);
+			match = *it;
+			nextTypeConst = match[2].matched;
+		}
+
+		// TODO: Save parameter data in a vector (optional const modifier, type,
+		// pointer modifier, name)
+	}
+
+	assert(text.substr(text.length() - 2) == ");");
+
+	// TODO: By now I should have function name, return value, and a vector of
+	// parameters. Use these to define a function typedef.
+
+
+
+
+
 
 	// TODO: Removed dependencies
 
@@ -1442,6 +1544,8 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 		std::string type = child->Value();
 		assert(type == "type");
 
+		// A present category indicates a type has a more complex definition.
+		// I.e, it's not just a basic C type.
 		if (child->Attribute("category"))
 		{
 			std::string category = child->Attribute("category");
@@ -1451,6 +1555,7 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 				// C code for scalar typedefs.
 				// TODO: Removed dependencies
 				//readTypeBasetype(child, vkData.dependencies);
+				readTypeBasetype(child);
 			}
 			else if (category == "bitmask")
 			{
@@ -1471,7 +1576,7 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 				// for these before they are used. Note that their argument types are never
 				// actually saved, which is something I may have to do.
 				// TODO: Removed dependencies
-				//readTypeFuncpointer(child, vkData.dependencies);
+				readTypeFuncpointer(child);
 			}
 			else if (category == "handle")
 			{
@@ -1488,7 +1593,7 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 			}
 			else
 			{
-				// enum: The type is a C enum. No body and name must match an enums tag so this is read later in 'registry > enums' tags.
+				// enum: These are covered later in 'registry > enums' tags so I ignore them here.
 				// include: C code for #include directives
 				assert((category == "enum") || (category == "include"));
 			}
@@ -1501,12 +1606,14 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 			assert(child->Attribute("name"));
 
 			std::string name = child->Attribute("name");
+
+			// Never used in the API.
 			if (name == "int")
 			{
 				continue;
 			}
 
-			Type* t = typeOracle.getType(child->Attribute("name"));
+			Type* t = typeOracle.getType(name);
 			assert(t && t->isCType());
 
 			// TODO: Removed dependencies
@@ -3597,7 +3704,11 @@ pub mod core {
 
 		ofs << std::endl;
 
-		ofs << "TYPE ALIAS FOR STUFF HERE?" << std::endl;
+		for (auto tdef : typeOracle.typeDefs()) {
+			ofs << "type " << tdef.first << " = " << tdef.second << ";" << std::endl;
+		}
+
+		ofs << std::endl;
 		ofs << "OPAQUE TYPES HERE?" << std::endl;
 		ofs << "SOME CONSTANTS HERE?" << std::endl;
 
