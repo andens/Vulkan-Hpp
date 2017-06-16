@@ -1213,6 +1213,10 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 	// as that will be done in the enums category. All in all this function
 	// should just verify my assumptions.
 
+	// On another note: some of the bitmasks do not have a requires attributes but
+	// there is still a "bits" version defined later in the spec... These enums
+	// are just retarded. I think this has to do with some enums being empty
+
 	std::string requires;
 	if (element->Attribute("requires"))
 	{
