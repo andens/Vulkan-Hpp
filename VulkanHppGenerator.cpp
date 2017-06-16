@@ -142,32 +142,6 @@ struct CommandData
   std::map<size_t, size_t>  vectorParams;
 };
 
-struct DependencyData
-{
-  enum class Category
-  {
-    COMMAND,
-    ENUM,
-    FLAGS,
-    FUNC_POINTER,
-    HANDLE,
-    REQUIRED,
-    SCALAR,
-    STRUCT,
-    UNION
-  };
-
-  DependencyData(Category c, std::string const& n)
-    : category(c)
-    , name(n)
-  {}
-
-  Category              category;
-  std::string           name;
-  std::set<std::string> dependencies;
-  std::set<std::string> forwardDependencies;
-};
-
 struct NameValue
 {
   std::string name;
@@ -236,7 +210,6 @@ struct DeleterData
 struct VkData
 {
   std::map<std::string, CommandData>            commands;
-  std::list<DependencyData>                     dependencies;
   std::map<std::string, std::set<std::string>>  deleterTypes; // map from parent type to set of child types
   std::map<std::string, DeleterData>            deleterData;  // map from child types to corresponding deleter data
   std::map<std::string, EnumData>               enums;
@@ -283,10 +256,10 @@ void readExtensions( tinyxml2::XMLElement * element, VkData & vkData );
 void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData);
 void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect);
 tinyxml2::XMLNode* readType(tinyxml2::XMLNode* element, std::string & type, std::string & pureType);
-void readTypeBasetype( tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies );
+void readTypeBasetype( tinyxml2::XMLElement * element );
 void readTypeBitmask( tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeDefine( tinyxml2::XMLElement * element, VkData & vkData );
-void readTypeFuncpointer( tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies );
+void readTypeFuncpointer( tinyxml2::XMLElement * element );
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion );
 void readTypeStructMember( tinyxml2::XMLElement * element, std::vector<MemberData> & members, std::set<std::string> & dependencies );
@@ -296,7 +269,6 @@ std::string reduceName(std::string const& name, bool singular = false);
 void registerDeleter(VkData & vkData, CommandData const& commandData);
 std::string startLowerCase(std::string const& input);
 std::string startUpperCase(std::string const& input);
-void sortDependencies( std::list<DependencyData> & dependencies );
 std::string strip(std::string const& value, std::string const& prefix, std::string const& postfix = std::string());
 std::string stripPluralS(std::string const& name);
 std::string toCamelCase(std::string const& value);
@@ -334,16 +306,16 @@ void writeReinterpretCast(std::ostream & os, bool leadingConst, bool vulkanType,
 void writeStandardOrEnhanced(std::ostream & os, std::string const& standard, std::string const& enhanced);
 void writeStructConstructor( std::ostream & os, std::string const& name, StructData const& structData, std::set<std::string> const& vkTypes, std::map<std::string,std::string> const& defaultValues );
 void writeStructSetter( std::ostream & os, std::string const& structureName, MemberData const& memberData, std::set<std::string> const& vkTypes, std::map<std::string,StructData> const& structs );
-void writeTypeCommand(std::ostream & os, VkData const& vkData, DependencyData const& dependencyData);
+void writeTypeCommand(std::ostream & os, VkData const& vkData);
 void writeTypeCommand(std::ostream &os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition);
 void writeTypeEnum(std::ostream & os, EnumData const& enumData);
 bool isErrorEnum(std::string const& enumName);
 std::string stripErrorEnumPrefix(std::string const& enumName);
 void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData const& flagData, EnumData const& enumData);
-void writeTypeHandle(std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, HandleData const& handle, std::list<DependencyData> const& dependencies);
-void writeTypeScalar( std::ostream & os, DependencyData const& dependencyData );
-void writeTypeStruct( std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, std::map<std::string,std::string> const& defaultValues );
-void writeTypeUnion( std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, std::map<std::string,std::string> const& defaultValues );
+void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& handle);
+void writeTypeScalar( std::ostream & os );
+void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
+void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
 void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues);
 void writeVersionCheck(std::ostream & os, std::string const& version);
 
@@ -369,45 +341,46 @@ void EnumData::addEnumMember(std::string const &name, std::string const& tag)
 
 void createDefaults( VkData const& vkData, std::map<std::string,std::string> & defaultValues )
 {
-  for (auto dependency : vkData.dependencies)
-  {
-    assert( defaultValues.find( dependency.name ) == defaultValues.end() );
-    switch( dependency.category )
-    {
-      case DependencyData::Category::COMMAND :    // commands should never be asked for defaults
-        break;
-      case DependencyData::Category::ENUM :
-        {
-          assert(vkData.enums.find(dependency.name) != vkData.enums.end());
-          EnumData const & enumData = vkData.enums.find(dependency.name)->second;
-          if (!enumData.members.empty())
-          {
-            defaultValues[dependency.name] = dependency.name + "::" + vkData.enums.find(dependency.name)->second.members.front().name;
-          }
-          else
-          {
-            defaultValues[dependency.name] = dependency.name + "()";
-          }
-        }
-        break;
-      case DependencyData::Category::FLAGS :
-      case DependencyData::Category::HANDLE:
-      case DependencyData::Category::STRUCT:
-      case DependencyData::Category::UNION :        // just call the default constructor for flags, structs, and structs (which are mapped to classes)
-        defaultValues[dependency.name] = dependency.name + "()";
-        break;
-      case DependencyData::Category::FUNC_POINTER : // func_pointers default to nullptr
-        defaultValues[dependency.name] = "nullptr";
-        break;
-      case DependencyData::Category::REQUIRED :     // all required default to "0"
-      case DependencyData::Category::SCALAR :       // all scalars default to "0"
-        defaultValues[dependency.name] = "0";
-        break;
-      default :
-        assert( false );
-        break;
-    }
-  }
+	// TODO: Can probbly delete defaultValues?
+  //for (auto dependency : vkData.dependencies)
+  //{
+  //  assert( defaultValues.find( dependency.name ) == defaultValues.end() );
+  //  switch( dependency.category )
+  //  {
+  //    case DependencyData::Category::COMMAND :    // commands should never be asked for defaults
+  //      break;
+  //    case DependencyData::Category::ENUM :
+  //      {
+  //        assert(vkData.enums.find(dependency.name) != vkData.enums.end());
+  //        EnumData const & enumData = vkData.enums.find(dependency.name)->second;
+  //        if (!enumData.members.empty())
+  //        {
+  //          defaultValues[dependency.name] = dependency.name + "::" + vkData.enums.find(dependency.name)->second.members.front().name;
+  //        }
+  //        else
+  //        {
+  //          defaultValues[dependency.name] = dependency.name + "()";
+  //        }
+  //      }
+  //      break;
+  //    case DependencyData::Category::FLAGS :
+  //    case DependencyData::Category::HANDLE:
+  //    case DependencyData::Category::STRUCT:
+  //    case DependencyData::Category::UNION :        // just call the default constructor for flags, structs, and structs (which are mapped to classes)
+  //      defaultValues[dependency.name] = dependency.name + "()";
+  //      break;
+  //    case DependencyData::Category::FUNC_POINTER : // func_pointers default to nullptr
+  //      defaultValues[dependency.name] = "nullptr";
+  //      break;
+  //    case DependencyData::Category::REQUIRED :     // all required default to "0"
+  //    case DependencyData::Category::SCALAR :       // all scalars default to "0"
+  //      defaultValues[dependency.name] = "0";
+  //      break;
+  //    default :
+  //      assert( false );
+  //      break;
+  //  }
+  //}
 }
 
 void determineReducedName(CommandData & commandData)
@@ -634,14 +607,16 @@ void linkCommandToHandle(VkData & vkData, CommandData & commandData)
   hit->second.commands.push_back(commandData.fullName);
   commandData.className = hit->first;
 
-  // add the dependencies of the command to the dependencies of the handle
-  DependencyData const& commandDD = vkData.dependencies.back();
-  std::list<DependencyData>::iterator handleDD = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [hit](DependencyData const& dd) { return dd.name == hit->first; });
-  assert((handleDD != vkData.dependencies.end()) || hit->first.empty());
-  if (handleDD != vkData.dependencies.end())
-  {
-    std::copy_if(commandDD.dependencies.begin(), commandDD.dependencies.end(), std::inserter(handleDD->dependencies, handleDD->dependencies.end()), [hit](std::string const& d) { return d != hit->first; });
-  }
+  // TODO: Removed dependencies
+
+  //// add the dependencies of the command to the dependencies of the handle
+  //DependencyData const& commandDD = vkData.dependencies.back();
+  //std::list<DependencyData>::iterator handleDD = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [hit](DependencyData const& dd) { return dd.name == hit->first; });
+  //assert((handleDD != vkData.dependencies.end()) || hit->first.empty());
+  //if (handleDD != vkData.dependencies.end())
+  //{
+  //  std::copy_if(commandDD.dependencies.begin(), commandDD.dependencies.end(), std::inserter(handleDD->dependencies, handleDD->dependencies.end()), [hit](std::string const& d) { return d != hit->first; });
+  //}
 }
 
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
@@ -774,8 +749,10 @@ CommandData& readCommandProto(tinyxml2::XMLElement * element, VkData & vkData)
   std::string type = strip( typeElement->GetText(), "Vk" );
   std::string name = startLowerCase(strip(nameElement->GetText(), "vk"));
 
-  // add an empty DependencyData to this name
-  vkData.dependencies.push_back( DependencyData( DependencyData::Category::COMMAND, name ) );
+  // TODO: Removed dependencies
+
+  //// add an empty DependencyData to this name
+  //vkData.dependencies.push_back( DependencyData( DependencyData::Category::COMMAND, name ) );
 
   // insert an empty CommandData into the commands-map, and return the newly created CommandData
   assert( vkData.commands.find( name ) == vkData.commands.end() );
@@ -798,15 +775,16 @@ void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData)
 
   CommandData& commandData = readCommandProto(child, vkData);
   commandData.successCodes = readCommandSuccessCodes(element, vkData.tags);
-  readCommandParams(child, vkData.dependencies.back().dependencies, commandData);
-  determineReducedName(commandData);
-  linkCommandToHandle(vkData, commandData);
-  registerDeleter(vkData, commandData);
-  determineVectorParams(commandData);
-  determineReturnParam(commandData);
-  determineTemplateParam(commandData);
-  determineEnhancedReturnType(commandData);
-  determineSkippedParams(commandData);
+  // TODO: Removed dependencies
+  //readCommandParams(child, vkData.dependencies.back().dependencies, commandData);
+  //determineReducedName(commandData);
+  //linkCommandToHandle(vkData, commandData);
+  //registerDeleter(vkData, commandData);
+  //determineVectorParams(commandData);
+  //determineReturnParam(commandData);
+  //determineTemplateParam(commandData);
+  //determineEnhancedReturnType(commandData);
+  //determineSkippedParams(commandData);
 }
 
 std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, std::set<std::string> const& tags)
@@ -866,8 +844,9 @@ void readEnums( tinyxml2::XMLElement * element, VkData & vkData )
 
   if ( name != "API Constants" )    // skip the "API Constants"
   {
-    // add an empty DependencyData on this name into the dependencies list
-    vkData.dependencies.push_back( DependencyData( DependencyData::Category::ENUM, name ) );
+	  // TODO: Removed dependencies
+    //// add an empty DependencyData on this name into the dependencies list
+    //vkData.dependencies.push_back( DependencyData( DependencyData::Category::ENUM, name ) );
 
     // ad an empty EnumData on this name into the enums map
     std::map<std::string,EnumData>::iterator it = vkData.enums.insert( std::make_pair( name, EnumData(name) ) ).first;
@@ -956,16 +935,18 @@ void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkDat
       assert(child->Attribute("name"));
       std::string name = (value == "command") ? startLowerCase(strip(child->Attribute("name"), "vk")) : strip(child->Attribute("name"), "Vk");
 
-      // search this name in the dependencies list and remove it
-      std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&name](DependencyData const& dd) { return(dd.name == name); });
-      assert(depIt != vkData.dependencies.end());
-      vkData.dependencies.erase(depIt);
+	  // TODO: Removed dependencies
 
-      // erase it from all dependency sets
-      for (auto & dep : vkData.dependencies)
-      {
-        dep.dependencies.erase(name);
-      }
+      //// search this name in the dependencies list and remove it
+      //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&name](DependencyData const& dd) { return(dd.name == name); });
+      //assert(depIt != vkData.dependencies.end());
+      //vkData.dependencies.erase(depIt);
+
+      //// erase it from all dependency sets
+      //for (auto & dep : vkData.dependencies)
+      //{
+      //  dep.dependencies.erase(name);
+      //}
 
       if (value == "command")
       {
@@ -1087,56 +1068,58 @@ void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData)
 
 void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect)
 {
-  // add the protect-string to the appropriate type: enum, flag, handle, scalar, or struct
-  if (!protect.empty())
-  {
-    assert(element->Attribute("name"));
-    std::string name = strip(element->Attribute("name"), "Vk");
-    std::map<std::string, EnumData>::iterator eit = vkData.enums.find(name);
-    if (eit != vkData.enums.end())
-    {
-      eit->second.protect = protect;
-    }
-    else
-    {
-      std::map<std::string, FlagData>::iterator fit = vkData.flags.find(name);
-      if (fit != vkData.flags.end())
-      {
-        fit->second.protect = protect;
+	// TODO: Removed dependencies
 
-        // if the enum of this flags is auto-generated, protect it as well
-        std::string enumName = generateEnumNameForFlags(name);
-        std::map<std::string, EnumData>::iterator eit = vkData.enums.find(enumName);
-        assert(eit != vkData.enums.end());
-        if (eit->second.members.empty())
-        {
-          eit->second.protect = protect;
-        }
-      }
-      else
-      {
-        std::map<std::string, HandleData>::iterator hait = vkData.handles.find(name);
-        if (hait != vkData.handles.end())
-        {
-          hait->second.protect = protect;
-        }
-        else
-        {
-          std::map<std::string, ScalarData>::iterator scit = vkData.scalars.find(name);
-          if (scit != vkData.scalars.end())
-          {
-            scit->second.protect = protect;
-          }
-          else
-          {
-            std::map<std::string, StructData>::iterator stit = vkData.structs.find(name);
-            assert(stit != vkData.structs.end() && stit->second.protect.empty());
-            stit->second.protect = protect;
-          }
-        }
-      }
-    }
-  }
+  //// add the protect-string to the appropriate type: enum, flag, handle, scalar, or struct
+  //if (!protect.empty())
+  //{
+  //  assert(element->Attribute("name"));
+  //  std::string name = strip(element->Attribute("name"), "Vk");
+  //  std::map<std::string, EnumData>::iterator eit = vkData.enums.find(name);
+  //  if (eit != vkData.enums.end())
+  //  {
+  //    eit->second.protect = protect;
+  //  }
+  //  else
+  //  {
+  //    std::map<std::string, FlagData>::iterator fit = vkData.flags.find(name);
+  //    if (fit != vkData.flags.end())
+  //    {
+  //      fit->second.protect = protect;
+
+  //      // if the enum of this flags is auto-generated, protect it as well
+  //      std::string enumName = generateEnumNameForFlags(name);
+  //      std::map<std::string, EnumData>::iterator eit = vkData.enums.find(enumName);
+  //      assert(eit != vkData.enums.end());
+  //      if (eit->second.members.empty())
+  //      {
+  //        eit->second.protect = protect;
+  //      }
+  //    }
+  //    else
+  //    {
+  //      std::map<std::string, HandleData>::iterator hait = vkData.handles.find(name);
+  //      if (hait != vkData.handles.end())
+  //      {
+  //        hait->second.protect = protect;
+  //      }
+  //      else
+  //      {
+  //        std::map<std::string, ScalarData>::iterator scit = vkData.scalars.find(name);
+  //        if (scit != vkData.scalars.end())
+  //        {
+  //          scit->second.protect = protect;
+  //        }
+  //        else
+  //        {
+  //          std::map<std::string, StructData>::iterator stit = vkData.structs.find(name);
+  //          assert(stit != vkData.structs.end() && stit->second.protect.empty());
+  //          stit->second.protect = protect;
+  //        }
+  //      }
+  //    }
+  //  }
+  //}
 }
 
 tinyxml2::XMLNode* readType(tinyxml2::XMLNode* element, std::string & type, std::string & pureType)
@@ -1168,7 +1151,7 @@ tinyxml2::XMLNode* readType(tinyxml2::XMLNode* element, std::string & type, std:
   return element;
 }
 
-void readTypeBasetype(tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies)
+void readTypeBasetype(tinyxml2::XMLElement * element)
 {
 	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
@@ -1179,8 +1162,10 @@ void readTypeBasetype(tinyxml2::XMLElement * element, std::list<DependencyData> 
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
 	std::string name = strip(nameElement->GetText(), "Vk");
 
-	dependencies.push_back(DependencyData(DependencyData::Category::SCALAR, name));
-	dependencies.back().dependencies.insert(type);
+	// TODO: Removed dependencies
+
+	//dependencies.push_back(DependencyData(DependencyData::Category::SCALAR, name));
+	//dependencies.back().dependencies.insert(type);
 }
 
 void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1224,16 +1209,20 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 	}
 	else
 	{
-		// Generate FlagBits name, add a DependencyData for that name, and add it to the list of enums and vulkan types
-		requires = generateEnumNameForFlags(name);
-		vkData.dependencies.push_back(DependencyData(DependencyData::Category::ENUM, requires));
-		vkData.enums.insert(std::make_pair(requires, EnumData(requires, true)));
-		vkData.vkTypes.insert(requires);
+		// TODO: Removed dependencies
+
+		//// Generate FlagBits name, add a DependencyData for that name, and add it to the list of enums and vulkan types
+		//requires = generateEnumNameForFlags(name);
+		//vkData.dependencies.push_back(DependencyData(DependencyData::Category::ENUM, requires));
+		//vkData.enums.insert(std::make_pair(requires, EnumData(requires, true)));
+		//vkData.vkTypes.insert(requires);
 	}
 
-	// add a DependencyData for the bitmask name, with the required type as its first dependency
-	vkData.dependencies.push_back(DependencyData(DependencyData::Category::FLAGS, name));
-	vkData.dependencies.back().dependencies.insert(requires);
+	// TODO: Removed dependencies
+
+	//// add a DependencyData for the bitmask name, with the required type as its first dependency
+	//vkData.dependencies.push_back(DependencyData(DependencyData::Category::FLAGS, name));
+	//vkData.dependencies.back().dependencies.insert(requires);
 
 	vkData.flags.insert(std::make_pair(name, FlagData()));
 
@@ -1252,12 +1241,14 @@ void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
 	// ignore all the other defines
 }
 
-void readTypeFuncpointer(tinyxml2::XMLElement * element, std::list<DependencyData> & dependencies)
+void readTypeFuncpointer(tinyxml2::XMLElement * element)
 {
 	tinyxml2::XMLElement * child = element->FirstChildElement();
 	assert(child && (strcmp(child->Value(), "name") == 0) && child->GetText());
 
-	dependencies.push_back(DependencyData(DependencyData::Category::FUNC_POINTER, child->GetText()));
+	// TODO: Removed dependencies
+
+	//dependencies.push_back(DependencyData(DependencyData::Category::FUNC_POINTER, child->GetText()));
 }
 
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1277,7 +1268,8 @@ void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
 	std::string name = strip(nameElement->GetText(), "Vk");
 
-	vkData.dependencies.push_back(DependencyData(DependencyData::Category::HANDLE, name));
+	// TODO: Removed dependencies
+	//vkData.dependencies.push_back(DependencyData(DependencyData::Category::HANDLE, name));
 	assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
 	vkData.vkTypes.insert(name);
 	assert(vkData.handles.find(name) == vkData.handles.end());
@@ -1297,7 +1289,9 @@ void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUni
     return;
   }
 
-  vkData.dependencies.push_back( DependencyData( isUnion ? DependencyData::Category::UNION : DependencyData::Category::STRUCT, name ) );
+  // TODO: Removed dependencies
+
+  //vkData.dependencies.push_back( DependencyData( isUnion ? DependencyData::Category::UNION : DependencyData::Category::STRUCT, name ) );
 
   assert( vkData.structs.find( name ) == vkData.structs.end() );
   std::map<std::string,StructData>::iterator it = vkData.structs.insert( std::make_pair( name, StructData() ) ).first;
@@ -1309,7 +1303,8 @@ void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUni
     assert( child->Value() );
     std::string value = child->Value();
     assert(value == "member");
-    readTypeStructMember( child, it->second.members, vkData.dependencies.back().dependencies );
+	// TODO: Removed dependencies
+    //readTypeStructMember( child, it->second.members, vkData.dependencies.back().dependencies );
   }
 
   assert( vkData.vkTypes.find( name ) == vkData.vkTypes.end() );
@@ -1355,7 +1350,8 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 			if (category == "basetype")
 			{
 				// C code for scalar typedefs.
-				readTypeBasetype(child, vkData.dependencies);
+				// TODO: Removed dependencies
+				//readTypeBasetype(child, vkData.dependencies);
 			}
 			else if (category == "bitmask")
 			{
@@ -1375,7 +1371,8 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 				// TODO: I think they are used to make sure we insert definitions
 				// for these before they are used. Note that their argument types are never
 				// actually saved, which is something I may have to do.
-				readTypeFuncpointer(child, vkData.dependencies);
+				// TODO: Removed dependencies
+				//readTypeFuncpointer(child, vkData.dependencies);
 			}
 			else if (category == "handle")
 			{
@@ -1406,7 +1403,8 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 		else
 		{
 			assert(child->Attribute("name"));
-			vkData.dependencies.push_back(DependencyData(DependencyData::Category::REQUIRED, child->Attribute("name")));
+			// TODO: Removed dependencies
+			//vkData.dependencies.push_back(DependencyData(DependencyData::Category::REQUIRED, child->Attribute("name")));
 		}
 	}
 }
@@ -1464,60 +1462,6 @@ void registerDeleter(VkData & vkData, CommandData const& commandData)
     vkData.deleterTypes[key].insert(commandData.params[valueIndex].pureType);
     vkData.deleterData[commandData.params[valueIndex].pureType].call = commandData.reducedName;
   }
-}
-
-void sortDependencies( std::list<DependencyData> & dependencies )
-{
-  std::set<std::string> listedTypes = { "VkFlags" };
-  std::list<DependencyData> sortedDependencies;
-
-  while ( !dependencies.empty() )
-  {
-    bool found = false;
-    for ( std::list<DependencyData>::iterator it = dependencies.begin() ; it != dependencies.end() ; ++it )
-    {
-      if (std::find_if(it->dependencies.begin(), it->dependencies.end(), [&listedTypes](std::string const& d) { return listedTypes.find(d) == listedTypes.end(); }) == it->dependencies.end())
-      {
-        sortedDependencies.push_back( *it );
-        listedTypes.insert( it->name );
-        dependencies.erase( it );
-        found = true;
-        break;
-      }
-    }
-    if (!found)
-    {
-      // resolve direct circular dependencies
-      for (std::list<DependencyData>::iterator it = dependencies.begin(); !found && it != dependencies.end(); ++it)
-      {
-        for (std::set<std::string>::const_iterator dit = it->dependencies.begin(); dit != it->dependencies.end(); ++dit)
-        {
-          std::list<DependencyData>::const_iterator depIt = std::find_if(dependencies.begin(), dependencies.end(), [&dit](DependencyData const& dd) { return(dd.name == *dit); });
-          if (depIt != dependencies.end())
-          {
-            if (depIt->dependencies.find(it->name) != depIt->dependencies.end())
-            {
-              // we only have just one case, for now!
-              assert((it->category == DependencyData::Category::HANDLE) && (depIt->category == DependencyData::Category::STRUCT));
-              it->forwardDependencies.insert(*dit);
-              it->dependencies.erase(*dit);
-              found = true;
-              break;
-            }
-          }
-#if !defined(NDEBUG)
-          else
-          {
-            assert(std::find_if(sortedDependencies.begin(), sortedDependencies.end(), [&dit](DependencyData const& dd) { return(dd.name == *dit); }) != sortedDependencies.end());
-          }
-#endif
-        }
-      }
-    }
-    assert( found );
-  }
-
-  dependencies.swap(sortedDependencies);
 }
 
 std::string startLowerCase(std::string const& input)
@@ -2351,16 +2295,18 @@ void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkDat
               std::map<std::string, FlagData>::const_iterator flagIt = vkData.flags.find(commandData.params[i].pureType);
               if (flagIt != vkData.flags.end())
               {
-                // get the enum corresponding to this flag, to check if it's empty
-                std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&flagIt](DependencyData const& dd) { return(dd.name == flagIt->first); });
-                assert((depIt != vkData.dependencies.end()) && (depIt->dependencies.size() == 1));
-                std::map<std::string, EnumData>::const_iterator enumIt = vkData.enums.find(*depIt->dependencies.begin());
-                assert(enumIt != vkData.enums.end());
-                if (enumIt->second.members.empty())
-                {
-                  // there are no bits in this flag -> provide the default
-                  os << " = " << commandData.params[i].pureType << "()";
-                }
+				  // TODO: Removed dependencies
+
+                //// get the enum corresponding to this flag, to check if it's empty
+                //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&flagIt](DependencyData const& dd) { return(dd.name == flagIt->first); });
+                //assert((depIt != vkData.dependencies.end()) && (depIt->dependencies.size() == 1));
+                //std::map<std::string, EnumData>::const_iterator enumIt = vkData.enums.find(*depIt->dependencies.begin());
+                ///assert(enumIt != vkData.enums.end());
+                //if (enumIt->second.members.empty())
+                //{
+                //  // there are no bits in this flag -> provide the default
+                //  os << " = " << commandData.params[i].pureType << "()";
+                //}
               }
             }
           }
@@ -2737,29 +2683,31 @@ void writeStructSetter( std::ostream & os, std::string const& structureName, Mem
   }
 }
 
-void writeTypeCommand(std::ostream & os, VkData const& vkData, DependencyData const& dependencyData)
+void writeTypeCommand(std::ostream & os, VkData const& vkData)
 {
-  assert(vkData.commands.find(dependencyData.name) != vkData.commands.end());
-  CommandData const& commandData = vkData.commands.find(dependencyData.name)->second;
-  if (commandData.className.empty())
-  {
-    if (commandData.fullName == "createInstance")
-    {
-      // special handling for createInstance, as we need to explicitly place the forward declarations and the deleter classes here
-      auto deleterTypesIt = vkData.deleterTypes.find("");
-      assert((deleterTypesIt != vkData.deleterTypes.end()) && (deleterTypesIt->second.size() == 1));
+	// TODO: Removed dependencies
 
-      writeDeleterForwardDeclarations(os, *deleterTypesIt, vkData.deleterData);
-      writeTypeCommand(os, "  ", vkData, commandData, false);
-      writeDeleterClasses(os, *deleterTypesIt, vkData.deleterData);
-    }
-    else
-    {
-      writeTypeCommand(os, "  ", vkData, commandData, false);
-    }
-    writeTypeCommand(os, "  ", vkData, commandData, true);
-    os << std::endl;
-  }
+  //assert(vkData.commands.find(dependencyData.name) != vkData.commands.end());
+  //CommandData const& commandData = vkData.commands.find(dependencyData.name)->second;
+  //if (commandData.className.empty())
+  //{
+  //  if (commandData.fullName == "createInstance")
+  //  {
+  //    // special handling for createInstance, as we need to explicitly place the forward declarations and the deleter classes here
+  //    auto deleterTypesIt = vkData.deleterTypes.find("");
+  //    assert((deleterTypesIt != vkData.deleterTypes.end()) && (deleterTypesIt->second.size() == 1));
+
+  //    writeDeleterForwardDeclarations(os, *deleterTypesIt, vkData.deleterData);
+  //    writeTypeCommand(os, "  ", vkData, commandData, false);
+  //    writeDeleterClasses(os, *deleterTypesIt, vkData.deleterData);
+  //  }
+  //  else
+  //  {
+  //    writeTypeCommand(os, "  ", vkData, commandData, false);
+  //  }
+  //  writeTypeCommand(os, "  ", vkData, commandData, true);
+  //  os << std::endl;
+  //}
 }
 
 void writeTypeCommand(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition)
@@ -3027,142 +2975,146 @@ void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData co
   os << std::endl;
 }
 
-void writeTypeHandle(std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, HandleData const& handleData, std::list<DependencyData> const& dependencies)
+void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& handleData)
 {
-  enterProtect(os, handleData.protect);
+	// TODO: Removed dependencies
 
-  // check if there are any forward dependenices for this handle -> list them first
-  if (!dependencyData.forwardDependencies.empty())
-  {
-    os << "  // forward declarations" << std::endl;
-    for (std::set<std::string>::const_iterator it = dependencyData.forwardDependencies.begin(); it != dependencyData.forwardDependencies.end(); ++it)
-    {
-      assert(vkData.structs.find(*it) != vkData.structs.end());
-      os << "  struct " << *it << ";" << std::endl;
-    }
-    os << std::endl;
-  }
-
-  // then write any forward declaration of Deleters used by this handle
-  std::map<std::string, std::set<std::string>>::const_iterator deleterTypesIt = vkData.deleterTypes.find(dependencyData.name);
-  if (deleterTypesIt != vkData.deleterTypes.end())
-  {
-    writeDeleterForwardDeclarations(os, *deleterTypesIt, vkData.deleterData);
-  }
-
-  const std::string memberName = startLowerCase(dependencyData.name);
-  const std::string templateString = 
-R"(  class ${className}
-  {
-  public:
-    ${className}()
-      : m_${memberName}(VK_NULL_HANDLE)
-    {}
-
-    ${className}( std::nullptr_t )
-      : m_${memberName}(VK_NULL_HANDLE)
-    {}
-
-    VULKAN_HPP_TYPESAFE_EXPLICIT ${className}( Vk${className} ${memberName} )
-       : m_${memberName}( ${memberName} )
-    {}
-
-#if defined(VULKAN_HPP_TYPESAFE_CONVERSION)
-    ${className} & operator=(Vk${className} ${memberName})
-    {
-      m_${memberName} = ${memberName};
-      return *this; 
-    }
-#endif
-
-    ${className} & operator=( std::nullptr_t )
-    {
-      m_${memberName} = VK_NULL_HANDLE;
-      return *this;
-    }
-
-    bool operator==( ${className} const & rhs ) const
-    {
-      return m_${memberName} == rhs.m_${memberName};
-    }
-
-    bool operator!=(${className} const & rhs ) const
-    {
-      return m_${memberName} != rhs.m_${memberName};
-    }
-
-    bool operator<(${className} const & rhs ) const
-    {
-      return m_${memberName} < rhs.m_${memberName};
-    }
-
-${commands}
-
-    VULKAN_HPP_TYPESAFE_EXPLICIT operator Vk${className}() const
-    {
-      return m_${memberName};
-    }
-
-    explicit operator bool() const
-    {
-      return m_${memberName} != VK_NULL_HANDLE;
-    }
-
-    bool operator!() const
-    {
-      return m_${memberName} == VK_NULL_HANDLE;
-    }
-
-  private:
-    Vk${className} m_${memberName};
-  };
-
-  static_assert( sizeof( ${className} ) == sizeof( Vk${className} ), "handle and wrapper have different size!" );
-
-)";
-
-  std::ostringstream commands;
-  // now list all the commands that are mapped to members of this class
-  for (size_t i = 0; i < handleData.commands.size(); i++)
-  {
-    std::string commandName = handleData.commands[i];
-    std::map<std::string, CommandData>::const_iterator cit = vkData.commands.find(commandName);
-    assert((cit != vkData.commands.end()) && !cit->second.className.empty());
-    writeTypeCommand(commands, "    ", vkData, cit->second, false);
-  }
-
-  os << replaceWithMap(templateString, {
-    { "className", dependencyData.name },
-    { "memberName", memberName },
-    { "commands", commands.str() }
-  });
-
-  // then the actual Deleter classes can be listed
-  deleterTypesIt = vkData.deleterTypes.find(dependencyData.name);
-  if (deleterTypesIt != vkData.deleterTypes.end())
-  {
-    writeDeleterClasses(os, *deleterTypesIt, vkData.deleterData);
-  }
-
-  // and finally the commands, that are member functions of this handle
-  for (size_t i = 0; i < handleData.commands.size(); i++)
-  {
-    std::string commandName = handleData.commands[i];
-    std::map<std::string, CommandData>::const_iterator cit = vkData.commands.find(commandName);
-    assert((cit != vkData.commands.end()) && !cit->second.className.empty());
-    std::list<DependencyData>::const_iterator dep = std::find_if(dependencies.begin(), dependencies.end(), [commandName](DependencyData const& dd) { return dd.name == commandName; });
-    assert(dep != dependencies.end() && (dep->name == cit->second.fullName));
-    writeTypeCommand(os, "  ", vkData, cit->second, true);
-  }
-
-  leaveProtect(os, handleData.protect);
+//  enterProtect(os, handleData.protect);
+//
+//  // check if there are any forward dependenices for this handle -> list them first
+//  if (!dependencyData.forwardDependencies.empty())
+//  {
+//    os << "  // forward declarations" << std::endl;
+//    for (std::set<std::string>::const_iterator it = dependencyData.forwardDependencies.begin(); it != dependencyData.forwardDependencies.end(); ++it)
+//    {
+//      assert(vkData.structs.find(*it) != vkData.structs.end());
+//      os << "  struct " << *it << ";" << std::endl;
+//    }
+//    os << std::endl;
+//  }
+//
+//  // then write any forward declaration of Deleters used by this handle
+//  std::map<std::string, std::set<std::string>>::const_iterator deleterTypesIt = vkData.deleterTypes.find(dependencyData.name);
+//  if (deleterTypesIt != vkData.deleterTypes.end())
+//  {
+//    writeDeleterForwardDeclarations(os, *deleterTypesIt, vkData.deleterData);
+//  }
+//
+//  const std::string memberName = startLowerCase(dependencyData.name);
+//  const std::string templateString = 
+//R"(  class ${className}
+//  {
+//  public:
+//    ${className}()
+//      : m_${memberName}(VK_NULL_HANDLE)
+//    {}
+//
+//    ${className}( std::nullptr_t )
+//      : m_${memberName}(VK_NULL_HANDLE)
+//    {}
+//
+//    VULKAN_HPP_TYPESAFE_EXPLICIT ${className}( Vk${className} ${memberName} )
+//       : m_${memberName}( ${memberName} )
+//    {}
+//
+//#if defined(VULKAN_HPP_TYPESAFE_CONVERSION)
+//    ${className} & operator=(Vk${className} ${memberName})
+//    {
+//      m_${memberName} = ${memberName};
+//      return *this; 
+//    }
+//#endif
+//
+//    ${className} & operator=( std::nullptr_t )
+//    {
+//      m_${memberName} = VK_NULL_HANDLE;
+//      return *this;
+//    }
+//
+//    bool operator==( ${className} const & rhs ) const
+//    {
+//      return m_${memberName} == rhs.m_${memberName};
+//    }
+//
+//    bool operator!=(${className} const & rhs ) const
+//    {
+//      return m_${memberName} != rhs.m_${memberName};
+//    }
+//
+//    bool operator<(${className} const & rhs ) const
+//    {
+//      return m_${memberName} < rhs.m_${memberName};
+//    }
+//
+//${commands}
+//
+//    VULKAN_HPP_TYPESAFE_EXPLICIT operator Vk${className}() const
+//    {
+//      return m_${memberName};
+//    }
+//
+//    explicit operator bool() const
+//    {
+//      return m_${memberName} != VK_NULL_HANDLE;
+//    }
+//
+//    bool operator!() const
+//    {
+//      return m_${memberName} == VK_NULL_HANDLE;
+//    }
+//
+//  private:
+//    Vk${className} m_${memberName};
+//  };
+//
+//  static_assert( sizeof( ${className} ) == sizeof( Vk${className} ), "handle and wrapper have different size!" );
+//
+//)";
+//
+//  std::ostringstream commands;
+//  // now list all the commands that are mapped to members of this class
+//  for (size_t i = 0; i < handleData.commands.size(); i++)
+//  {
+//    std::string commandName = handleData.commands[i];
+//    std::map<std::string, CommandData>::const_iterator cit = vkData.commands.find(commandName);
+//    assert((cit != vkData.commands.end()) && !cit->second.className.empty());
+//    writeTypeCommand(commands, "    ", vkData, cit->second, false);
+//  }
+//
+//  os << replaceWithMap(templateString, {
+//    { "className", dependencyData.name },
+//    { "memberName", memberName },
+//    { "commands", commands.str() }
+//  });
+//
+//  // then the actual Deleter classes can be listed
+//  deleterTypesIt = vkData.deleterTypes.find(dependencyData.name);
+//  if (deleterTypesIt != vkData.deleterTypes.end())
+//  {
+//    writeDeleterClasses(os, *deleterTypesIt, vkData.deleterData);
+//  }
+//
+//  // and finally the commands, that are member functions of this handle
+//  for (size_t i = 0; i < handleData.commands.size(); i++)
+//  {
+//    std::string commandName = handleData.commands[i];
+//    std::map<std::string, CommandData>::const_iterator cit = vkData.commands.find(commandName);
+//    assert((cit != vkData.commands.end()) && !cit->second.className.empty());
+//    std::list<DependencyData>::const_iterator dep = std::find_if(dependencies.begin(), dependencies.end(), [commandName](DependencyData const& dd) { return dd.name == commandName; });
+//    assert(dep != dependencies.end() && (dep->name == cit->second.fullName));
+//    writeTypeCommand(os, "  ", vkData, cit->second, true);
+//  }
+//
+//  leaveProtect(os, handleData.protect);
 }
 
-void writeTypeScalar( std::ostream & os, DependencyData const& dependencyData )
+void writeTypeScalar( std::ostream & os )
 {
-  assert( dependencyData.dependencies.size() == 1 );
-  os << "  using " << dependencyData.name << " = " << *dependencyData.dependencies.begin() << ";" << std::endl
-      << std::endl;
+	// TODO: Removed dependencies
+
+  //assert( dependencyData.dependencies.size() == 1 );
+  //os << "  using " << dependencyData.name << " = " << *dependencyData.dependencies.begin() << ";" << std::endl
+  //    << std::endl;
 }
 
 bool containsUnion(std::string const& type, std::map<std::string, StructData> const& structs)
@@ -3181,248 +3133,254 @@ bool containsUnion(std::string const& type, std::map<std::string, StructData> co
   return found;
 }
 
-void writeTypeStruct( std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, std::map<std::string,std::string> const& defaultValues )
+void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues )
 {
-  std::map<std::string,StructData>::const_iterator it = vkData.structs.find( dependencyData.name );
-  assert( it != vkData.structs.end() );
+	// TODO: Removed dependencies
 
-  enterProtect(os, it->second.protect);
-  os << "  struct " << dependencyData.name << std::endl
-      << "  {" << std::endl;
+  //std::map<std::string,StructData>::const_iterator it = vkData.structs.find( dependencyData.name );
+  //assert( it != vkData.structs.end() );
 
-  // only structs that are not returnedOnly get a constructor!
-  if ( !it->second.returnedOnly )
-  {
-    writeStructConstructor( os, dependencyData.name, it->second, vkData.vkTypes, defaultValues );
-  }
+  //enterProtect(os, it->second.protect);
+  //os << "  struct " << dependencyData.name << std::endl
+  //    << "  {" << std::endl;
 
-  // create the setters
-  if (!it->second.returnedOnly)
-  {
-    for (size_t i = 0; i<it->second.members.size(); i++)
-    {
-      writeStructSetter( os, dependencyData.name, it->second.members[i], vkData.vkTypes );
-    }
-  }
+  //// only structs that are not returnedOnly get a constructor!
+  //if ( !it->second.returnedOnly )
+  //{
+  //  writeStructConstructor( os, dependencyData.name, it->second, vkData.vkTypes, defaultValues );
+  //}
 
-  // the cast-operator to the wrapped struct
-  os << "    operator const Vk" << dependencyData.name << "&() const" << std::endl
-      << "    {" << std::endl
-      << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
-      << "    }" << std::endl
-      << std::endl;
+  //// create the setters
+  //if (!it->second.returnedOnly)
+  //{
+  //  for (size_t i = 0; i<it->second.members.size(); i++)
+  //  {
+  //    writeStructSetter( os, dependencyData.name, it->second.members[i], vkData.vkTypes );
+  //  }
+  //}
 
-  // operator==() and operator!=()
-  // only structs without a union as a member can have a meaningfull == and != operation; we filter them out
-  if (!containsUnion(dependencyData.name, vkData.structs))
-  {
-    // two structs are compared by comparing each of the elements
-    os << "    bool operator==( " << dependencyData.name << " const& rhs ) const" << std::endl
-        << "    {" << std::endl
-        << "      return ";
-    for (size_t i = 0; i < it->second.members.size(); i++)
-    {
-      if (i != 0)
-      {
-        os << std::endl << "          && ";
-      }
-      if (!it->second.members[i].arraySize.empty())
-      {
-        os << "( memcmp( " << it->second.members[i].name << ", rhs." << it->second.members[i].name << ", " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) ) == 0 )";
-      }
-      else
-      {
-        os << "( " << it->second.members[i].name << " == rhs." << it->second.members[i].name << " )";
-      }
-    }
-    os << ";" << std::endl
-        << "    }" << std::endl
-        << std::endl
-        << "    bool operator!=( " << dependencyData.name << " const& rhs ) const" << std::endl
-        << "    {" << std::endl
-        << "      return !operator==( rhs );" << std::endl
-        << "    }" << std::endl
-        << std::endl;
-  }
+  //// the cast-operator to the wrapped struct
+  //os << "    operator const Vk" << dependencyData.name << "&() const" << std::endl
+  //    << "    {" << std::endl
+  //    << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
+  //    << "    }" << std::endl
+  //    << std::endl;
 
-  // the member variables
-  for (size_t i = 0; i < it->second.members.size(); i++)
-  {
-    if (it->second.members[i].type == "StructureType")
-    {
-      assert((i == 0) && (it->second.members[i].name == "sType"));
-      os << "  private:" << std::endl
-          << "    StructureType sType;" << std::endl
-          << std::endl
-          << "  public:" << std::endl;
-    }
-    else
-    {
-      os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
-      if (!it->second.members[i].arraySize.empty())
-      {
-        os << "[" << it->second.members[i].arraySize << "]";
-      }
-      os << ";" << std::endl;
-    }
-  }
-  os << "  };" << std::endl
-      << "  static_assert( sizeof( " << dependencyData.name << " ) == sizeof( Vk" << dependencyData.name << " ), \"struct and wrapper have different size!\" );" << std::endl;
+  //// operator==() and operator!=()
+  //// only structs without a union as a member can have a meaningfull == and != operation; we filter them out
+  //if (!containsUnion(dependencyData.name, vkData.structs))
+  //{
+  //  // two structs are compared by comparing each of the elements
+  //  os << "    bool operator==( " << dependencyData.name << " const& rhs ) const" << std::endl
+  //      << "    {" << std::endl
+  //      << "      return ";
+  //  for (size_t i = 0; i < it->second.members.size(); i++)
+  //  {
+  //    if (i != 0)
+  //    {
+  //      os << std::endl << "          && ";
+  //    }
+  //    if (!it->second.members[i].arraySize.empty())
+  //    {
+  //      os << "( memcmp( " << it->second.members[i].name << ", rhs." << it->second.members[i].name << ", " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) ) == 0 )";
+  //    }
+  //    else
+  //    {
+  //      os << "( " << it->second.members[i].name << " == rhs." << it->second.members[i].name << " )";
+  //    }
+  //  }
+  //  os << ";" << std::endl
+  //      << "    }" << std::endl
+  //      << std::endl
+  //      << "    bool operator!=( " << dependencyData.name << " const& rhs ) const" << std::endl
+  //      << "    {" << std::endl
+  //      << "      return !operator==( rhs );" << std::endl
+  //      << "    }" << std::endl
+  //      << std::endl;
+  //}
 
-  leaveProtect(os, it->second.protect);
-  os << std::endl;
+  //// the member variables
+  //for (size_t i = 0; i < it->second.members.size(); i++)
+  //{
+  //  if (it->second.members[i].type == "StructureType")
+  //  {
+  //    assert((i == 0) && (it->second.members[i].name == "sType"));
+  //    os << "  private:" << std::endl
+  //        << "    StructureType sType;" << std::endl
+  //        << std::endl
+  //        << "  public:" << std::endl;
+  //  }
+  //  else
+  //  {
+  //    os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
+  //    if (!it->second.members[i].arraySize.empty())
+  //    {
+  //      os << "[" << it->second.members[i].arraySize << "]";
+  //    }
+  //    os << ";" << std::endl;
+  //  }
+  //}
+  //os << "  };" << std::endl
+  //    << "  static_assert( sizeof( " << dependencyData.name << " ) == sizeof( Vk" << dependencyData.name << " ), \"struct and wrapper have different size!\" );" << std::endl;
+
+  //leaveProtect(os, it->second.protect);
+  //os << std::endl;
 }
 
-void writeTypeUnion( std::ostream & os, VkData const& vkData, DependencyData const& dependencyData, std::map<std::string,std::string> const& defaultValues )
+void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues )
 {
-  std::map<std::string, StructData>::const_iterator it = vkData.structs.find(dependencyData.name);
-  assert(it != vkData.structs.end());
+	// TODO: Removed dependencies
 
-  std::ostringstream oss;
-  os << "  union " << dependencyData.name << std::endl
-      << "  {" << std::endl;
+  //std::map<std::string, StructData>::const_iterator it = vkData.structs.find(dependencyData.name);
+  //assert(it != vkData.structs.end());
 
-  for ( size_t i=0 ; i<it->second.members.size() ; i++ )
-  {
-    // one constructor per union element
-    os << "    " << dependencyData.name << "( ";
-    if ( it->second.members[i].arraySize.empty() )
-    {
-      os << it->second.members[i].type << " ";
-    }
-    else
-    {
-      os << "const std::array<" << it->second.members[i].type << "," << it->second.members[i].arraySize << ">& ";
-    }
-    os << it->second.members[i].name << "_";
+  //std::ostringstream oss;
+  //os << "  union " << dependencyData.name << std::endl
+  //    << "  {" << std::endl;
 
-    // just the very first constructor gets default arguments
-    if ( i == 0 )
-    {
-      std::map<std::string,std::string>::const_iterator defaultIt = defaultValues.find( it->second.members[i].pureType );
-      assert(defaultIt != defaultValues.end() );
-      if ( it->second.members[i].arraySize.empty() )
-      {
-        os << " = " << defaultIt->second;
-      }
-      else
-      {
-        os << " = { {" << defaultIt->second << "} }";
-      }
-    }
-    os << " )" << std::endl
-        << "    {" << std::endl
-        << "      ";
-    if ( it->second.members[i].arraySize.empty() )
-    {
-      os << it->second.members[i].name << " = " << it->second.members[i].name << "_";
-    }
-    else
-    {
-      os << "memcpy( &" << it->second.members[i].name << ", " << it->second.members[i].name << "_.data(), " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) )";
-    }
-    os << ";" << std::endl
-        << "    }" << std::endl
-        << std::endl;
-    }
+  //for ( size_t i=0 ; i<it->second.members.size() ; i++ )
+  //{
+  //  // one constructor per union element
+  //  os << "    " << dependencyData.name << "( ";
+  //  if ( it->second.members[i].arraySize.empty() )
+  //  {
+  //    os << it->second.members[i].type << " ";
+  //  }
+  //  else
+  //  {
+  //    os << "const std::array<" << it->second.members[i].type << "," << it->second.members[i].arraySize << ">& ";
+  //  }
+  //  os << it->second.members[i].name << "_";
 
-  for (size_t i = 0; i<it->second.members.size(); i++)
-  {
-    // one setter per union element
-    assert(!it->second.returnedOnly);
-    writeStructSetter(os, dependencyData.name, it->second.members[i], vkData.vkTypes);
-  }
+  //  // just the very first constructor gets default arguments
+  //  if ( i == 0 )
+  //  {
+  //    std::map<std::string,std::string>::const_iterator defaultIt = defaultValues.find( it->second.members[i].pureType );
+  //    assert(defaultIt != defaultValues.end() );
+  //    if ( it->second.members[i].arraySize.empty() )
+  //    {
+  //      os << " = " << defaultIt->second;
+  //    }
+  //    else
+  //    {
+  //      os << " = { {" << defaultIt->second << "} }";
+  //    }
+  //  }
+  //  os << " )" << std::endl
+  //      << "    {" << std::endl
+  //      << "      ";
+  //  if ( it->second.members[i].arraySize.empty() )
+  //  {
+  //    os << it->second.members[i].name << " = " << it->second.members[i].name << "_";
+  //  }
+  //  else
+  //  {
+  //    os << "memcpy( &" << it->second.members[i].name << ", " << it->second.members[i].name << "_.data(), " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) )";
+  //  }
+  //  os << ";" << std::endl
+  //      << "    }" << std::endl
+  //      << std::endl;
+  //  }
 
-  // the implicit cast operator to the native type
-  os << "    operator Vk" << dependencyData.name << " const& () const" << std::endl
-      << "    {" << std::endl
-      << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
-      << "    }" << std::endl
-      << std::endl;
+  //for (size_t i = 0; i<it->second.members.size(); i++)
+  //{
+  //  // one setter per union element
+  //  assert(!it->second.returnedOnly);
+  //  writeStructSetter(os, dependencyData.name, it->second.members[i], vkData.vkTypes);
+  //}
 
-  // the union member variables
-  // if there's at least one Vk... type in this union, check for unrestricted unions support
-  bool needsUnrestrictedUnions = false;
-  for (size_t i = 0; i < it->second.members.size() && !needsUnrestrictedUnions; i++)
-  {
-    needsUnrestrictedUnions = (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end());
-  }
-  if (needsUnrestrictedUnions)
-  {
-    os << "#ifdef VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
-    for (size_t i = 0; i < it->second.members.size(); i++)
-    {
-      os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
-      if (!it->second.members[i].arraySize.empty())
-      {
-        os << "[" << it->second.members[i].arraySize << "]";
-      }
-      os << ";" << std::endl;
-    }
-    os << "#else" << std::endl;
-  }
-  for (size_t i = 0; i < it->second.members.size(); i++)
-  {
-    os << "    ";
-    if (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end())
-    {
-      os << "Vk";
-    }
-    os << it->second.members[i].type << " " << it->second.members[i].name;
-    if (!it->second.members[i].arraySize.empty())
-    {
-      os << "[" << it->second.members[i].arraySize << "]";
-    }
-    os << ";" << std::endl;
-  }
-  if (needsUnrestrictedUnions)
-  {
-    os << "#endif  // VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
-  }
-  os << "  };" << std::endl
-      << std::endl;
+  //// the implicit cast operator to the native type
+  //os << "    operator Vk" << dependencyData.name << " const& () const" << std::endl
+  //    << "    {" << std::endl
+  //    << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
+  //    << "    }" << std::endl
+  //    << std::endl;
+
+  //// the union member variables
+  //// if there's at least one Vk... type in this union, check for unrestricted unions support
+  //bool needsUnrestrictedUnions = false;
+  //for (size_t i = 0; i < it->second.members.size() && !needsUnrestrictedUnions; i++)
+  //{
+  //  needsUnrestrictedUnions = (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end());
+  //}
+  //if (needsUnrestrictedUnions)
+  //{
+  //  os << "#ifdef VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
+  //  for (size_t i = 0; i < it->second.members.size(); i++)
+  //  {
+  //    os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
+  //    if (!it->second.members[i].arraySize.empty())
+  //    {
+  //      os << "[" << it->second.members[i].arraySize << "]";
+  //    }
+  //    os << ";" << std::endl;
+  //  }
+  //  os << "#else" << std::endl;
+  //}
+  //for (size_t i = 0; i < it->second.members.size(); i++)
+  //{
+  //  os << "    ";
+  //  if (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end())
+  //  {
+  //    os << "Vk";
+  //  }
+  //  os << it->second.members[i].type << " " << it->second.members[i].name;
+  //  if (!it->second.members[i].arraySize.empty())
+  //  {
+  //    os << "[" << it->second.members[i].arraySize << "]";
+  //  }
+  //  os << ";" << std::endl;
+  //}
+  //if (needsUnrestrictedUnions)
+  //{
+  //  os << "#endif  // VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
+  //}
+  //os << "  };" << std::endl
+  //    << std::endl;
 }
 
 void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues)
 {
-  for ( std::list<DependencyData>::const_iterator it = vkData.dependencies.begin() ; it != vkData.dependencies.end() ; ++it )
-  {
-    switch( it->category )
-    {
-      case DependencyData::Category::COMMAND :
-        writeTypeCommand( os, vkData, *it );
-        break;
-      case DependencyData::Category::ENUM :
-        assert( vkData.enums.find( it->name ) != vkData.enums.end() );
-        writeTypeEnum( os, vkData.enums.find( it->name )->second );
-        break;
-      case DependencyData::Category::FLAGS :
-        assert(vkData.flags.find(it->name) != vkData.flags.end());
-        writeTypeFlags( os, it->name, vkData.flags.find( it->name)->second, vkData.enums.find(generateEnumNameForFlags(it->name))->second );
-        break;
-      case DependencyData::Category::FUNC_POINTER :
-      case DependencyData::Category::REQUIRED :
-        // skip FUNC_POINTER and REQUIRED, they just needed to be in the dependencies list to resolve dependencies
-        break;
-      case DependencyData::Category::HANDLE :
-        assert(vkData.handles.find(it->name) != vkData.handles.end());
-        writeTypeHandle(os, vkData, *it, vkData.handles.find(it->name)->second, vkData.dependencies);
-        break;
-      case DependencyData::Category::SCALAR :
-        writeTypeScalar( os, *it );
-        break;
-      case DependencyData::Category::STRUCT :
-        writeTypeStruct( os, vkData, *it, defaultValues );
-        break;
-      case DependencyData::Category::UNION :
-        assert( vkData.structs.find( it->name ) != vkData.structs.end() );
-        writeTypeUnion( os, vkData, *it, defaultValues );
-        break;
-      default :
-        assert( false );
-        break;
-    }
-  }
+	// TODO: Removed dependencies
+
+  //for ( std::list<DependencyData>::const_iterator it = vkData.dependencies.begin() ; it != vkData.dependencies.end() ; ++it )
+  //{
+  //  switch( it->category )
+  //  {
+  //    case DependencyData::Category::COMMAND :
+  //      writeTypeCommand( os, vkData, *it );
+  //      break;
+  //    case DependencyData::Category::ENUM :
+  //      assert( vkData.enums.find( it->name ) != vkData.enums.end() );
+  //      writeTypeEnum( os, vkData.enums.find( it->name )->second );
+  //      break;
+  //    case DependencyData::Category::FLAGS :
+  //      assert(vkData.flags.find(it->name) != vkData.flags.end());
+  //      writeTypeFlags( os, it->name, vkData.flags.find( it->name)->second, vkData.enums.find(generateEnumNameForFlags(it->name))->second );
+  //      break;
+  //    case DependencyData::Category::FUNC_POINTER :
+  //    case DependencyData::Category::REQUIRED :
+  //      // skip FUNC_POINTER and REQUIRED, they just needed to be in the dependencies list to resolve dependencies
+  //      break;
+  //    case DependencyData::Category::HANDLE :
+  //      assert(vkData.handles.find(it->name) != vkData.handles.end());
+  //      writeTypeHandle(os, vkData, *it, vkData.handles.find(it->name)->second, vkData.dependencies);
+  //      break;
+  //    case DependencyData::Category::SCALAR :
+  //      writeTypeScalar( os, *it );
+  //      break;
+  //    case DependencyData::Category::STRUCT :
+  //      writeTypeStruct( os, vkData, *it, defaultValues );
+  //      break;
+  //    case DependencyData::Category::UNION :
+  //      assert( vkData.structs.find( it->name ) != vkData.structs.end() );
+  //      writeTypeUnion( os, vkData, *it, defaultValues );
+  //      break;
+  //    default :
+  //      assert( false );
+  //      break;
+  //  }
+  //}
 }
 
 void writeVersionCheck(std::ostream & os, std::string const& version)
@@ -3496,7 +3454,9 @@ int main(int argc, char **argv)
 			}
 		}
 
-		sortDependencies(vkData.dependencies);
+		// TODO: Removed dependencies
+
+		//sortDependencies(vkData.dependencies);
 
 		std::map<std::string, std::string> defaultValues;
 		createDefaults(vkData, defaultValues);
@@ -3532,18 +3492,22 @@ pub mod core {
 
 		ofs << std::endl;
 
-		// First of all, write out vk::Result
-		std::list<DependencyData>::const_iterator it = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [](DependencyData const& dp) { return dp.name == "Result"; });
-		assert(it != vkData.dependencies.end());
-		writeTypeEnum(ofs, vkData.enums.find(it->name)->second);
+		// TODO: Removed dependencies
 
-		// Remove vk::Result because it has been handled
-		vkData.dependencies.erase(it);
+		//// First of all, write out vk::Result
+		//std::list<DependencyData>::const_iterator it = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [](DependencyData const& dp) { return dp.name == "Result"; });
+		//assert(it != vkData.dependencies.end());
+		//writeTypeEnum(ofs, vkData.enums.find(it->name)->second);
+
+		//// Remove vk::Result because it has been handled
+		//vkData.dependencies.erase(it);
 
 		ofs << std::endl;
 
-		assert(vkData.deleterTypes.find("") != vkData.deleterTypes.end());
-		writeTypes(ofs, vkData, defaultValues);
+		// TODO: Removed dependencies
+
+		//assert(vkData.deleterTypes.find("") != vkData.deleterTypes.end());
+		//writeTypes(ofs, vkData, defaultValues);
 
 		ofs << "} // mod core" << std::endl;
 	}
