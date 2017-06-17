@@ -84,7 +84,8 @@ public:
 		Windows,
 		Xcb,
 		C_MAX,
-		VulkanUndefined,
+		Undefined,
+		Pointer,
 		VulkanTypedef,
 		VulkanBitmasks,
 	};
@@ -114,7 +115,7 @@ public:
 		// defer definitions of Vulkan types in particular and have a separate
 		// API for them.
 		INSERT_C_TYPE("void", "()", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("void*", "*mut c_void", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("void*", "*mut c_void", Type::Kind::IntrinsicC); // TODO: Remove this, should by Type using pointer to a type that is void (is should check if the base type is void)
 		INSERT_C_TYPE("char", "c_char", Type::Kind::IntrinsicC);
 		INSERT_C_TYPE("float", "f32", Type::Kind::IntrinsicC);
 		INSERT_C_TYPE("uint8_t", "u8", Type::Kind::IntrinsicC);
@@ -150,46 +151,181 @@ public:
 #undef INSERT_C_TYPE
 	}
 
-	Type* getType(const std::string& type) {
-		assert(type != "int"); // Deliberately omitted as it's not used
+	// TODO: associated function som skapar av en viss sort med parametrar, privat constructor
+#define INSERT_VULKAN_TYPE(name, type) (assert(_vulkanTypes.insert(std::make_pair(name, type)).second == true))
 
-		// If we can find a C type we return it immediately.
-		auto it = _ctypes.find(type);
-		if (it != _ctypes.end()) {
-			return it->second;
+	// TODO: When inserting the type, it's okay if it already exists. It just
+	// means that it should be undefined when we update it to be a typedef.
+	void scalarTypedef(const std::string& type, const std::string& name) {
+		assert(strncmp(name.c_str(), "Vk", 2) == 0);
+		assert(name.find_first_of("* ") == std::string::npos);
+		// TODO: create type with associated function to pass along its alias.
+		// Remove _scalarTypedefs and when I need them later I can find on all
+		// Vulkan types using a lambda to check that the enum is VulkanTypedef.
+		// Maybe using find_if
+		assert(_scalarTypedefs.insert({ name, type }).second == true);
+		Type* t = new Type(name, Type::Kind::VulkanTypedef);
+		INSERT_VULKAN_TYPE(name, t);
+	}
+
+	// TODO: When inserting the type, it's okay if it already exists. It just
+	// means that it should be undefined when we update it to be a bitmask.
+	void bitmasks(const std::string& name) {
+		assert(strncmp(name.c_str(), "Vk", 2) == 0);
+		assert(name.find_first_of("* ") == std::string::npos);
+		Type* t = new Type(name, Type::Kind::VulkanBitmasks);
+		INSERT_VULKAN_TYPE(name, t);
+	}
+
+	// The purpose of this function is to return an object that represents some
+	// type used in the API. A complete type (including pointers and const mod-
+	// ifiers) is accepted, which is then disected into parts. This way, when
+	// parsing we can just ask for the type and let somebody else deal with the
+	// administration of properly pointing to some base type. The base types
+	// themselves are only stored once and then their pointers are reused.
+	// This allows declaring Vulkan types before they are defined by returning
+	// a type that is VulkanUndefined for the time being but later updated when
+	// parsing its definition. Another benefit of this is that we can define the
+	// limited set of C types manually up front instead of trying to deduce it
+	// from the spec. They need some form of translation into Rust, which is why
+	// we want to know which types are C and which ones are Vulkan. Thus, if a
+	// type does not already exist, we assume that it's Vulkan. If it turns out
+	// that it's not, then it will remain as undefined because the spec never
+	// tells us what it is, thus indicating that it was C all the time.
+	
+	Type* getType(const std::string& name) {
+		std::string text = name;
+		
+		// Split type so we can work with parts
+		std::vector<std::string> parts;
+		size_t prev_pos = 0;
+		size_t this_pos = 0;
+		while ((this_pos = text.find_first_of("* ", prev_pos)) != std::string::npos) {
+			size_t len = this_pos - prev_pos;
+			if (len != 0) {
+				parts.push_back(text.substr(prev_pos, len));
+			}
+
+			if (text[this_pos] == '*') {
+				parts.push_back("*");
+			}
+
+			prev_pos = this_pos + 1;
 		}
 
-		// If we did not find a C type, we can assume that it's a Vulkan type.
-		// These types are treated separately and can be defined at a later
-		// time.
-		assert(strncmp(type.c_str(), "Vk", 2) == 0);
-		assert(false);
-		return nullptr; // Remove this later
-	}
+		if (prev_pos < text.length()) {
+			parts.push_back(text.substr(prev_pos));
+		}
 
-#define INSERT_VULKAN_TYPE(type, kind) (assert(_vulkanTypes.insert(std::make_pair(type, new Type(type, kind))).second == true))
+		assert(parts.size());
 
-	void typeDef(const std::string& type, const std::string& name) {
-		assert(strncmp(name.c_str(), "Vk", 2) == 0);
-		assert(_typedefs.insert({ name, type }).second == true);
-		INSERT_VULKAN_TYPE(name, Type::Kind::VulkanTypedef);
-	}
+		// Expected patterns:
+		// type
+		// type*
+		// type**
+		// const type*
+		// const type* const*
+		
+		// If we begin with a const, we swap the first two elements as it's
+		// semantically equivalent and eases the upcoming processing a bit.
+		if (parts.front() == "const") {
+			assert(parts.size() > 1);
+			std::swap(*parts.begin(), *(parts.begin() + 1));
+		}
 
-	void defineBitmasks(const std::string& name) {
-		assert(strncmp(name.c_str(), "Vk", 2) == 0);
-		INSERT_VULKAN_TYPE(name, Type::Kind::VulkanBitmasks);
+		// I don't check if the first part is something proper now. If it's not
+		// a valid type, it will never be defined (as that would imply the API
+		// being broken) as is thus captured as an undefined type. I do however
+		// check that all upcoming parts are either 'const' or '*'.
+		for (auto it = parts.cbegin() + 1; it != parts.end(); ++it) {
+			assert(*it == "*" || *it == "const");
+		}
+
+		std::string baseType = parts.front();
+		assert(baseType != "int"); // Not part of API as of now
+
+		// Now the base type is always the first element, so work it.
+		Type* type = nullptr;
+
+		// Attempt to acquire the type first from C types.
+		auto c_it = _ctypes.find(baseType);
+		if (c_it != _ctypes.end()) {
+			type = c_it->second;
+		}
+
+		// Attempt to acquire the type from Vulkan types.
+		auto vk_it = _vulkanTypes.find(baseType);
+		if (vk_it != _vulkanTypes.end()) {
+			// If we found a Vulkan type it must not also be a C type
+			assert(!type);
+			type = vk_it->second;
+		}
+
+		// If neither C nor Vulkan types worked, it's a new type that we create
+		// as an undefined type for now.
+		if (!type) {
+			type = new Type(baseType, Type::Kind::Undefined);
+			INSERT_VULKAN_TYPE(baseType, type);
+		}
+
+		// Now that we have the base type, we can work from the back to generate
+		// wrapping pointers if present.
+
+		Type* outer = nullptr;
+		Type* inner = nullptr;
+
+		auto hookupPtr = [&outer, &inner](Type* ptr) {
+			if (!outer) {
+				outer = ptr;
+			}
+			else if (!inner) {
+				// TODO: Set ptr to child ptr of outer and then inner = ptr
+				assert(false);
+			}
+			else {
+				// TODO: Set ptr to child ptr of inner and then inner = ptr
+				assert(false);
+			}
+		};
+
+		parts.erase(parts.begin()); // No longer need this
+
+		auto walker = parts.crbegin();
+		while (walker != parts.crend()) {
+			assert(*walker == "*");
+			walker++;
+			// No more => mutable pointer. Another pointer immediately => mutable
+			if (walker == parts.crend() || *walker == "*") {
+				Type* t = new Type("mut", Type::Kind::Pointer);
+				hookupPtr(t);
+			}
+			// Something more and it's not a pointer
+			else {
+				assert(*walker == "const");
+				walker++; // For next inner pointer
+				Type* t = new Type("const", Type::Kind::Pointer);
+				hookupPtr(t);
+			}
+		}
+
+		// Insert the base type
+		hookupPtr(type);
+
+		// Finally we should have a base type potentially wrapped by pointer
+		// types.
+		return outer;
 	}
 
 #undef INSERT_VULKAN_TYPE
 
-	const std::map<std::string, std::string>& typeDefs() {
-		return _typedefs;
+	const std::map<std::string, std::string>& getScalarTypedefs() {
+		return _scalarTypedefs;
 	}
 
 private:
 	std::map<std::string, Type*> _ctypes;
 	std::map<std::string, Type*> _vulkanTypes;
-	std::map<std::string, std::string> _typedefs; // typedef <Value> <Key>
+	std::map<std::string, std::string> _scalarTypedefs; // typedef <Value> <Key>
 } typeOracle;
 
 const std::string flagsMacro = R"(
@@ -1293,7 +1429,7 @@ void readTypeBasetype(tinyxml2::XMLElement * element)
 	//std::string name = strip(nameElement->GetText(), "Vk");
 	std::string name = nameElement->GetText();
 
-	typeOracle.typeDef(type, name);
+	typeOracle.scalarTypedef(type, name);
 
 	// TODO: Removed dependencies
 
@@ -1327,7 +1463,7 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 	// By telling the type oracle about these types they are no longer unknown
 	// but rather treated as actual enums that can be empty.
 
-	typeOracle.defineBitmasks(name);
+	typeOracle.bitmasks(name);
 }
 
 void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1343,102 +1479,100 @@ void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
 
 void readTypeFuncpointer(tinyxml2::XMLElement * element)
 {
-	assert(false);
-	// IMPORTANT: I think it's built up as follows:
-	// I first have a text node of the typedef stuff, followed by a name tag of
-	// the function name. After this is a text that opens parameter list. For a
-	// void function this is the only thing before the type tag ends. If there
-	// are parameters, I think each of them have a text node (perhaps optional)
-	// before the type tag (my previous solution with comma followed by const on
-	// a new line didn't catch anything following the comma, so I think a new
-	// node begins there). Then the type tag itself followed by a text node.
-	// This repeats until the main type tag ends. I can probably loop over nodes
-	// and use ToElement to see if I have found type tags where expected.
-
-	assert(element->GetText());
-	std::string text = element->GetText(); // The typedef <ret> part
-
-	tinyxml2::XMLElement * child = element->FirstChildElement();
-	assert(child && (strcmp(child->Value(), "name") == 0) && child->GetText());
-	std::string name = child->GetText(); // The type def name
+	// The typedef <ret> text node
+	tinyxml2::XMLNode * node = element->FirstChild();
+	assert(node && node->ToText());
+	std::string text = node->Value();
 
 	// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
 	// group 1.
 	std::regex re(R"(^typedef ([^ ]+) \(VKAPI_PTR \*$)");
 	auto it = std::sregex_iterator(text.begin(), text.end(), re);
 	auto end = std::sregex_iterator();
-
 	assert(it != end);
-
 	std::smatch match = *it;
 	std::string returnType = match[1].str();
 
-	// Text node of the parantheses after the name
-	tinyxml2::XMLNode * textNode = child->NextSibling();
-	assert(textNode && textNode->Value());
-	text = textNode->Value();
+	// name tag containing the type def name
+	node = node->NextSibling();
+	assert(node && node->ToElement());
+	tinyxml2::XMLElement * tag = node->ToElement();
+	assert(tag && strcmp(tag->Value(), "name") == 0 && tag->GetText());
+	std::string name = tag->GetText();
+	assert(!tag->FirstChildElement());
 
-	// If there is an upcoming sibling, match the parantheses after the name,
-	// optional new line with leading spaces and optional
-	// const. The latter indicates that the upcoming type has a const modifier.
-	// Match group 1 contains whether or not const was present. If we don't have an
-	// upcoming sibling we don't bother since it's a function taking no parameters.
-	bool nextTypeConst = false;
-	std::regex paramRegex(R"(^\)\(\n[ ]+(const )?$)");
-	if (child->NextSiblingElement()) {
-		it = std::sregex_iterator(text.begin(), text.end(), paramRegex);
-
+	// Text node after name tag beginning parameter list. Note that for void
+	// functions this is the last node that also ends the function definition.
+	node = node->NextSibling();
+	assert(node && node->ToText());
+	text = node->Value();
+	bool nextParamConst = false;
+	if (text != ")(void);") {
+		// In this case we will begin parameters, so we check if the first has
+		// a const modifier.
+		re = std::regex(R"(\)\(\n[ ]+(const )?)");
+		auto it = std::sregex_iterator(text.begin(), text.end(), re);
 		assert(it != end);
-
 		match = *it;
-		nextTypeConst = match[1].matched;
+		nextParamConst = match[1].matched;
 	}
 
-	while (child = child->NextSiblingElement()) {
-		bool thisConst = nextTypeConst;
-		nextTypeConst = false;
+	// Storage for parsed parameters (type, name)
+	std::vector<std::pair<Type*, std::string>> params;
 
-		assert(strcmp(child->Value(), "type") == 0 && child->GetText() && !child->FirstChildElement());
-		std::string type = child->GetText();
+	// Start processing parameters.
+	while (node = node->NextSibling()) {
+		bool constModifier = nextParamConst;
+		nextParamConst = false;
 
-		// Text after the type containing parameter name
-		textNode = child->NextSibling();
-		assert(textNode && textNode->Value());
-		text = textNode->Value();
+		// Type of parameter
+		tag = node->ToElement();
+		assert(tag && strcmp(tag->Value(), "type") == 0 && tag->GetText());
+		std::string paramType = tag->GetText();
+		assert(!tag->FirstChildElement());
+
+		// Text node containing parameter name and at times a pointer modifier.
+		node = node->NextSibling();
+		assert(node && node->ToText());
+		text = node->ToText()->Value();
 
 		// Match optional asterisk (group 1), a bunch of spaces, the parameter
-		// name (group 2), and the rest (group 3).
-		paramRegex = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
-
-		it = std::sregex_iterator(text.begin(), text.end(), paramRegex);
-
+		// name (group 2), and the rest (group 3). It doesn't seem that newline
+		// is a part of this. It's probably good because then I can easily work
+		// directly with suffix instead of more regex magic.
+		re = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
+		it = std::sregex_iterator(text.begin(), text.end(), re);
 		assert(it != end);
-
 		match = *it;
-
 		bool pointer = match[1].matched;
-		std::string param = match[2].str();
+		std::string paramName = match[2].str();
+		if (match[3].str() == ");") {
+			assert(!node->NextSibling());
+		}
+		else {
+			assert(match[3].str() == ",");
 
-		// If the rest is not the end of the parameter list, make a new regex
-		// to see if the next parameter is const.
-		std::string rest = match[3].str();
-		if (rest != ");") {
-			paramRegex = std::regex(R"(^,(\n[ ]+(const )?)?$)");
-
-			it = std::sregex_iterator(rest.begin(), rest.end(), paramRegex);
+			// Match on the suffix to know if the upcoming parameter is const.
+			std::string suffix = match.suffix().str();
+			re = std::regex(R"(^\n[ ]+(const )?$)");
+			it = std::sregex_iterator(suffix.begin(), suffix.end(), re);
 			assert(it != end);
 			match = *it;
-			nextTypeConst = match[2].matched;
+			nextParamConst = match[1].matched;
 		}
 
-		// TODO: Save parameter data in a vector (optional const modifier, type,
-		// pointer modifier, name)
+		params.push_back({
+			typeOracle.getType((constModifier ? "const " : "") + paramType + (pointer ? "*" : "")),
+			paramName,
+		});
 	}
 
-	assert(text.substr(text.length() - 2) == ");");
+	assert(false);
+	//typeOracle.functionTypedef(name, returnType, params);
 
-	// TODO: By now I should have function name, return value, and a vector of
-	// parameters. Use these to define a function typedef.
+
+
+
 
 
 
@@ -3704,7 +3838,7 @@ pub mod core {
 
 		ofs << std::endl;
 
-		for (auto tdef : typeOracle.typeDefs()) {
+		for (auto tdef : typeOracle.getScalarTypedefs()) {
 			ofs << "type " << tdef.first << " = " << tdef.second << ";" << std::endl;
 		}
 
