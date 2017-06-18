@@ -86,7 +86,8 @@ public:
 		C_MAX,
 		Undefined,
 		Pointer,
-		VulkanTypedef,
+		VulkanScalarTypedef,
+		VulkanFunctionTypedef,
 		VulkanBitmasks,
 	};
 
@@ -94,19 +95,122 @@ public:
 		return _kind < Kind::C_MAX;
 	}
 
+	void ptrSetInner(Type* ptr) {
+		assert(_kind == Type::Kind::Pointer);
+		_pointer.inner = ptr;
+	}
+
+	~Type() {
+		switch (_kind) {
+		case Type::Kind::IntrinsicC:
+		case Type::Kind::X11:
+		case Type::Kind::Android:
+		case Type::Kind::Mir:
+		case Type::Kind::Wayland:
+		case Type::Kind::Windows:
+		case Type::Kind::Xcb: {
+			_ctype.~CType();
+			break;
+		}
+		case Type::Kind::Undefined:
+			break;
+		case Type::Kind::Pointer:
+			_pointer.~Ptr();
+			break;
+		case Type::Kind::VulkanScalarTypedef:
+			_scalarTypedef.~VulkanScalarTypedef();
+			break;
+		case Type::Kind::VulkanFunctionTypedef:
+			_functionTypedef.~VulkanFunctionTypedef();
+			break;
+		case Type::Kind::VulkanBitmasks:
+			_bitmasks.~VulkanBitmasks();
+			break;
+		default:
+			assert(_kind != Type::Kind::C_MAX);
+		}
+	}
+
 private:
-	Type(std::string type, Kind kind) : _type(type), _kind(kind) {}
+	Type(std::string type) : _type(type), _kind(Kind::Undefined) {}
+
+	// Upgrade undefined to C type
+	void makeCType(const std::string& translation, Kind kind) {
+		assert(_kind == Kind::Undefined);
+		_kind = kind;
+		new(&_ctype.translation) std::string(translation);
+	}
+
+	// Upgrade undefined to pointer
+	void makePointer(const std::string& constness) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::Pointer;
+		new(&_pointer.constness) auto(constness);
+		_pointer.inner = nullptr;
+	}
+
+	// Upgrade undefined to scalar typedef
+	void makeScalarTypedef(Type* underlying) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanScalarTypedef;
+		_scalarTypedef.underlying = underlying;
+	}
+
+	// Upgrade undefined to function typedef
+	void makeFunctionTypedef(Type* returnType, const std::vector<std::pair<Type*, std::string>>& params) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanFunctionTypedef;
+		_functionTypedef.returnType = returnType;
+		new(&_functionTypedef.params) auto(params);
+	}
+
+	// Upgrade undefined to bitmasks
+	void makeBitmasks() {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanBitmasks;
+		new(&_bitmasks.variants) std::vector<std::pair<Type*, std::string>>();
+	}
 
 private:
 	std::string _type;
 	Kind _kind;
+
+	struct CType {
+		std::string translation;
+	};
+
+	struct Ptr {
+		std::string constness;
+		Type* inner;
+	};
+
+	struct VulkanScalarTypedef {
+		Type* underlying;
+	};
+
+	struct VulkanFunctionTypedef {
+		Type* returnType;
+		std::vector<std::pair<Type*, std::string>> params;
+	};
+
+	struct VulkanBitmasks {
+		std::vector<std::pair<std::string, std::string>> variants;
+	};
+
+	union {
+		CType _ctype;
+		Ptr _pointer;
+		VulkanScalarTypedef _scalarTypedef;
+		VulkanFunctionTypedef _functionTypedef;
+		VulkanBitmasks _bitmasks;
+	};
 };
 
 class Types {
 public:
 	Types()
 	{
-#define INSERT_C_TYPE(type, rustType, kind) (assert(_ctypes.insert(std::make_pair(type, new Type(rustType, kind))).second == true))
+#define INSERT_C_TYPE(type, rustType, kind) { Type* t = new Type(type); t->makeCType(rustType, kind); assert(_ctypes.insert(std::make_pair(type, t)).second == true); }
 
 		// I'm working under the assumption that the C and OS types used will
 		// be a comparatively small set so that I can deal with those manually.
@@ -115,7 +219,6 @@ public:
 		// defer definitions of Vulkan types in particular and have a separate
 		// API for them.
 		INSERT_C_TYPE("void", "()", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("void*", "*mut c_void", Type::Kind::IntrinsicC); // TODO: Remove this, should by Type using pointer to a type that is void (is should check if the base type is void)
 		INSERT_C_TYPE("char", "c_char", Type::Kind::IntrinsicC);
 		INSERT_C_TYPE("float", "f32", Type::Kind::IntrinsicC);
 		INSERT_C_TYPE("uint8_t", "u8", Type::Kind::IntrinsicC);
@@ -151,30 +254,30 @@ public:
 #undef INSERT_C_TYPE
 	}
 
-	// TODO: associated function som skapar av en viss sort med parametrar, privat constructor
-#define INSERT_VULKAN_TYPE(name, type) (assert(_vulkanTypes.insert(std::make_pair(name, type)).second == true))
+	void scalarTypedef(Type* existing, const std::string& alias) {
+		assert(strncmp(alias.c_str(), "Vk", 2) == 0);
+		assert(alias.find_first_of("* ") == std::string::npos);
 
-	// TODO: When inserting the type, it's okay if it already exists. It just
-	// means that it should be undefined when we update it to be a typedef.
-	void scalarTypedef(const std::string& type, const std::string& name) {
-		assert(strncmp(name.c_str(), "Vk", 2) == 0);
-		assert(name.find_first_of("* ") == std::string::npos);
-		// TODO: create type with associated function to pass along its alias.
-		// Remove _scalarTypedefs and when I need them later I can find on all
+		getVulkanType(alias)->makeScalarTypedef(existing);
+
+		// TODO: Remove _scalarTypedefs and when I need them later I can find on all
 		// Vulkan types using a lambda to check that the enum is VulkanTypedef.
 		// Maybe using find_if
-		assert(_scalarTypedefs.insert({ name, type }).second == true);
-		Type* t = new Type(name, Type::Kind::VulkanTypedef);
-		INSERT_VULKAN_TYPE(name, t);
+		//assert(_scalarTypedefs.insert({ alias, existing }).second == true);
 	}
 
-	// TODO: When inserting the type, it's okay if it already exists. It just
-	// means that it should be undefined when we update it to be a bitmask.
+	void functionTypedef(const std::string& name, Type* returnType, const std::vector<std::pair<Type*, std::string>> params) {
+		assert(strncmp(name.c_str(), "PFN_vk", 6) == 0);
+		assert(name.find_first_of("* ") == std::string::npos);
+
+		getVulkanType(name)->makeFunctionTypedef(returnType, params);
+	}
+
 	void bitmasks(const std::string& name) {
 		assert(strncmp(name.c_str(), "Vk", 2) == 0);
 		assert(name.find_first_of("* ") == std::string::npos);
-		Type* t = new Type(name, Type::Kind::VulkanBitmasks);
-		INSERT_VULKAN_TYPE(name, t);
+
+		getVulkanType(name)->makeBitmasks();
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -264,8 +367,8 @@ public:
 		// If neither C nor Vulkan types worked, it's a new type that we create
 		// as an undefined type for now.
 		if (!type) {
-			type = new Type(baseType, Type::Kind::Undefined);
-			INSERT_VULKAN_TYPE(baseType, type);
+			type = new Type(baseType);
+			_vulkanTypes.insert(std::make_pair(baseType, type));
 		}
 
 		// Now that we have the base type, we can work from the back to generate
@@ -279,12 +382,12 @@ public:
 				outer = ptr;
 			}
 			else if (!inner) {
-				// TODO: Set ptr to child ptr of outer and then inner = ptr
-				assert(false);
+				outer->ptrSetInner(ptr);
+				inner = ptr;
 			}
 			else {
-				// TODO: Set ptr to child ptr of inner and then inner = ptr
-				assert(false);
+				inner->ptrSetInner(ptr);
+				inner = ptr;
 			}
 		};
 
@@ -296,14 +399,16 @@ public:
 			walker++;
 			// No more => mutable pointer. Another pointer immediately => mutable
 			if (walker == parts.crend() || *walker == "*") {
-				Type* t = new Type("mut", Type::Kind::Pointer);
+				Type* t = new Type("");
+				t->makePointer("mut");
 				hookupPtr(t);
 			}
 			// Something more and it's not a pointer
 			else {
 				assert(*walker == "const");
 				walker++; // For next inner pointer
-				Type* t = new Type("const", Type::Kind::Pointer);
+				Type* t = new Type("");
+				t->makePointer("const");
 				hookupPtr(t);
 			}
 		}
@@ -316,10 +421,23 @@ public:
 		return outer;
 	}
 
-#undef INSERT_VULKAN_TYPE
-
 	const std::map<std::string, std::string>& getScalarTypedefs() {
 		return _scalarTypedefs;
+	}
+
+private:
+	Type* getVulkanType(const std::string& type) {
+		Type* t = nullptr;
+		auto it = _vulkanTypes.find(type);
+		if (it != _vulkanTypes.end()) {
+			t = it->second;
+		}
+		else {
+			t = new Type(type);
+			_vulkanTypes.insert(std::make_pair(type, t));
+		}
+
+		return t;
 	}
 
 private:
@@ -1413,23 +1531,17 @@ void readTypeBasetype(tinyxml2::XMLElement * element)
 	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
 	std::string type = typeElement->GetText();
-	if (type == "uint32_t") {
-		type = "u32";
-	}
-	else if (type == "uint64_t") {
-		type = "u64";
-	}
-	else {
-		assert(false);
-	}
+	assert(type == "uint32_t" || type == "uint64_t");
+
+	Type* underlying = typeOracle.getType(type);
 
 	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
 	// TODO: Removed stripping Vk
 	//std::string name = strip(nameElement->GetText(), "Vk");
-	std::string name = nameElement->GetText();
+	std::string newType = nameElement->GetText();
 
-	typeOracle.scalarTypedef(type, name);
+	typeOracle.scalarTypedef(underlying, newType);
 
 	// TODO: Removed dependencies
 
@@ -1567,17 +1679,7 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 		});
 	}
 
-	assert(false);
-	//typeOracle.functionTypedef(name, returnType, params);
-
-
-
-
-
-
-
-
-
+	typeOracle.functionTypedef(name, typeOracle.getType(returnType), params);
 
 	// TODO: Removed dependencies
 
