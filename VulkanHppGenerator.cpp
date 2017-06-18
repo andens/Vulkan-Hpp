@@ -90,6 +90,7 @@ public:
 		VulkanFunctionTypedef,
 		VulkanBitmasks,
 		VulkanHandleTypedef,
+		VulkanStruct,
 	};
 
 	bool isCType() {
@@ -97,8 +98,17 @@ public:
 	}
 
 	void ptrSetInner(Type* ptr) {
-		assert(_kind == Type::Kind::Pointer);
+		assert(_kind == Kind::Pointer);
 		_pointer.inner = ptr;
+	}
+
+	void structAddMember(Type* type, const std::string& name, const std::string& arraySize) {
+		assert(_kind == Kind::VulkanStruct);
+		_struct.members.push_back(std::make_tuple(type, name, arraySize));
+	}
+
+	~Type() {
+
 	}
 
 private:
@@ -148,6 +158,14 @@ private:
 		_handleTypedef.underlying = underlying;
 	}
 
+	// Upgrade undefined to struct
+	void makeStruct(bool isUnion) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanStruct;
+		new(&_struct.members) std::vector<std::tuple<Type*, std::string, std::string>>();
+		_struct.isUnion = isUnion;
+	}
+
 private:
 	std::string _type;
 	Kind _kind;
@@ -178,6 +196,11 @@ private:
 		Type* underlying;
 	};
 
+	struct VulkanStruct {
+		std::vector<std::tuple<Type*, std::string, std::string>> members;
+		bool isUnion;
+	};
+
 	union {
 		CType _ctype;
 		Ptr _pointer;
@@ -185,6 +208,7 @@ private:
 		VulkanFunctionTypedef _functionTypedef;
 		VulkanBitmasks _bitmasks;
 		VulkanHandleTypedef _handleTypedef;
+		VulkanStruct _struct;
 	};
 };
 
@@ -208,6 +232,7 @@ public:
 		INSERT_C_TYPE("uint64_t", "u64", Type::Kind::IntrinsicC);
 		INSERT_C_TYPE("int32_t", "i32", Type::Kind::IntrinsicC);
 		INSERT_C_TYPE("size_t", "usize", Type::Kind::IntrinsicC); // unsigned according to reference
+		INSERT_C_TYPE("int", "c_int", Type::Kind::IntrinsicC);
 
 		INSERT_C_TYPE("Display", "Display", Type::Kind::X11);
 		INSERT_C_TYPE("VisualID", "VisualID", Type::Kind::X11);
@@ -267,6 +292,13 @@ public:
 		assert(alias.find_first_of("* ") == std::string::npos);
 
 		getVulkanType(alias)->makeHandleTypedef(underlying);
+	}
+
+	void defineStruct(const std::string& type, bool isUnion) {
+		assert(strncmp(type.c_str(), "Vk", 2) == 0);
+		assert(type.find_first_of("* ") == std::string::npos);
+
+		getVulkanType(type)->makeStruct(isUnion);
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -334,7 +366,6 @@ public:
 		}
 
 		std::string baseType = parts.front();
-		assert(baseType != "int"); // Not part of API as of now
 
 		// Now the base type is always the first element, so work it.
 		Type* type = nullptr;
@@ -627,6 +658,8 @@ void readTypeFuncpointer( tinyxml2::XMLElement * element );
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion );
 void readTypeStructMember( tinyxml2::XMLElement * element, std::vector<MemberData> & members, std::set<std::string> & dependencies );
+void readTypeStructMember(Type* type, tinyxml2::XMLElement * element);
+tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::string& type);
 void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags);
 void readTypes(tinyxml2::XMLElement * element, VkData & vkData);
 std::string reduceName(std::string const& name, bool singular = false);
@@ -1486,35 +1519,6 @@ void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::str
   //}
 }
 
-tinyxml2::XMLNode* readType(tinyxml2::XMLNode* element, std::string & type, std::string & pureType)
-{
-  assert(element);
-  if (element->ToText())
-  {
-    std::string value = trimEnd(element->Value());
-    assert((value == "const") || (value == "struct"));
-    type = value + " ";
-    element = element->NextSibling();
-    assert(element);
-  }
-
-  assert(element->ToElement());
-  assert((strcmp(element->Value(), "type") == 0) && element->ToElement() && element->ToElement()->GetText());
-  pureType = strip(element->ToElement()->GetText(), "Vk");
-  type += pureType;
-
-  element = element->NextSibling();
-  assert(element);
-  if (element->ToText())
-  {
-    std::string value = trimEnd(element->Value());
-    assert((value == "*") || (value == "**") || (value == "* const*"));
-    type += value;
-    element = element->NextSibling();
-  }
-  return element;
-}
-
 void readTypeBasetype(tinyxml2::XMLElement * element)
 {
 	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
@@ -1705,53 +1709,93 @@ void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
 	//vkData.handles[name];
 }
 
-void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion )
+void readTypeStruct(tinyxml2::XMLElement * element, VkData & vkData, bool isUnion)
 {
-  assert( !element->Attribute( "returnedonly" ) || ( strcmp( element->Attribute( "returnedonly" ), "true" ) == 0 ) );
+	assert(!element->Attribute("returnedonly") || (strcmp(element->Attribute("returnedonly"), "true") == 0));
 
-  assert( element->Attribute( "name" ) );
-  std::string name = strip( element->Attribute( "name" ), "Vk" );
+	assert(element->Attribute("name"));
+	// TODO: Removed strip
+	//std::string name = strip(element->Attribute("name"), "Vk");
+	std::string name = element->Attribute("name");
 
-  if ( name == "Rect3D" )
-  {
-    // for whatever reason, VkRect3D is listed in vk.xml, but does not appear in vulkan.h!!
-    return;
-  }
-
-  // TODO: Removed dependencies
-
-  //vkData.dependencies.push_back( DependencyData( isUnion ? DependencyData::Category::UNION : DependencyData::Category::STRUCT, name ) );
-
-  assert( vkData.structs.find( name ) == vkData.structs.end() );
-  std::map<std::string,StructData>::iterator it = vkData.structs.insert( std::make_pair( name, StructData() ) ).first;
-  it->second.returnedOnly = !!element->Attribute( "returnedonly" );
-  it->second.isUnion = isUnion;
-
-  for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    assert( child->Value() );
-    std::string value = child->Value();
-    assert(value == "member");
 	// TODO: Removed dependencies
-    //readTypeStructMember( child, it->second.members, vkData.dependencies.back().dependencies );
-  }
+	//vkData.dependencies.push_back( DependencyData( isUnion ? DependencyData::Category::UNION : DependencyData::Category::STRUCT, name ) );
 
-  assert( vkData.vkTypes.find( name ) == vkData.vkTypes.end() );
-  vkData.vkTypes.insert( name );
+	// element->Attribute("returnedonly") is also applicable for structs and unions
+	typeOracle.defineStruct(name, isUnion);
+	Type* t = typeOracle.getType(name);
+
+	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+	{
+		assert(child->Value() && strcmp(child->Value(), "member") == 0);
+		// TODO: Removed dependencies
+		//readTypeStructMember( child, it->second.members, vkData.dependencies.back().dependencies );
+
+		readTypeStructMember(t, child);
+	}
 }
 
-void readTypeStructMember(tinyxml2::XMLElement * element, std::vector<MemberData> & members, std::set<std::string> & dependencies)
+// Read a member tag of a struct, adding members to the provided struct.
+void readTypeStructMember(Type* theStruct, tinyxml2::XMLElement * element) {
+	// The attributes of member tags seem to mostly concern documentation
+	// generation, so they are not of interest for the bindings.
+
+	// Read the type, parsing modifiers to get a string of the type.
+	std::string typeString("");
+	tinyxml2::XMLNode* child = readTypeStructMemberType(element->FirstChild(), typeString);
+	Type* type = typeOracle.getType(typeString);
+
+	// After we have parsed the type we expect to find the name of the member
+	assert(child->ToElement() && strcmp(child->Value(), "name") == 0 && child->ToElement()->GetText());
+	std::string memberName = child->ToElement()->GetText();
+
+	// Some members have more information about array size
+	std::string arraySize = readArraySize(child, memberName);
+
+	// Add member to struct
+	theStruct->structAddMember(type, memberName, arraySize);
+}
+
+// Reads the type tag of a member tag, including potential text nodes around
+// the type tag to get qualifiers. We pass the first node that could potentially
+// be a text node.
+tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::string& type)
 {
-  members.push_back(MemberData());
-  MemberData & member = members.back();
+	assert(element);
 
-  tinyxml2::XMLNode* child = readType(element->FirstChild(), member.type, member.pureType);
-  dependencies.insert(member.pureType);
+	if (element->ToText())
+	{
+		std::string value = trimEnd(element->Value());
+		if (value == "const") {
+			type = value + " ";
+		}
+		else {
+			// struct can happen as in VkWaylandSurfaceCreateInfoKHR. I just
+			// ignore them because I don't need them in Rust.
+			assert(value == "struct");
+		}
+		element = element->NextSibling();
+		assert(element);
+	}
 
-  assert((child->ToElement() && strcmp(child->Value(), "name") == 0));
-  member.name = child->ToElement()->GetText();
+	assert(element->ToElement());
+	assert((strcmp(element->Value(), "type") == 0) && element->ToElement()->GetText());
+	// TODO: Removed strip
+	//pureType = strip(element->ToElement()->GetText(), "Vk");
+	//type += pureType;
+	type += element->ToElement()->GetText();
 
-  member.arraySize = readArraySize(child, member.name);
+	element = element->NextSibling();
+	assert(element);
+	if (element->ToText())
+	{
+		std::string value = trimEnd(element->Value());
+		assert((value == "*") || (value == "**") || (value == "* const*"));
+		type += value;
+		element = element->NextSibling();
+	}
+
+	return element;
 }
 
 void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags)
@@ -3919,7 +3963,7 @@ int main(int argc, char **argv)
 pub mod core {
     extern crate libloading;
     use ::std::{mem, ptr};
-    use ::std::os::raw::{c_void, c_char};
+    use ::std::os::raw::{c_void, c_char, c_int};
     use ::std::ffi::CString;
     use ::std::ops::{BitOr, BitAnd};
     use ::std::fmt;
