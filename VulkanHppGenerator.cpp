@@ -89,6 +89,7 @@ public:
 		VulkanScalarTypedef,
 		VulkanFunctionTypedef,
 		VulkanBitmasks,
+		VulkanHandleTypedef,
 	};
 
 	bool isCType() {
@@ -98,37 +99,6 @@ public:
 	void ptrSetInner(Type* ptr) {
 		assert(_kind == Type::Kind::Pointer);
 		_pointer.inner = ptr;
-	}
-
-	~Type() {
-		switch (_kind) {
-		case Type::Kind::IntrinsicC:
-		case Type::Kind::X11:
-		case Type::Kind::Android:
-		case Type::Kind::Mir:
-		case Type::Kind::Wayland:
-		case Type::Kind::Windows:
-		case Type::Kind::Xcb: {
-			_ctype.~CType();
-			break;
-		}
-		case Type::Kind::Undefined:
-			break;
-		case Type::Kind::Pointer:
-			_pointer.~Ptr();
-			break;
-		case Type::Kind::VulkanScalarTypedef:
-			_scalarTypedef.~VulkanScalarTypedef();
-			break;
-		case Type::Kind::VulkanFunctionTypedef:
-			_functionTypedef.~VulkanFunctionTypedef();
-			break;
-		case Type::Kind::VulkanBitmasks:
-			_bitmasks.~VulkanBitmasks();
-			break;
-		default:
-			assert(_kind != Type::Kind::C_MAX);
-		}
 	}
 
 private:
@@ -171,6 +141,13 @@ private:
 		new(&_bitmasks.variants) std::vector<std::pair<Type*, std::string>>();
 	}
 
+	// Upgrade undefined to handle typedef
+	void makeHandleTypedef(Type* underlying) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanHandleTypedef;
+		_handleTypedef.underlying = underlying;
+	}
+
 private:
 	std::string _type;
 	Kind _kind;
@@ -197,12 +174,17 @@ private:
 		std::vector<std::pair<std::string, std::string>> variants;
 	};
 
+	struct VulkanHandleTypedef {
+		Type* underlying;
+	};
+
 	union {
 		CType _ctype;
 		Ptr _pointer;
 		VulkanScalarTypedef _scalarTypedef;
 		VulkanFunctionTypedef _functionTypedef;
 		VulkanBitmasks _bitmasks;
+		VulkanHandleTypedef _handleTypedef;
 	};
 };
 
@@ -278,6 +260,13 @@ public:
 		assert(name.find_first_of("* ") == std::string::npos);
 
 		getVulkanType(name)->makeBitmasks();
+	}
+
+	void handleTypedef(Type* underlying, const std::string& alias) {
+		assert(strncmp(alias.c_str(), "Vk", 2) == 0);
+		assert(alias.find_first_of("* ") == std::string::npos);
+
+		getVulkanType(alias)->makeHandleTypedef(underlying);
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -1688,27 +1677,32 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
 {
-	// TODO: I can probably always declare handles the same way as a u64 or something
-	// Dependencies on parents should not be necessary as I always just make aliases
-	// of these.
-
 	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
-#if !defined(NDEBUG)
 	std::string type = typeElement->GetText();
-	assert((type.find("VK_DEFINE_HANDLE") == 0) || (type.find("VK_DEFINE_NON_DISPATCHABLE_HANDLE") == 0));
-#endif
+	Type* underlying = nullptr;
+	if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
+		underlying = typeOracle.getType("size_t");
+	}
+	else {
+		assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
+		underlying = typeOracle.getType("uint64_t");
+	}
 
 	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	std::string name = strip(nameElement->GetText(), "Vk");
+	// TODO: Removed strip
+	//std::string name = strip(nameElement->GetText(), "Vk");
+	std::string name = nameElement->GetText();
+
+	typeOracle.handleTypedef(underlying, name);
 
 	// TODO: Removed dependencies
 	//vkData.dependencies.push_back(DependencyData(DependencyData::Category::HANDLE, name));
-	assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
-	vkData.vkTypes.insert(name);
-	assert(vkData.handles.find(name) == vkData.handles.end());
-	vkData.handles[name];
+	//assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
+	//vkData.vkTypes.insert(name);
+	//assert(vkData.handles.find(name) == vkData.handles.end());
+	//vkData.handles[name];
 }
 
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion )
@@ -1808,9 +1802,6 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 			else if (category == "funcpointer")
 			{
 				// C typedefs for function pointers.
-				// TODO: I think they are used to make sure we insert definitions
-				// for these before they are used. Note that their argument types are never
-				// actually saved, which is something I may have to do.
 				// TODO: Removed dependencies
 				readTypeFuncpointer(child);
 			}
