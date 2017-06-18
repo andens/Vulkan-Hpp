@@ -91,10 +91,19 @@ public:
 		VulkanBitmasks,
 		VulkanHandleTypedef,
 		VulkanStruct,
+		VulkanEnum,
 	};
 
 	bool isCType() {
 		return _kind < Kind::C_MAX;
+	}
+
+	bool isBitmask() {
+		return _kind == Kind::VulkanBitmasks;
+	}
+
+	bool isEnum() {
+		return _kind == Kind::VulkanEnum;
 	}
 
 	void ptrSetInner(Type* ptr) {
@@ -105,6 +114,16 @@ public:
 	void structAddMember(Type* type, const std::string& name, const std::string& arraySize) {
 		assert(_kind == Kind::VulkanStruct);
 		_struct.members.push_back(std::make_tuple(type, name, arraySize));
+	}
+
+	void bitmaskAddMember(const std::string& member, const std::string& value, bool isBitpos) {
+		assert(_kind == Kind::VulkanBitmasks);
+		_bitmasks.variants.push_back(std::make_tuple(member, value, isBitpos));
+	}
+
+	void enumAddMember(const std::string& member, const std::string& value) {
+		assert(_kind == Kind::VulkanEnum);
+		_enum.variants.push_back(std::make_pair(member, value));
 	}
 
 	~Type() {
@@ -148,7 +167,7 @@ private:
 	void makeBitmasks() {
 		assert(_kind == Kind::Undefined);
 		_kind = Kind::VulkanBitmasks;
-		new(&_bitmasks.variants) std::vector<std::pair<Type*, std::string>>();
+		new(&_bitmasks.variants) std::vector<std::tuple<std::string, std::string, bool>>();
 	}
 
 	// Upgrade undefined to handle typedef
@@ -164,6 +183,13 @@ private:
 		_kind = Kind::VulkanStruct;
 		new(&_struct.members) std::vector<std::tuple<Type*, std::string, std::string>>();
 		_struct.isUnion = isUnion;
+	}
+
+	// Upgrade undefined to enum
+	void makeEnum() {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanEnum;
+		new(&_enum.variants) std::vector<std::pair<std::string, std::string>>();
 	}
 
 private:
@@ -189,7 +215,7 @@ private:
 	};
 
 	struct VulkanBitmasks {
-		std::vector<std::pair<std::string, std::string>> variants;
+		std::vector<std::tuple<std::string, std::string, bool>> variants; // Bool represents if it's bitpos (otherwise it's direct value)
 	};
 
 	struct VulkanHandleTypedef {
@@ -201,6 +227,10 @@ private:
 		bool isUnion;
 	};
 
+	struct VulkanEnum {
+		std::vector<std::pair<std::string, std::string>> variants;
+	};
+
 	union {
 		CType _ctype;
 		Ptr _pointer;
@@ -209,6 +239,7 @@ private:
 		VulkanBitmasks _bitmasks;
 		VulkanHandleTypedef _handleTypedef;
 		VulkanStruct _struct;
+		VulkanEnum _enum;
 	};
 };
 
@@ -299,6 +330,13 @@ public:
 		assert(type.find_first_of("* ") == std::string::npos);
 
 		getVulkanType(type)->makeStruct(isUnion);
+	}
+
+	void defineEnum(const std::string& name) {
+		assert(strncmp(name.c_str(), "Vk", 2) == 0);
+		assert(name.find_first_of("* ") == std::string::npos);
+
+		getVulkanType(name)->makeEnum();
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -616,6 +654,7 @@ struct VkData
   std::string                                   version;
   std::set<std::string>                         vkTypes;
   std::string                                   vulkanLicenseHeader;
+  std::vector<std::tuple<std::string, std::string, std::string>> vkApiConstants;
 };
 
 void createDefaults( VkData const& vkData, std::map<std::string,std::string> & defaultValues );
@@ -642,7 +681,9 @@ void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData);
 std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, std::set<std::string> const& tags);
 void readComment(tinyxml2::XMLElement * element, std::string & header);
 void readEnums( tinyxml2::XMLElement * element, VkData & vkData );
-void readEnumsEnum( tinyxml2::XMLElement * element, EnumData & enumData );
+void readApiConstants(tinyxml2::XMLElement* element, std::vector<std::tuple<std::string, std::string, std::string>>& apiConstants);
+void readEnumsEnum( tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make);
+void readEnumsBitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make);
 void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData);
 void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect);
 void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag);
@@ -1019,7 +1060,7 @@ void linkCommandToHandle(VkData & vkData, CommandData & commandData)
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
 {
   std::string arraySize;
-  if (name.back() == ']')
+  if (name.back() == ']') // Can happen for example [4] in unions
   {
     // if the parameter has '[' and ']' in its name, get the stuff inbetween those as the array size and erase that part from the parameter name
     assert(!node->NextSibling());
@@ -1228,96 +1269,162 @@ void readComment(tinyxml2::XMLElement * element, std::string & header)
 	header += "\n\n// This header is generated from the Khronos Vulkan XML API Registry.";
 }
 
-void readEnums( tinyxml2::XMLElement * element, VkData & vkData )
+void readEnums(tinyxml2::XMLElement * element, VkData & vkData)
 {
 	// TODO: Remember to add the name to dependencies or types if not done already
-	// And fix names for bitmasks (should contain 'FlagBits')
 
-  if (!element->Attribute("name"))
-  {
-    throw std::runtime_error(std::string("spec error: enums element is missing the name attribute"));
-  }
-  std::string name = strip(element->Attribute("name"), "Vk");
+	if (!element->Attribute("name"))
+	{
+		throw std::runtime_error(std::string("spec error: enums element is missing the name attribute"));
+	}
 
-  if ( name != "API Constants" )    // skip the "API Constants"
-  {
-	  // TODO: Removed dependencies
-    //// add an empty DependencyData on this name into the dependencies list
-    //vkData.dependencies.push_back( DependencyData( DependencyData::Category::ENUM, name ) );
+	// TODO: Removed strip
+	//std::string name = strip(element->Attribute("name"), "Vk");
+	std::string name = element->Attribute("name");
 
-    // ad an empty EnumData on this name into the enums map
-    std::map<std::string,EnumData>::iterator it = vkData.enums.insert( std::make_pair( name, EnumData(name) ) ).first;
+	// Represents hardcoded constants.
+	if (name == "API Constants") {
+		readApiConstants(element, vkData.vkApiConstants);
+		return;
+	}
 
-    if (name == "Result")
-    {
-      // special handling for VKResult, as its enums just have VK_ in common
-      it->second.prefix = "VK_";
-    }
-    else
-    {
-      if (!element->Attribute("type"))
-      {
-        throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" is missing the type attribute"));
-      }
-      std::string type = element->Attribute("type");
+	// TODO: Removed dependencies
+  //// add an empty DependencyData on this name into the dependencies list
+  //vkData.dependencies.push_back( DependencyData( DependencyData::Category::ENUM, name ) );
 
-      if (type != "bitmask" && type != "enum")
-      {
-        throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" has unknown type " + type));
-      }
+	if (!element->Attribute("type"))
+	{
+		throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" is missing the type attribute"));
+	}
 
-      it->second.bitmask = (type == "bitmask");
-      if (it->second.bitmask)
-      {
-        // for a bitmask enum, start with "VK", cut off the trailing "FlagBits", and convert that name to upper case
-        // end that with "Bit"
-        size_t pos = name.find("FlagBits");
-        assert(pos != std::string::npos);
-        it->second.prefix = "VK" + toUpperCase(name.substr(0, pos)) + "_";
-      }
-      else
-      {
-        // for a non-bitmask enum, start with "VK", and convert the name to upper case
-        it->second.prefix = "VK" + toUpperCase(name) + "_";
-      }
+	std::string type = element->Attribute("type");
 
-      // if the enum name contains a tag move it from the prefix to the postfix to generate correct enum value names.
-      for (std::set<std::string>::const_iterator tit = vkData.tags.begin(); tit != vkData.tags.end(); ++tit)
-      {
-        if ((tit->length() < it->second.prefix.length()) && (it->second.prefix.substr(it->second.prefix.length() - tit->length() - 1) == (*tit + "_")))
-        {
-          it->second.prefix.erase(it->second.prefix.length() - tit->length() - 1);
-          it->second.postfix = "_" + *tit;
-          break;
-        }
-        else if ((tit->length() < it->second.name.length()) && (it->second.name.substr(it->second.name.length() - tit->length()) == *tit))
-        {
-          it->second.postfix = "_" + *tit;
-          break;
-        }
-      }
-    }
+	if (type != "bitmask" && type != "enum")
+	{
+		throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" has unknown type " + type));
+	}
 
-    readEnumsEnum( element, it->second );
+	if (type == "bitmask") {
+		size_t pos = name.find("Bits", name.length() - 4);
+		if (pos == std::string::npos) { // Probably tag at end
+			pos = name.find("Bits", name.length() - 7);
+		}
 
-    // add this enum to the set of Vulkan data types
-    assert( vkData.vkTypes.find( name ) == vkData.vkTypes.end() );
-    vkData.vkTypes.insert( name );
-  }
+		assert(pos != std::string::npos);
+		name.replace(pos, 4, "s");
+
+		Type* t = typeOracle.getType(name);
+		assert(t->isBitmask());
+
+		readEnumsBitmask(element, [t](const std::string& member, const std::string& value, bool isBitpos) {
+			t->bitmaskAddMember(member, value, isBitpos);
+		});
+	}
+	else {
+		typeOracle.defineEnum(name);
+		Type* t = typeOracle.getType(name);
+
+		readEnumsEnum(element, [t](const std::string& member, const std::string& value) {
+			t->enumAddMember(member, value);
+		});
+	}
 }
 
-void readEnumsEnum( tinyxml2::XMLElement * element, EnumData & enumData )
+void readApiConstants(tinyxml2::XMLElement* element, std::vector<std::tuple<std::string, std::string, std::string>>& apiConstants) {
+	for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
+		assert(child->Attribute("value") && child->Attribute("name"));
+		std::string value = child->Attribute("value");
+		std::string constant = child->Attribute("name");
+
+		// Most are fine, but some may become troublesome at times depending on
+		// how large an unsigned int will be. Those of U suffix seem to be used
+		// in places of type uint32_t, and ULL is used in places where the type
+		// is VkDeviceSize, which is typedefed to uint64_t.
+
+		std::regex re(R"(^(-)?[0-9]+$)");
+		auto it = std::sregex_iterator(value.begin(), value.end(), re);
+		auto end = std::sregex_iterator();
+
+		// Matched a regular integer
+		if (it != end) {
+			std::smatch match = *it;
+			std::string dataType = match[1].matched ? "i32" : "u32";
+			apiConstants.push_back(std::make_tuple(constant, dataType, value));
+			continue;
+		}
+
+		re = std::regex(R"(^[0-9]+\.[0-9]+f$)");
+		it = std::sregex_iterator(value.begin(), value.end(), re);
+
+		// Matched float
+		if (it != end) {
+			value.pop_back();
+			apiConstants.push_back(std::make_tuple(constant, "f32", value));
+			continue;
+		}
+
+		// The rest
+		if (value == "(~0U)") {
+			apiConstants.push_back(std::make_tuple(constant, "u32", "~0"));
+		}
+		else if (value == "(~0ULL)") {
+			apiConstants.push_back(std::make_tuple(constant, "u64", "~0"));
+		}
+		else {
+			assert(value == "(~0U-1)");
+			apiConstants.push_back(std::make_tuple(constant, "u32", "~0u32 - 1"));
+		}
+	}
+}
+
+void readEnumsEnum(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make)
 {
-  // read the names of the enum values
-  tinyxml2::XMLElement * child = element->FirstChildElement();
-  while (child)
-  {
-    if ( child->Attribute( "name" ) )
-    {
-      enumData.addEnumMember(child->Attribute("name"), "");
-    }
-    child = child->NextSiblingElement();
-  }
+	// read the names of the enum values
+	tinyxml2::XMLElement * child = element->FirstChildElement();
+	while (child)
+	{
+		if (strcmp(child->Value(), "unused") == 0) {
+			child = child->NextSiblingElement();
+			continue;
+		}
+
+		assert(child->Attribute("name") && child->Attribute("value"));
+		make(child->Attribute("name"), child->Attribute("value")); // Well, apparently values can be arbitrary string. That could be interesting
+		child = child->NextSiblingElement();
+	}
+}
+
+void readEnumsBitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make)
+{
+	// read the names of the enum values
+	tinyxml2::XMLElement * child = element->FirstChildElement();
+	while (child)
+	{
+		if (strcmp(child->Value(), "unused") == 0) {
+			child = child->NextSiblingElement();
+			continue;
+		}
+
+		assert(child->Attribute("name"));
+		std::string name = child->Attribute("name");
+
+		std::string value;
+		bool bitpos;
+		if (child->Attribute("bitpos")) {
+			value = child->Attribute("bitpos");
+			bitpos = true;
+			assert(!child->Attribute("value"));
+		}
+		else {
+			assert(child->Attribute("value"));
+			value = child->Attribute("value"); // Can be arbitrary string but I don't consider that for now
+			bitpos = false;
+		}
+
+		make(name, value, bitpos);
+
+		child = child->NextSiblingElement();
+	}
 }
 
 void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1391,16 +1498,20 @@ void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, 
 
 void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag)
 {
-  // TODO process enums which don't extend existing enums
-  if (element->Attribute("extends"))
-  {
-    assert(element->Attribute("name"));
-    assert(enums.find(strip(element->Attribute("extends"), "Vk")) != enums.end());
-    assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
-    auto enumIt = enums.find(strip(element->Attribute("extends"), "Vk"));
-    assert(enumIt != enums.end());
-    enumIt->second.addEnumMember(element->Attribute("name"), tag);
-  }
+ // // TODO process enums which don't extend existing enums
+ // if (element->Attribute("extends"))
+ // {
+ //   assert(element->Attribute("name"));
+	//// TODO: removed strip
+ //   //assert(enums.find(strip(element->Attribute("extends"), "Vk")) != enums.end());
+	//assert(enums.find(element->Attribute("extends")) != enums.end());
+ //   assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
+ //   // TODO: removed strip
+	////auto enumIt = enums.find(strip(element->Attribute("extends"), "Vk"));
+	//auto enumIt = enums.find(element->Attribute("extends"));
+ //   assert(enumIt != enums.end());
+ //   enumIt->second.addEnumMember(element->Attribute("name"), tag);
+ // }
 }
 
 void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag)
@@ -1877,12 +1988,6 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 			assert(child->Attribute("name"));
 
 			std::string name = child->Attribute("name");
-
-			// Never used in the API.
-			if (name == "int")
-			{
-				continue;
-			}
 
 			Type* t = typeOracle.getType(name);
 			assert(t && t->isCType());
