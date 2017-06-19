@@ -12,6 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// What I have done:
+// The original code generates modified bindings that leverage C++ features.
+// For example it alters how error handling is done, checks what parameters to
+// commands represent out-variables, and generates wrapper classes over the raw
+// Vulkan functions. The intention of this generator is not to make wrapper
+// code but rather just keep raw Rust bindings to the Vulkan API. Functions
+// keep their original parameters and return values as normal. I do however
+// generate dispatch tables that make sure all functions are accounted for when
+// loading pointers. I also generate special bitflag structs to get type safety
+// for bitflags, but the API usage is the same. Thus large portions have been
+// removed and altered. Type management has been completely reimplemented to
+// ease translating to Rust equivalents. The Vulkan registry contains inline C
+// code which I can't use directly, so I needed something more robust.
+
 #include <cassert>
 #include <algorithm>
 #include <fstream>
@@ -355,8 +369,20 @@ public:
 	// that it's not, then it will remain as undefined because the spec never
 	// tells us what it is, thus indicating that it was C all the time.
 	
-	Type* getType(const std::string& name) {
+	// TODO: It would probably be better to just have this method return a pure
+	// type without bothering parsing pointers. The original code contains good
+	// functions that find modifiers and stuff. Using those I know what kind of
+	// pointers I want and use methods such as mutPointerTo(type), arrayOf(type)
+	// to create wrapping types (in parameters, arrays would become a pointer to
+	// array, sometimes using const!)
+	Type* getType(const std::string& name, const std::string& arraySize = "") {
 		std::string text = name;
+
+		// TODO: Stupid workaround that just makes arrays into pointers. See
+		// comment on how pointers and arrays could be handled.
+		if (arraySize != "") {
+			text += "*";
+		}
 		
 		// Split type so we can work with parts
 		std::vector<std::string> parts;
@@ -542,18 +568,15 @@ std::string replaceWithMap(std::string const &input, std::map<std::string, std::
 
 struct ParamData
 {
-  std::string type;
+  Type* type;
   std::string name;
   std::string arraySize;
-  std::string pureType;
-  std::string len;
-  bool        optional;
 };
 
 struct CommandData
 {
-  CommandData(std::string const& t, std::string const& fn)
-    : returnType(t)
+  CommandData(Type* returnType, std::string const& fn)
+    : returnType(returnType)
     , fullName(fn)
     , returnParam(~0)
     , templateParam(~0)
@@ -567,9 +590,8 @@ struct CommandData
   std::string               protect;
   std::string               reducedName;
   size_t                    returnParam;
-  std::string               returnType;
+  Type*                     returnType;
   std::set<size_t>          skippedParams;
-  std::vector<std::string>  successCodes;
   size_t                    templateParam;
   bool                      twoStep;
   std::map<size_t, size_t>  vectorParams;
@@ -672,10 +694,10 @@ bool hasPointerParam(std::vector<ParamData> const& params);
 void leaveProtect(std::ostream &os, std::string const& protect);
 void linkCommandToHandle(VkData & vkData, CommandData & commandData);
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name);
-bool readCommandParam( tinyxml2::XMLElement * element, std::set<std::string> & dependencies, std::vector<ParamData> & params );
-void readCommandParams(tinyxml2::XMLElement* element, std::set<std::string> & dependencies, CommandData & commandData);
-tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, ParamData& param);
-CommandData& readCommandProto(tinyxml2::XMLElement * element, VkData & vkData);
+void readCommandParam( tinyxml2::XMLElement * element, std::vector<ParamData> & params );
+void readCommandParams(tinyxml2::XMLElement* element, CommandData & commandData);
+tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& typeString);
+void readCommandProto(tinyxml2::XMLElement * element, CommandData& commandData);
 void readCommands( tinyxml2::XMLElement * element, VkData & vkData );
 void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData);
 std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, std::set<std::string> const& tags);
@@ -821,156 +843,156 @@ void createDefaults( VkData const& vkData, std::map<std::string,std::string> & d
   //}
 }
 
-void determineReducedName(CommandData & commandData)
-{
-  commandData.reducedName = commandData.fullName;
-  std::string searchName = commandData.params[0].pureType;
-  size_t pos = commandData.fullName.find(searchName);
-  if ((pos == std::string::npos) && isupper(searchName[0]))
-  {
-    searchName[0] = tolower(searchName[0]);
-    pos = commandData.fullName.find(searchName);
-  }
-  if (pos != std::string::npos)
-  {
-    commandData.reducedName.erase(pos, searchName.length());
-  }
-  else if ((searchName == "commandBuffer") && (commandData.fullName.find("cmd") == 0))
-  {
-    commandData.reducedName.erase(0, 3);
-    pos = 0;
-  }
-  if ((pos == 0) && isupper(commandData.reducedName[0]))
-  {
-    commandData.reducedName[0] = tolower(commandData.reducedName[0]);
-  }
-}
+//void determineReducedName(CommandData & commandData)
+//{
+//  commandData.reducedName = commandData.fullName;
+//  std::string searchName = commandData.params[0].pureType;
+//  size_t pos = commandData.fullName.find(searchName);
+//  if ((pos == std::string::npos) && isupper(searchName[0]))
+//  {
+//    searchName[0] = tolower(searchName[0]);
+//    pos = commandData.fullName.find(searchName);
+//  }
+//  if (pos != std::string::npos)
+//  {
+//    commandData.reducedName.erase(pos, searchName.length());
+//  }
+//  else if ((searchName == "commandBuffer") && (commandData.fullName.find("cmd") == 0))
+//  {
+//    commandData.reducedName.erase(0, 3);
+//    pos = 0;
+//  }
+//  if ((pos == 0) && isupper(commandData.reducedName[0]))
+//  {
+//    commandData.reducedName[0] = tolower(commandData.reducedName[0]);
+//  }
+//}
 
-void determineEnhancedReturnType(CommandData & commandData)
-{
-  std::string returnType;
-  // if there is a return parameter of type void or Result, and if it's of type Result it either has just one success code
-  // or two success codes, where the second one is of type eIncomplete and it's a two-step process
-  // -> we can return that parameter
-  if ((commandData.returnParam != ~0)
-    && ((commandData.returnType == "void")
-      || ((commandData.returnType == "Result")
-        && ((commandData.successCodes.size() == 1)
-          || ((commandData.successCodes.size() == 2)
-            && (commandData.successCodes[1] == "eIncomplete")
-            && commandData.twoStep)))))
-  {
-    if (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end())
-    {
-      // the return parameter is a vector-type parameter
-      if (commandData.params[commandData.returnParam].pureType == "void")
-      {
-        // for a vector of void, we use a vector of uint8_t, instead
-        commandData.enhancedReturnType = "std::vector<uint8_t,Allocator>";
-      }
-      else
-      {
-        // for the other parameters, we use a vector of the pure type
-        commandData.enhancedReturnType = "std::vector<" + commandData.params[commandData.returnParam].pureType + ",Allocator>";
-      }
-    }
-    else
-    {
-      // it's a simple parameter -> get the type and just remove the trailing '*' (originally, it's a pointer)
-      assert(commandData.params[commandData.returnParam].type.back() == '*');
-      assert(commandData.params[commandData.returnParam].type.find("const") == std::string::npos);
-      commandData.enhancedReturnType = commandData.params[commandData.returnParam].type;
-      commandData.enhancedReturnType.pop_back();
-    }
-  }
-  else if ((commandData.returnType == "Result") && (commandData.successCodes.size() == 1))
-  {
-    // an original return of type "Result" with just one successCode is changed to void, errors throw an exception
-    commandData.enhancedReturnType = "void";
-  }
-  else
-  {
-    // the return type just stays the original return type
-    commandData.enhancedReturnType = commandData.returnType;
-  }
-}
+//void determineEnhancedReturnType(CommandData & commandData)
+//{
+//  std::string returnType;
+//  // if there is a return parameter of type void or Result, and if it's of type Result it either has just one success code
+//  // or two success codes, where the second one is of type eIncomplete and it's a two-step process
+//  // -> we can return that parameter
+//  if ((commandData.returnParam != ~0)
+//    && ((commandData.returnType == "void")
+//      || ((commandData.returnType == "Result")
+//        && ((commandData.successCodes.size() == 1)
+//          || ((commandData.successCodes.size() == 2)
+//            && (commandData.successCodes[1] == "eIncomplete")
+//            && commandData.twoStep)))))
+//  {
+//    if (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end())
+//    {
+//      // the return parameter is a vector-type parameter
+//      if (commandData.params[commandData.returnParam].pureType == "void")
+//      {
+//        // for a vector of void, we use a vector of uint8_t, instead
+//        commandData.enhancedReturnType = "std::vector<uint8_t,Allocator>";
+//      }
+//      else
+//      {
+//        // for the other parameters, we use a vector of the pure type
+//        commandData.enhancedReturnType = "std::vector<" + commandData.params[commandData.returnParam].pureType + ",Allocator>";
+//      }
+//    }
+//    else
+//    {
+//      // it's a simple parameter -> get the type and just remove the trailing '*' (originally, it's a pointer)
+//      assert(commandData.params[commandData.returnParam].type.back() == '*');
+//      assert(commandData.params[commandData.returnParam].type.find("const") == std::string::npos);
+//      commandData.enhancedReturnType = commandData.params[commandData.returnParam].type;
+//      commandData.enhancedReturnType.pop_back();
+//    }
+//  }
+//  else if ((commandData.returnType == "Result") && (commandData.successCodes.size() == 1))
+//  {
+//    // an original return of type "Result" with just one successCode is changed to void, errors throw an exception
+//    commandData.enhancedReturnType = "void";
+//  }
+//  else
+//  {
+//    // the return type just stays the original return type
+//    commandData.enhancedReturnType = commandData.returnType;
+//  }
+//}
 
-void determineReturnParam(CommandData & commandData)
-{
-  // for return types of type Result or void, we can replace determine a parameter to return
-  if ((commandData.returnType == "Result") || (commandData.returnType == "void"))
-  {
-    for (size_t i = 0; i < commandData.params.size(); i++)
-    {
-      if ((commandData.params[i].type.find('*') != std::string::npos)
-        && (commandData.params[i].type.find("const") == std::string::npos)
-        && std::find_if(commandData.vectorParams.begin(), commandData.vectorParams.end(), [i](std::pair<size_t, size_t> const& vp) { return vp.second == i; }) == commandData.vectorParams.end()
-        && ((commandData.vectorParams.find(i) == commandData.vectorParams.end()) || commandData.twoStep || (commandData.successCodes.size() == 1)))
-      {
-        // it's a non-const pointer, not a vector-size parameter, if it's a vector parameter, its a two-step process or there's just one success code
-        // -> look for another non-cost pointer argument
-        auto paramIt = std::find_if(commandData.params.begin() + i + 1, commandData.params.end(), [](ParamData const& pd)
-        {
-          return (pd.type.find('*') != std::string::npos) && (pd.type.find("const") == std::string::npos);
-        });
-        // if there is another such argument, we can't decide which one to return -> return none (~0)
-        // otherwise return the index of the selcted parameter
-        commandData.returnParam = paramIt != commandData.params.end() ? ~0 : i;
-      }
-    }
-  }
-}
+//void determineReturnParam(CommandData & commandData)
+//{
+//  // for return types of type Result or void, we can replace determine a parameter to return
+//  if ((commandData.returnType == "Result") || (commandData.returnType == "void"))
+//  {
+//    for (size_t i = 0; i < commandData.params.size(); i++)
+//    {
+//      if ((commandData.params[i].type.find('*') != std::string::npos)
+//        && (commandData.params[i].type.find("const") == std::string::npos)
+//        && std::find_if(commandData.vectorParams.begin(), commandData.vectorParams.end(), [i](std::pair<size_t, size_t> const& vp) { return vp.second == i; }) == commandData.vectorParams.end()
+//        && ((commandData.vectorParams.find(i) == commandData.vectorParams.end()) || commandData.twoStep || (commandData.successCodes.size() == 1)))
+//      {
+//        // it's a non-const pointer, not a vector-size parameter, if it's a vector parameter, its a two-step process or there's just one success code
+//        // -> look for another non-cost pointer argument
+//        auto paramIt = std::find_if(commandData.params.begin() + i + 1, commandData.params.end(), [](ParamData const& pd)
+//        {
+//          return (pd.type.find('*') != std::string::npos) && (pd.type.find("const") == std::string::npos);
+//        });
+//        // if there is another such argument, we can't decide which one to return -> return none (~0)
+//        // otherwise return the index of the selcted parameter
+//        commandData.returnParam = paramIt != commandData.params.end() ? ~0 : i;
+//      }
+//    }
+//  }
+//}
 
-void determineSkippedParams(CommandData & commandData)
-{
-  // the size-parameters of vector parameters are not explicitly used in the enhanced API
-  std::for_each(commandData.vectorParams.begin(), commandData.vectorParams.end(), [&commandData](std::pair<size_t, size_t> const& vp) { if (vp.second != ~0) commandData.skippedParams.insert(vp.second); });
-  // and the return parameter is also skipped
-  if (commandData.returnParam != ~0)
-  {
-    commandData.skippedParams.insert(commandData.returnParam);
-  }
-}
+//void determineSkippedParams(CommandData & commandData)
+//{
+//  // the size-parameters of vector parameters are not explicitly used in the enhanced API
+//  std::for_each(commandData.vectorParams.begin(), commandData.vectorParams.end(), [&commandData](std::pair<size_t, size_t> const& vp) { if (vp.second != ~0) commandData.skippedParams.insert(vp.second); });
+//  // and the return parameter is also skipped
+//  if (commandData.returnParam != ~0)
+//  {
+//    commandData.skippedParams.insert(commandData.returnParam);
+//  }
+//}
 
-void determineTemplateParam(CommandData & commandData)
-{
-  for (size_t i = 0; i < commandData.params.size(); i++)
-  {
-    // any vector parameter on the pure type void is templatized in the enhanced API
-    if ((commandData.vectorParams.find(i) != commandData.vectorParams.end()) && (commandData.params[i].pureType == "void"))
-    {
-#if !defined(NDEBUG)
-      for (size_t j = i + 1; j < commandData.params.size(); j++)
-      {
-        assert((commandData.vectorParams.find(j) == commandData.vectorParams.end()) || (commandData.params[j].pureType != "void"));
-      }
-#endif
-      commandData.templateParam = i;
-      break;
-    }
-  }
-  assert((commandData.templateParam == ~0) || (commandData.vectorParams.find(commandData.templateParam) != commandData.vectorParams.end()));
-}
+//void determineTemplateParam(CommandData & commandData)
+//{
+//  for (size_t i = 0; i < commandData.params.size(); i++)
+//  {
+//    // any vector parameter on the pure type void is templatized in the enhanced API
+//    if ((commandData.vectorParams.find(i) != commandData.vectorParams.end()) && (commandData.params[i].pureType == "void"))
+//    {
+//#if !defined(NDEBUG)
+//      for (size_t j = i + 1; j < commandData.params.size(); j++)
+//      {
+//        assert((commandData.vectorParams.find(j) == commandData.vectorParams.end()) || (commandData.params[j].pureType != "void"));
+//      }
+//#endif
+//      commandData.templateParam = i;
+//      break;
+//    }
+//  }
+//  assert((commandData.templateParam == ~0) || (commandData.vectorParams.find(commandData.templateParam) != commandData.vectorParams.end()));
+//}
 
-void determineVectorParams(CommandData & commandData)
-{
-  // look for the parameters whose len equals the name of an other parameter
-  for (auto it = commandData.params.begin(), begin = it, end = commandData.params.end(); it != end; ++it)
-  {
-    if (!it->len.empty())
-    {
-      auto findLambda = [it](ParamData const& pd) { return pd.name == it->len; };
-      auto findIt = std::find_if(begin, it, findLambda);                        // look for a parameter named as the len of this parameter
-      assert((std::count_if(begin, end, findLambda) == 0) || (findIt < it));    // make sure, there is no other parameter like that
-      // add this parameter as a vector parameter, using the len-name parameter as the second value (or ~0 if there is nothing like that)
-      commandData.vectorParams.insert(std::make_pair(std::distance(begin, it), findIt < it ? std::distance(begin, findIt) : ~0));
-      assert((commandData.vectorParams[std::distance(begin, it)] != ~0)
-        || (it->len == "null-terminated")
-        || (it->len == "pAllocateInfo::descriptorSetCount")
-        || (it->len == "pAllocateInfo::commandBufferCount"));
-    }
-  }
-}
+//void determineVectorParams(CommandData & commandData)
+//{
+//  // look for the parameters whose len equals the name of an other parameter
+//  for (auto it = commandData.params.begin(), begin = it, end = commandData.params.end(); it != end; ++it)
+//  {
+//    if (!it->len.empty())
+//    {
+//      auto findLambda = [it](ParamData const& pd) { return pd.name == it->len; };
+//      auto findIt = std::find_if(begin, it, findLambda);                        // look for a parameter named as the len of this parameter
+//      assert((std::count_if(begin, end, findLambda) == 0) || (findIt < it));    // make sure, there is no other parameter like that
+//      // add this parameter as a vector parameter, using the len-name parameter as the second value (or ~0 if there is nothing like that)
+//      commandData.vectorParams.insert(std::make_pair(std::distance(begin, it), findIt < it ? std::distance(begin, findIt) : ~0));
+//      assert((commandData.vectorParams[std::distance(begin, it)] != ~0)
+//        || (it->len == "null-terminated")
+//        || (it->len == "pAllocateInfo::descriptorSetCount")
+//        || (it->len == "pAllocateInfo::commandBufferCount"));
+//    }
+//  }
+//}
 
 void enterProtect(std::ostream &os, std::string const& protect)
 {
@@ -1011,15 +1033,15 @@ std::string generateEnumNameForFlags(std::string const& name)
 	return generatedName;
 }
 
-bool hasPointerParam(std::vector<ParamData> const& params)
-{
-  // check if any of the parameters is a pointer
-  auto it = std::find_if(params.begin(), params.end(), [](ParamData const& pd)
-  {
-    return (pd.type.find('*') != std::string::npos);
-  });
-  return it != params.end();
-}
+//bool hasPointerParam(std::vector<ParamData> const& params)
+//{
+//  // check if any of the parameters is a pointer
+//  auto it = std::find_if(params.begin(), params.end(), [](ParamData const& pd)
+//  {
+//    return (pd.type.find('*') != std::string::npos);
+//  });
+//  return it != params.end();
+//}
 
 void leaveProtect(std::ostream &os, std::string const& protect)
 {
@@ -1031,30 +1053,30 @@ void leaveProtect(std::ostream &os, std::string const& protect)
 
 void linkCommandToHandle(VkData & vkData, CommandData & commandData)
 {
-  // first, find the handle named like the type of the first argument
-  // if there is no such handle, look for the unnamed "handle", that gathers all the functions not tied to a specific handle
-  assert(!commandData.params.empty());
-  std::map<std::string, HandleData>::iterator hit = vkData.handles.find(commandData.params[0].pureType);
-  if (hit == vkData.handles.end())
-  {
-    hit = vkData.handles.find("");
-  }
-  assert(hit != vkData.handles.end());
-
-  // put the command into the handle's list of commands, and store the handle in the commands className
-  hit->second.commands.push_back(commandData.fullName);
-  commandData.className = hit->first;
-
-  // TODO: Removed dependencies
-
-  //// add the dependencies of the command to the dependencies of the handle
-  //DependencyData const& commandDD = vkData.dependencies.back();
-  //std::list<DependencyData>::iterator handleDD = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [hit](DependencyData const& dd) { return dd.name == hit->first; });
-  //assert((handleDD != vkData.dependencies.end()) || hit->first.empty());
-  //if (handleDD != vkData.dependencies.end())
+  //// first, find the handle named like the type of the first argument
+  //// if there is no such handle, look for the unnamed "handle", that gathers all the functions not tied to a specific handle
+  //assert(!commandData.params.empty());
+  //std::map<std::string, HandleData>::iterator hit = vkData.handles.find(commandData.params[0].pureType);
+  //if (hit == vkData.handles.end())
   //{
-  //  std::copy_if(commandDD.dependencies.begin(), commandDD.dependencies.end(), std::inserter(handleDD->dependencies, handleDD->dependencies.end()), [hit](std::string const& d) { return d != hit->first; });
+  //  hit = vkData.handles.find("");
   //}
+  //assert(hit != vkData.handles.end());
+
+  //// put the command into the handle's list of commands, and store the handle in the commands className
+  //hit->second.commands.push_back(commandData.fullName);
+  //commandData.className = hit->first;
+
+  //// TODO: Removed dependencies
+
+  ////// add the dependencies of the command to the dependencies of the handle
+  ////DependencyData const& commandDD = vkData.dependencies.back();
+  ////std::list<DependencyData>::iterator handleDD = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [hit](DependencyData const& dd) { return dd.name == hit->first; });
+  ////assert((handleDD != vkData.dependencies.end()) || hit->first.empty());
+  ////if (handleDD != vkData.dependencies.end())
+  ////{
+  ////  std::copy_if(commandDD.dependencies.begin(), commandDD.dependencies.end(), std::inserter(handleDD->dependencies, handleDD->dependencies.end()), [hit](std::string const& d) { return d != hit->first; });
+  ////}
 }
 
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
@@ -1097,33 +1119,26 @@ std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
   return arraySize;
 }
 
-bool readCommandParam( tinyxml2::XMLElement * element, std::set<std::string> & dependencies, std::vector<ParamData> & params )
+void readCommandParam( tinyxml2::XMLElement * element, std::vector<ParamData> & params )
 {
   ParamData param;
 
-  if (element->Attribute("len"))
-  {
-    param.len = element->Attribute("len");
-  }
+  std::string typeString;
+  tinyxml2::XMLNode * afterType = readCommandParamType(element->FirstChild(), typeString);
+  // TODO: Removed dependencies
+  //dependencies.insert(param.pureType);
 
-  // get the type of the parameter, and put it into the list of dependencies
-  tinyxml2::XMLNode * child = readCommandParamType(element->FirstChild(), param);
-  dependencies.insert(param.pureType);
+  assert(afterType->ToElement() && ( strcmp(afterType->Value(), "name" ) == 0 ) && afterType->ToElement()->GetText() );
+  param.name = afterType->ToElement()->GetText();
 
-  assert( child->ToElement() && ( strcmp( child->Value(), "name" ) == 0 ) );
-  param.name = child->ToElement()->GetText();
+  param.arraySize = readArraySize(afterType, param.name);
 
-  param.arraySize = readArraySize(child, param.name);
-
-  param.optional = element->Attribute("optional") && (strcmp(element->Attribute("optional"), "true") == 0);
+  param.type = typeOracle.getType(typeString, param.arraySize);
 
   params.push_back(param);
-
-  // an optional parameter with "false,true" value is supposed to be part of a two-step algorithm: first get the size, than use it
-  return element->Attribute("optional") && (strcmp(element->Attribute("optional"), "false,true") == 0);
 }
 
-void readCommandParams(tinyxml2::XMLElement* element, std::set<std::string> & dependencies, CommandData & commandData)
+void readCommandParams(tinyxml2::XMLElement* element, CommandData & commandData)
 {
   // iterate over the siblings of the element and read the command parameters
   assert(element);
@@ -1132,7 +1147,7 @@ void readCommandParams(tinyxml2::XMLElement* element, std::set<std::string> & de
     std::string value = element->Value();
     if (value == "param")
     {
-      commandData.twoStep |= readCommandParam(element, dependencies, commandData.params);
+      readCommandParam(element, commandData.params);
     }
     else
     {
@@ -1142,59 +1157,77 @@ void readCommandParams(tinyxml2::XMLElement* element, std::set<std::string> & de
   }
 }
 
-tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, ParamData& param)
+tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& typeString)
 {
   assert(node);
   if (node->ToText())
   {
     // start type with "const" or "struct", if needed
     std::string value = trimEnd(node->Value());
-    assert((value == "const") || (value == "struct"));
-    param.type = value + " ";
+	if (value == "const") {
+		typeString = value + " ";
+	}
+	else {
+		// Struct parameter C syntax. Not needed in Rust
+		assert(value == "struct");
+	}
     node = node->NextSibling();
     assert(node);
   }
 
   // get the pure type
   assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
-  std::string type = strip(node->ToElement()->GetText(), "Vk");
-  param.type += type;
-  param.pureType = type;
+  // TODO: Removed strip
+  //std::string type = strip(node->ToElement()->GetText(), "Vk");
+  typeString += node->ToElement()->GetText();
 
   // end with "*", "**", or "* const*", if needed
   node = node->NextSibling();
-  assert(node);
+  assert(node); // If not text node, at least the name tag (processed elsewhere)
   if (node->ToText())
   {
     std::string value = trimEnd(node->Value());
     assert((value == "*") || (value == "**") || (value == "* const*"));
-    param.type += value;
+    typeString += value;
     node = node->NextSibling();
   }
 
   return node;
 }
 
-CommandData& readCommandProto(tinyxml2::XMLElement * element, VkData & vkData)
+void readCommandProto(tinyxml2::XMLElement * element, CommandData& commandData)
 {
-  tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-  assert( typeElement && ( strcmp( typeElement->Value(), "type" ) == 0 ) );
-  tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-  assert( nameElement && ( strcmp( nameElement->Value(), "name" ) == 0 ) );
-  assert( !nameElement->NextSiblingElement() );
+	// Defines the return type and name of a command
 
-  // get return type and name of the command
-  std::string type = strip( typeElement->GetText(), "Vk" );
-  std::string name = startLowerCase(strip(nameElement->GetText(), "vk"));
+	// Get type and name tags, making sure there are no text nodes inbetween.
+	tinyxml2::XMLNode* node = element->FirstChild();
+	assert(node && node->ToElement());
+	tinyxml2::XMLElement * typeElement = node->ToElement();
+	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0));
+	node = typeElement->NextSibling();
+	assert(node && node->ToElement());
+	tinyxml2::XMLElement * nameElement = node->ToElement();
+	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0));
+	assert(!nameElement->NextSibling());
 
-  // TODO: Removed dependencies
+	// get return type and name of the command
+	// TODO: Removed strip
+	//std::string type = strip(typeElement->GetText(), "Vk");
+	Type* type = typeOracle.getType(typeElement->GetText());
+	// TODO: Removed strip and startLowerCase (I use whatever case Vulkan uses)
+	//std::string name = startLowerCase(strip(nameElement->GetText(), "vk"));
+	std::string name = nameElement->GetText();
 
-  //// add an empty DependencyData to this name
-  //vkData.dependencies.push_back( DependencyData( DependencyData::Category::COMMAND, name ) );
+	// TODO: Removed dependencies
 
-  // insert an empty CommandData into the commands-map, and return the newly created CommandData
-  assert( vkData.commands.find( name ) == vkData.commands.end() );
-  return vkData.commands.insert( std::make_pair( name, CommandData(type, name) ) ).first->second;
+	//// add an empty DependencyData to this name
+	//vkData.dependencies.push_back( DependencyData( DependencyData::Category::COMMAND, name ) );
+
+	// insert an empty CommandData into the commands-map, and return the newly created CommandData
+	//assert(vkData.commands.find(name) == vkData.commands.end());
+	//return vkData.commands.insert(std::make_pair(name, CommandData(type, name))).first->second;
+	commandData.returnType = type;
+	commandData.fullName = name;
 }
 
 void readCommands(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1208,43 +1241,17 @@ void readCommands(tinyxml2::XMLElement * element, VkData & vkData)
 
 void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData)
 {
+	// Attributes on the command tag concerns documentation. Unless of course one
+	// could restrict possible return values from an enum (or make a completely
+	// new enum type), in which case successcodes and errorcodes could be used.
+
   tinyxml2::XMLElement * child = element->FirstChildElement();
   assert( child && ( strcmp( child->Value(), "proto" ) == 0 ) );
 
-  CommandData& commandData = readCommandProto(child, vkData);
-  commandData.successCodes = readCommandSuccessCodes(element, vkData.tags);
+  CommandData commandData(nullptr, "");
+  readCommandProto(child, commandData);
   // TODO: Removed dependencies
-  //readCommandParams(child, vkData.dependencies.back().dependencies, commandData);
-  //determineReducedName(commandData);
-  //linkCommandToHandle(vkData, commandData);
-  //registerDeleter(vkData, commandData);
-  //determineVectorParams(commandData);
-  //determineReturnParam(commandData);
-  //determineTemplateParam(commandData);
-  //determineEnhancedReturnType(commandData);
-  //determineSkippedParams(commandData);
-}
-
-std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, std::set<std::string> const& tags)
-{
-  std::vector<std::string> results;
-  if (element->Attribute("successcodes"))
-  {
-    std::string successCodes = element->Attribute("successcodes");
-
-    // tokenize the successCodes string, using ',' as the separator
-    size_t start = 0, end;
-    do
-    {
-      end = successCodes.find(',', start);
-      std::string code = successCodes.substr(start, end - start);
-      std::string tag = findTag(code, tags);
-      // on each success code: prepend 'e', strip "VK_" and a tag, convert it to camel case, and add the tag again
-      results.push_back(std::string("e") + toCamelCase(strip(code, "VK_", tag)) + tag);
-      start = end + 1;
-    } while (end != std::string::npos);
-  }
-  return results;
+  readCommandParams(child, commandData);
 }
 
 void readComment(tinyxml2::XMLElement * element, std::string & header)
@@ -1485,15 +1492,17 @@ void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkDat
 
 void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect)
 {
-  // just add the protect string to the CommandData
-  if (!protect.empty())
-  {
-    assert(element->Attribute("name"));
-    std::string name = startLowerCase(strip(element->Attribute("name"), "vk"));
-    std::map<std::string, CommandData>::iterator cit = commands.find(name);
-    assert(cit != commands.end());
-    cit->second.protect = protect;
-  }
+ // // just add the protect string to the CommandData
+ // if (!protect.empty())
+ // {
+ //   assert(element->Attribute("name"));
+	//// TODO: Removed strip and startLowerCase
+ //   //std::string name = startLowerCase(strip(element->Attribute("name"), "vk"));
+	//std::string name = element->Attribute("name");
+ //   std::map<std::string, CommandData>::iterator cit = commands.find(name);
+ //   assert(cit != commands.end());
+ //   cit->second.protect = protect;
+ // }
 }
 
 void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag)
@@ -2020,38 +2029,38 @@ std::string reduceName(std::string const& name, bool singular)
   return reducedName;
 }
 
-void registerDeleter(VkData & vkData, CommandData const& commandData)
-{
-  if ((commandData.fullName.substr(0, 7) == "destroy") || (commandData.fullName.substr(0, 4) == "free"))
-  {
-    std::string key;
-    size_t valueIndex;
-    switch (commandData.params.size())
-    {
-    case 2:
-    case 3:
-      assert(commandData.params.back().pureType == "AllocationCallbacks");
-      key = (commandData.params.size() == 2) ? "" : commandData.params[0].pureType;
-      valueIndex = commandData.params.size() - 2;
-      break;
-    case 4:
-      key = commandData.params[0].pureType;
-      valueIndex = 3;
-      assert(vkData.deleterData.find(commandData.params[valueIndex].pureType) == vkData.deleterData.end());
-      vkData.deleterData[commandData.params[valueIndex].pureType].pool = commandData.params[1].pureType;
-      break;
-    default:
-      assert(false);
-    }
-    if (commandData.fullName == "destroyDevice")
-    {
-      key = "PhysicalDevice";
-    }
-    assert(vkData.deleterTypes[key].find(commandData.params[valueIndex].pureType) == vkData.deleterTypes[key].end());
-    vkData.deleterTypes[key].insert(commandData.params[valueIndex].pureType);
-    vkData.deleterData[commandData.params[valueIndex].pureType].call = commandData.reducedName;
-  }
-}
+//void registerDeleter(VkData & vkData, CommandData const& commandData)
+//{
+//  if ((commandData.fullName.substr(0, 7) == "destroy") || (commandData.fullName.substr(0, 4) == "free"))
+//  {
+//    std::string key;
+//    size_t valueIndex;
+//    switch (commandData.params.size())
+//    {
+//    case 2:
+//    case 3:
+//      assert(commandData.params.back().pureType == "AllocationCallbacks");
+//      key = (commandData.params.size() == 2) ? "" : commandData.params[0].pureType;
+//      valueIndex = commandData.params.size() - 2;
+//      break;
+//    case 4:
+//      key = commandData.params[0].pureType;
+//      valueIndex = 3;
+//      assert(vkData.deleterData.find(commandData.params[valueIndex].pureType) == vkData.deleterData.end());
+//      vkData.deleterData[commandData.params[valueIndex].pureType].pool = commandData.params[1].pureType;
+//      break;
+//    default:
+//      assert(false);
+//    }
+//    if (commandData.fullName == "destroyDevice")
+//    {
+//      key = "PhysicalDevice";
+//    }
+//    assert(vkData.deleterTypes[key].find(commandData.params[valueIndex].pureType) == vkData.deleterTypes[key].end());
+//    vkData.deleterTypes[key].insert(commandData.params[valueIndex].pureType);
+//    vkData.deleterData[commandData.params[valueIndex].pureType].call = commandData.reducedName;
+//  }
+//}
 
 std::string startLowerCase(std::string const& input)
 {
@@ -2142,51 +2151,51 @@ std::string generateCall(CommandData const& commandData, std::set<std::string> c
 
 void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular)
 {
-  // get the parameter indices of the counter for vector parameters
-  std::map<size_t,size_t> countIndices;
-  for (std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.begin(); it != commandData.vectorParams.end(); ++it)
-  {
-    countIndices.insert(std::make_pair(it->second, it->first));
-  }
+  //// get the parameter indices of the counter for vector parameters
+  //std::map<size_t,size_t> countIndices;
+  //for (std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.begin(); it != commandData.vectorParams.end(); ++it)
+  //{
+  //  countIndices.insert(std::make_pair(it->second, it->first));
+  //}
 
-  // the original function call
-  os << "vk" << startUpperCase(commandData.fullName) << "( ";
+  //// the original function call
+  //os << "vk" << startUpperCase(commandData.fullName) << "( ";
 
-  if (!commandData.className.empty())
-  {
-    // if it's member of a class -> add the first parameter with "m_" as prefix
-    os << "m_" << commandData.params[0].name;
-  }
+  //if (!commandData.className.empty())
+  //{
+  //  // if it's member of a class -> add the first parameter with "m_" as prefix
+  //  os << "m_" << commandData.params[0].name;
+  //}
 
-  for (size_t i=commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  {
-    if (0 < i)
-    {
-      os << ", ";
-    }
+  //for (size_t i=commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+  //{
+  //  if (0 < i)
+  //  {
+  //    os << ", ";
+  //  }
 
-    std::map<size_t, size_t>::const_iterator it = countIndices.find(i);
-    if (it != countIndices.end())
-    {
-      writeCallCountParameter(os, commandData, singular, it);
-    }
-    else if ((it = commandData.vectorParams.find(i)) != commandData.vectorParams.end())
-    {
-      writeCallVectorParameter(os, commandData, vkTypes, firstCall, singular, it);
-    }
-    else
-    {
-      if (vkTypes.find(commandData.params[i].pureType) != vkTypes.end())
-      {
-        writeCallVulkanTypeParameter(os, commandData.params[i]);
-      }
-      else
-      {
-        writeCallPlainTypeParameter(os, commandData.params[i]);
-      }
-    }
-  }
-  os << " )";
+  //  std::map<size_t, size_t>::const_iterator it = countIndices.find(i);
+  //  if (it != countIndices.end())
+  //  {
+  //    writeCallCountParameter(os, commandData, singular, it);
+  //  }
+  //  else if ((it = commandData.vectorParams.find(i)) != commandData.vectorParams.end())
+  //  {
+  //    writeCallVectorParameter(os, commandData, vkTypes, firstCall, singular, it);
+  //  }
+  //  else
+  //  {
+  //    if (vkTypes.find(commandData.params[i].pureType) != vkTypes.end())
+  //    {
+  //      writeCallVulkanTypeParameter(os, commandData.params[i]);
+  //    }
+  //    else
+  //    {
+  //      writeCallPlainTypeParameter(os, commandData.params[i]);
+  //    }
+  //  }
+  //}
+  //os << " )";
 }
 
 void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it)
@@ -2222,130 +2231,130 @@ void writeCallCountParameter(std::ostream & os, CommandData const& commandData, 
 
 void writeCallPlainTypeParameter(std::ostream & os, ParamData const& paramData)
 {
-  // this parameter is just a plain type
-  if (paramData.type.back() == '*')
-  {
-    // it's a pointer
-    std::string parameterName = startLowerCase(strip(paramData.name, "p"));
-    if (paramData.type.find("const") != std::string::npos)
-    {
-      // it's a const pointer
-      if (paramData.pureType == "char")
-      {
-        // it's a const pointer to char -> it's a string -> get the data via c_str()
-        os << parameterName;
-        if (paramData.optional)
-        {
-          // it's optional -> might use nullptr
-          os << " ? " << parameterName << "->c_str() : nullptr";
-        }
-        else
-        {
-          os << ".c_str()";
-        }
-      }
-      else
-      {
-        // it's const pointer to void (only other type that occurs) -> just use the name
-        assert((paramData.pureType == "void") && !paramData.optional);
-        os << paramData.name;
-      }
-    }
-    else
-    {
-      // it's a non-const pointer, and char is the only type that occurs -> use the address of the parameter
-      assert(paramData.type.find("char") == std::string::npos);
-      os << "&" << parameterName;
-    }
-  }
-  else
-  {
-    // it's a plain parameter -> just use its name
-    os << paramData.name;
-  }
+  //// this parameter is just a plain type
+  //if (paramData.type.back() == '*')
+  //{
+  //  // it's a pointer
+  //  std::string parameterName = startLowerCase(strip(paramData.name, "p"));
+  //  if (paramData.type.find("const") != std::string::npos)
+  //  {
+  //    // it's a const pointer
+  //    if (paramData.pureType == "char")
+  //    {
+  //      // it's a const pointer to char -> it's a string -> get the data via c_str()
+  //      os << parameterName;
+  //      if (paramData.optional)
+  //      {
+  //        // it's optional -> might use nullptr
+  //        os << " ? " << parameterName << "->c_str() : nullptr";
+  //      }
+  //      else
+  //      {
+  //        os << ".c_str()";
+  //      }
+  //    }
+  //    else
+  //    {
+  //      // it's const pointer to void (only other type that occurs) -> just use the name
+  //      assert((paramData.pureType == "void") && !paramData.optional);
+  //      os << paramData.name;
+  //    }
+  //  }
+  //  else
+  //  {
+  //    // it's a non-const pointer, and char is the only type that occurs -> use the address of the parameter
+  //    assert(paramData.type.find("char") == std::string::npos);
+  //    os << "&" << parameterName;
+  //  }
+  //}
+  //else
+  //{
+  //  // it's a plain parameter -> just use its name
+  //  os << paramData.name;
+  //}
 }
 
 void writeCallVectorParameter(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular, std::map<size_t, size_t>::const_iterator it)
 {
-  // this parameter is a vector parameter
-  assert(commandData.params[it->first].type.back() == '*');
-  if ((commandData.returnParam == it->first) && commandData.twoStep && firstCall)
-  {
-    // this parameter is the return parameter, and it's the first call of a two-step algorithm -> just just nullptr
-    os << "nullptr";
-  }
-  else
-  {
-    std::string parameterName = startLowerCase(strip(commandData.params[it->first].name, "p"));
-    std::set<std::string>::const_iterator vkit = vkTypes.find(commandData.params[it->first].pureType);
-    if ((vkit != vkTypes.end()) || (it->first == commandData.templateParam))
-    {
-      // CHECK for !commandData.params[it->first].optional
+  //// this parameter is a vector parameter
+  //assert(commandData.params[it->first].type.back() == '*');
+  //if ((commandData.returnParam == it->first) && commandData.twoStep && firstCall)
+  //{
+  //  // this parameter is the return parameter, and it's the first call of a two-step algorithm -> just just nullptr
+  //  os << "nullptr";
+  //}
+  //else
+  //{
+  //  std::string parameterName = startLowerCase(strip(commandData.params[it->first].name, "p"));
+  //  std::set<std::string>::const_iterator vkit = vkTypes.find(commandData.params[it->first].pureType);
+  //  if ((vkit != vkTypes.end()) || (it->first == commandData.templateParam))
+  //  {
+  //    // CHECK for !commandData.params[it->first].optional
 
-      // this parameter is a vulkan type or a templated type -> need to reinterpret cast
-      writeReinterpretCast(os, commandData.params[it->first].type.find("const") == 0, vkit != vkTypes.end(), commandData.params[it->first].pureType,
-        commandData.params[it->first].type.rfind("* const") != std::string::npos);
-      os << "( ";
-      if (singular)
-      {
-        // in singular case, strip the plural-S from the name, and use the pointer to that thing
-        os << "&" << stripPluralS(parameterName);
-      }
-      else
-      {
-        // in plural case, get the pointer to the data
-        os << parameterName << ".data()";
-      }
-      os << " )";
-    }
-    else if (commandData.params[it->first].pureType == "char")
-    {
-      // the parameter is a vector to char -> it might be optional
-      // besides that, the parameter now is a std::string -> get the pointer via c_str()
-      os << parameterName;
-      if (commandData.params[it->first].optional)
-      {
-        os << " ? " << parameterName << "->c_str() : nullptr";
-      }
-      else
-      {
-        os << ".c_str()";
-      }
-    }
-    else
-    {
-      // this parameter is just a vetor -> get the pointer to its data
-      os << parameterName << ".data()";
-    }
-  }
+  //    // this parameter is a vulkan type or a templated type -> need to reinterpret cast
+  //    writeReinterpretCast(os, commandData.params[it->first].type.find("const") == 0, vkit != vkTypes.end(), commandData.params[it->first].pureType,
+  //      commandData.params[it->first].type.rfind("* const") != std::string::npos);
+  //    os << "( ";
+  //    if (singular)
+  //    {
+  //      // in singular case, strip the plural-S from the name, and use the pointer to that thing
+  //      os << "&" << stripPluralS(parameterName);
+  //    }
+  //    else
+  //    {
+  //      // in plural case, get the pointer to the data
+  //      os << parameterName << ".data()";
+  //    }
+  //    os << " )";
+  //  }
+  //  else if (commandData.params[it->first].pureType == "char")
+  //  {
+  //    // the parameter is a vector to char -> it might be optional
+  //    // besides that, the parameter now is a std::string -> get the pointer via c_str()
+  //    os << parameterName;
+  //    if (commandData.params[it->first].optional)
+  //    {
+  //      os << " ? " << parameterName << "->c_str() : nullptr";
+  //    }
+  //    else
+  //    {
+  //      os << ".c_str()";
+  //    }
+  //  }
+  //  else
+  //  {
+  //    // this parameter is just a vetor -> get the pointer to its data
+  //    os << parameterName << ".data()";
+  //  }
+  //}
 }
 
 void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData)
 {
-  // this parameter is a vulkan type
-  if (paramData.type.back() == '*')
-  {
-    // it's a pointer -> needs a reinterpret cast to the vulkan type
-    std::string parameterName = startLowerCase(strip(paramData.name, "p"));
-    writeReinterpretCast(os, paramData.type.find("const") != std::string::npos, true, paramData.pureType, false);
-    os << "( ";
-    if (paramData.optional)
-    {
-      // for an optional parameter, we need also a static_cast from optional type to const-pointer to pure type
-      os << "static_cast<const " << paramData.pureType << "*>( " << parameterName << " )";
-    }
-    else
-    {
-      // other parameters can just use the pointer
-      os << "&" << parameterName;
-    }
-    os << " )";
-  }
-  else
-  {
-    // a non-pointer parameter needs a static_cast from vk::-type to vulkan type
-    os << "static_cast<Vk" << paramData.pureType << ">( " << paramData.name << " )";
-  }
+  //// this parameter is a vulkan type
+  //if (paramData.type.back() == '*')
+  //{
+  //  // it's a pointer -> needs a reinterpret cast to the vulkan type
+  //  std::string parameterName = startLowerCase(strip(paramData.name, "p"));
+  //  writeReinterpretCast(os, paramData.type.find("const") != std::string::npos, true, paramData.pureType, false);
+  //  os << "( ";
+  //  if (paramData.optional)
+  //  {
+  //    // for an optional parameter, we need also a static_cast from optional type to const-pointer to pure type
+  //    os << "static_cast<const " << paramData.pureType << "*>( " << parameterName << " )";
+  //  }
+  //  else
+  //  {
+  //    // other parameters can just use the pointer
+  //    os << "&" << parameterName;
+  //  }
+  //  os << " )";
+  //}
+  //else
+  //{
+  //  // a non-pointer parameter needs a static_cast from vk::-type to vulkan type
+  //  os << "static_cast<Vk" << paramData.pureType << ">( " << paramData.name << " )";
+  //}
 }
 
 void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique)
@@ -2389,64 +2398,64 @@ void writeFunction(std::ostream & os, std::string const& indentation, VkData con
 
 void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular)
 {
-  if (1 < commandData.vectorParams.size())
-  {
-    writeFunctionBodyEnhancedMultiVectorSizeCheck(os, indentation, commandData);
-  }
+  //if (1 < commandData.vectorParams.size())
+  //{
+  //  writeFunctionBodyEnhancedMultiVectorSizeCheck(os, indentation, commandData);
+  //}
 
-  std::string returnName;
-  if (commandData.returnParam != ~0)
-  {
-    returnName = writeFunctionBodyEnhancedLocalReturnVariable(os, indentation, commandData, singular);
-  }
+  //std::string returnName;
+  //if (commandData.returnParam != ~0)
+  //{
+  //  returnName = writeFunctionBodyEnhancedLocalReturnVariable(os, indentation, commandData, singular);
+  //}
 
-  if (commandData.twoStep)
-  {
-    assert(!singular);
-    writeFunctionBodyEnhancedLocalCountVariable(os, indentation, commandData);
+  //if (commandData.twoStep)
+  //{
+  //  assert(!singular);
+  //  writeFunctionBodyEnhancedLocalCountVariable(os, indentation, commandData);
 
-    // we now might have to check the result, resize the returned vector accordingly, and call the function again
-    std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
-    assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
-    std::string sizeName = startLowerCase(strip(commandData.params[returnit->second].name, "p"));
+  //  // we now might have to check the result, resize the returned vector accordingly, and call the function again
+  //  std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
+  //  assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
+  //  std::string sizeName = startLowerCase(strip(commandData.params[returnit->second].name, "p"));
 
-    if (commandData.returnType == "Result")
-    {
-      if (1 < commandData.successCodes.size())
-      {
-        writeFunctionBodyEnhancedCallTwoStepIterate(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
-      }
-      else
-      {
-        writeFunctionBodyEnhancedCallTwoStepChecked(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
-      }
-    }
-    else
-    {
-      writeFunctionBodyEnhancedCallTwoStep(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
-    }
-  }
-  else
-  {
-    if (commandData.returnType == "Result")
-    {
-      writeFunctionBodyEnhancedCallResult(os, indentation, vkData.vkTypes, commandData, singular);
-    }
-    else
-    {
-      writeFunctionBodyEnhancedCall(os, indentation, vkData.vkTypes, commandData, singular);
-    }
-  }
+  //  if (commandData.returnType == "Result")
+  //  {
+  //    if (1 < commandData.successCodes.size())
+  //    {
+  //      writeFunctionBodyEnhancedCallTwoStepIterate(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
+  //    }
+  //    else
+  //    {
+  //      writeFunctionBodyEnhancedCallTwoStepChecked(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
+  //    }
+  //  }
+  //  else
+  //  {
+  //    writeFunctionBodyEnhancedCallTwoStep(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
+  //  }
+  //}
+  //else
+  //{
+  //  if (commandData.returnType == "Result")
+  //  {
+  //    writeFunctionBodyEnhancedCallResult(os, indentation, vkData.vkTypes, commandData, singular);
+  //  }
+  //  else
+  //  {
+  //    writeFunctionBodyEnhancedCall(os, indentation, vkData.vkTypes, commandData, singular);
+  //  }
+  //}
 
-  if ((commandData.returnType == "Result") || !commandData.successCodes.empty())
-  {
-    writeFunctionBodyEnhancedReturnResultValue(os, indentation, returnName, commandData, singular);
-  }
-  else if ((commandData.returnParam != ~0) && (commandData.returnType != commandData.enhancedReturnType))
-  {
-    // for the other returning cases, when the return type is somhow enhanced, just return the local returnVariable
-    os << indentation << "  return " << returnName << ";" << std::endl;
-  }
+  //if ((commandData.returnType == "Result") || !commandData.successCodes.empty())
+  //{
+  //  writeFunctionBodyEnhancedReturnResultValue(os, indentation, returnName, commandData, singular);
+  //}
+  //else if ((commandData.returnParam != ~0) && (commandData.returnType != commandData.enhancedReturnType))
+  //{
+  //  // for the other returning cases, when the return type is somhow enhanced, just return the local returnVariable
+  //  os << indentation << "  return " << returnName << ";" << std::endl;
+  //}
 }
 
 void writeFunctionBodyEnhanced(std::ostream &os, std::string const& templateString, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
@@ -2462,7 +2471,7 @@ void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentat
 {
   std::string const templateString = "${i}  return ${call};\n";
   std::string const templateStringVoid = "${i}  ${call};\n";
-  writeFunctionBodyEnhanced(os, commandData.returnType == "void" ? templateStringVoid : templateString, indentation, vkTypes, commandData, singular);
+  //writeFunctionBodyEnhanced(os, commandData.returnType == "void" ? templateStringVoid : templateString, indentation, vkTypes, commandData, singular);
 }
 
 void writeFunctionBodyEnhancedCallResult(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
@@ -2528,81 +2537,81 @@ ${i}  ${returnName}.resize( ${sizeName} );
 
 void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData)
 {
-  // local count variable to hold the size of the vector to fill
-  assert(commandData.returnParam != ~0);
+  //// local count variable to hold the size of the vector to fill
+  //assert(commandData.returnParam != ~0);
 
-  std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
-  assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
-  assert((commandData.returnType == "Result") || (commandData.returnType == "void"));
+  //std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
+  //assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
+  ////assert((commandData.returnType == "Result") || (commandData.returnType == "void"));
 
-  // take the pure type of the size parameter; strip the leading 'p' from its name for its local name
-  os << indentation << "  " << commandData.params[returnit->second].pureType << " " << startLowerCase(strip(commandData.params[returnit->second].name, "p")) << ";" << std::endl;
+  //// take the pure type of the size parameter; strip the leading 'p' from its name for its local name
+  //os << indentation << "  " << commandData.params[returnit->second].pureType << " " << startLowerCase(strip(commandData.params[returnit->second].name, "p")) << ";" << std::endl;
 }
 
-std::string writeFunctionBodyEnhancedLocalReturnVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool singular)
-{
-  std::string returnName = startLowerCase(strip(commandData.params[commandData.returnParam].name, "p"));
-
-  // there is a returned parameter -> we need a local variable to hold that value
-  if (commandData.returnType != commandData.enhancedReturnType)
-  {
-    // the returned parameter is somehow enanced by us
-    os << indentation << "  ";
-    if (singular)
-    {
-      // in singular case, just use the return parameters pure type for the return variable
-      returnName = stripPluralS(returnName);
-      os << commandData.params[commandData.returnParam].pureType << " " << returnName;
-    }
-    else
-    {
-      // in non-singular case, use the enhanced type for the return variable (like vector<...>)
-      os << commandData.enhancedReturnType << " " << returnName;
-
-      std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.find(commandData.returnParam);
-      if (it != commandData.vectorParams.end() && !commandData.twoStep)
-      {
-        // if the return parameter is a vector parameter, and not part of a two-step algorithm, initialize its size
-        std::string size;
-        if (it->second == ~0)
-        {
-          assert(!commandData.params[commandData.returnParam].len.empty());
-          // the size of the vector is not given by an other parameter, but by some member of a parameter, described as 'parameter::member'
-          // -> replace the '::' by '.' and filter out the leading 'p' to access that value
-          size = startLowerCase(strip(commandData.params[commandData.returnParam].len, "p"));
-          size_t pos = size.find("::");
-          assert(pos != std::string::npos);
-          size.replace(pos, 2, ".");
-        }
-        else
-        {
-          // the size of the vector is given by an other parameter
-          // that means (as this is not a two-step algorithm) it's size is determined by some other vector parameter!
-          // -> look for it and get it's actual size
-          for (auto const& vectorParam : commandData.vectorParams)
-          {
-            if ((vectorParam.first != commandData.returnParam) && (vectorParam.second == it->second))
-            {
-              size = startLowerCase(strip(commandData.params[vectorParam.first].name, "p")) + ".size()";
-              break;
-            }
-          }
-        }
-        assert(!size.empty());
-        os << "( " << size << " )";
-      }
-    }
-    os << ";" << std::endl;
-  }
-  else
-  {
-    // the return parameter is not enhanced -> the type is supposed to be a Result and there are more than one success codes!
-    assert((commandData.returnType == "Result") && (1 < commandData.successCodes.size()));
-    os << indentation << "  " << commandData.params[commandData.returnParam].pureType << " " << returnName << ";" << std::endl;
-  }
-
-  return returnName;
-}
+//std::string writeFunctionBodyEnhancedLocalReturnVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool singular)
+//{
+//  std::string returnName = startLowerCase(strip(commandData.params[commandData.returnParam].name, "p"));
+//
+//  // there is a returned parameter -> we need a local variable to hold that value
+//  if (commandData.returnType != commandData.enhancedReturnType)
+//  {
+//    // the returned parameter is somehow enanced by us
+//    os << indentation << "  ";
+//    if (singular)
+//    {
+//      // in singular case, just use the return parameters pure type for the return variable
+//      returnName = stripPluralS(returnName);
+//      os << commandData.params[commandData.returnParam].pureType << " " << returnName;
+//    }
+//    else
+//    {
+//      // in non-singular case, use the enhanced type for the return variable (like vector<...>)
+//      os << commandData.enhancedReturnType << " " << returnName;
+//
+//      std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.find(commandData.returnParam);
+//      if (it != commandData.vectorParams.end() && !commandData.twoStep)
+//      {
+//        // if the return parameter is a vector parameter, and not part of a two-step algorithm, initialize its size
+//        std::string size;
+//        if (it->second == ~0)
+//        {
+//          assert(!commandData.params[commandData.returnParam].len.empty());
+//          // the size of the vector is not given by an other parameter, but by some member of a parameter, described as 'parameter::member'
+//          // -> replace the '::' by '.' and filter out the leading 'p' to access that value
+//          size = startLowerCase(strip(commandData.params[commandData.returnParam].len, "p"));
+//          size_t pos = size.find("::");
+//          assert(pos != std::string::npos);
+//          size.replace(pos, 2, ".");
+//        }
+//        else
+//        {
+//          // the size of the vector is given by an other parameter
+//          // that means (as this is not a two-step algorithm) it's size is determined by some other vector parameter!
+//          // -> look for it and get it's actual size
+//          for (auto const& vectorParam : commandData.vectorParams)
+//          {
+//            if ((vectorParam.first != commandData.returnParam) && (vectorParam.second == it->second))
+//            {
+//              size = startLowerCase(strip(commandData.params[vectorParam.first].name, "p")) + ".size()";
+//              break;
+//            }
+//          }
+//        }
+//        assert(!size.empty());
+//        os << "( " << size << " )";
+//      }
+//    }
+//    os << ";" << std::endl;
+//  }
+//  else
+//  {
+//    // the return parameter is not enhanced -> the type is supposed to be a Result and there are more than one success codes!
+//    assert((commandData.returnType == "Result") && (1 < commandData.successCodes.size()));
+//    os << indentation << "  " << commandData.params[commandData.returnParam].pureType << " " << returnName << ";" << std::endl;
+//  }
+//
+//  return returnName;
+//}
 
 void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData)
 {
@@ -2640,182 +2649,182 @@ ${i}  }
   }
 }
 
-void writeFunctionBodyEnhancedReturnResultValue(std::ostream & os, std::string const& indentation, std::string const& returnName, CommandData const& commandData, bool singular)
-{
-  // if the return type is "Result" or there is at least one success code, create the Result/Value construct to return
-  os << indentation << "  return createResultValue( result, ";
-  if (commandData.returnParam != ~0)
-  {
-    // if there's a return parameter, list it in the Result/Value constructor
-    os << returnName << ", ";
-  }
-
-  // now the function name (with full namespace) as a string
-  os << "\"vk::" << (commandData.className.empty() ? "" : commandData.className + "::") << (singular ? stripPluralS(commandData.reducedName) : commandData.reducedName) << "\"";
-
-  if (!commandData.twoStep && (1 < commandData.successCodes.size()))
-  {
-    // and for the single-step algorithms with more than one success code list them all
-    os << ", { Result::" << commandData.successCodes[0];
-    for (size_t i = 1; i < commandData.successCodes.size(); i++)
-    {
-      os << ", Result::" << commandData.successCodes[i];
-    }
-    os << " }";
-  }
-  os << " );" << std::endl;
-}
+//void writeFunctionBodyEnhancedReturnResultValue(std::ostream & os, std::string const& indentation, std::string const& returnName, CommandData const& commandData, bool singular)
+//{
+//  // if the return type is "Result" or there is at least one success code, create the Result/Value construct to return
+//  os << indentation << "  return createResultValue( result, ";
+//  if (commandData.returnParam != ~0)
+//  {
+//    // if there's a return parameter, list it in the Result/Value constructor
+//    os << returnName << ", ";
+//  }
+//
+//  // now the function name (with full namespace) as a string
+//  os << "\"vk::" << (commandData.className.empty() ? "" : commandData.className + "::") << (singular ? stripPluralS(commandData.reducedName) : commandData.reducedName) << "\"";
+//
+//  if (!commandData.twoStep && (1 < commandData.successCodes.size()))
+//  {
+//    // and for the single-step algorithms with more than one success code list them all
+//    os << ", { Result::" << commandData.successCodes[0];
+//    for (size_t i = 1; i < commandData.successCodes.size(); i++)
+//    {
+//      os << ", Result::" << commandData.successCodes[i];
+//    }
+//    os << " }";
+//  }
+//  os << " );" << std::endl;
+//}
 
 void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData)
 {
-  os << indentation << "  ";
-  bool castReturn = false;
-  if (commandData.returnType != "void")
-  {
-    // there's something to return...
-    os << "return ";
+  //os << indentation << "  ";
+  //bool castReturn = false;
+  //if (commandData.returnType != "void")
+  //{
+  //  // there's something to return...
+  //  os << "return ";
 
-    castReturn = (vkData.vkTypes.find(commandData.returnType) != vkData.vkTypes.end());
-    if (castReturn)
-    {
-      // the return-type is a vulkan type -> need to cast to vk::-type
-      os << "static_cast<" << commandData.returnType << ">( ";
-    }
-  }
+  //  castReturn = (vkData.vkTypes.find(commandData.returnType) != vkData.vkTypes.end());
+  //  if (castReturn)
+  //  {
+  //    // the return-type is a vulkan type -> need to cast to vk::-type
+  //    os << "static_cast<" << commandData.returnType << ">( ";
+  //  }
+  //}
 
-  // call the original function
-  os << "vk" << startUpperCase(commandData.fullName) << "( ";
+  //// call the original function
+  //os << "vk" << startUpperCase(commandData.fullName) << "( ";
 
-  if (!commandData.className.empty())
-  {
-    // the command is part of a class -> the first argument is the member variable, starting with "m_"
-    os << "m_" << commandData.params[0].name;
-  }
+  //if (!commandData.className.empty())
+  //{
+  //  // the command is part of a class -> the first argument is the member variable, starting with "m_"
+  //  os << "m_" << commandData.params[0].name;
+  //}
 
-  // list all the arguments
-  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  {
-    if (0 < i)
-    {
-      os << ", ";
-    }
+  //// list all the arguments
+  //for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+  //{
+  //  if (0 < i)
+  //  {
+  //    os << ", ";
+  //  }
 
-    if (vkData.vkTypes.find(commandData.params[i].pureType) != vkData.vkTypes.end())
-    {
-      // the parameter is a vulkan type
-      if (commandData.params[i].type.back() == '*')
-      {
-        // it's a pointer -> need to reinterpret_cast it
-        writeReinterpretCast(os, commandData.params[i].type.find("const") == 0, true, commandData.params[i].pureType, commandData.params[i].type.find("* const") != std::string::npos);
-      }
-      else
-      {
-        // it's a value -> need to static_cast ist
-        os << "static_cast<Vk" << commandData.params[i].pureType << ">";
-      }
-      os << "( " << commandData.params[i].name << " )";
-    }
-    else
-    {
-      // it's a non-vulkan type -> just use it
-      os << commandData.params[i].name;
-    }
-  }
-  os << " )";
+  //  if (vkData.vkTypes.find(commandData.params[i].pureType) != vkData.vkTypes.end())
+  //  {
+  //    // the parameter is a vulkan type
+  //    if (commandData.params[i].type.back() == '*')
+  //    {
+  //      // it's a pointer -> need to reinterpret_cast it
+  //      writeReinterpretCast(os, commandData.params[i].type.find("const") == 0, true, commandData.params[i].pureType, commandData.params[i].type.find("* const") != std::string::npos);
+  //    }
+  //    else
+  //    {
+  //      // it's a value -> need to static_cast ist
+  //      os << "static_cast<Vk" << commandData.params[i].pureType << ">";
+  //    }
+  //    os << "( " << commandData.params[i].name << " )";
+  //  }
+  //  else
+  //  {
+  //    // it's a non-vulkan type -> just use it
+  //    os << commandData.params[i].name;
+  //  }
+  //}
+  //os << " )";
 
-  if (castReturn)
-  {
-    // if we cast the return -> close the static_cast
-    os << " )";
-  }
-  os << ";" << std::endl;
+  //if (castReturn)
+  //{
+  //  // if we cast the return -> close the static_cast
+  //  os << " )";
+  //}
+  //os << ";" << std::endl;
 }
 
 void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular)
 {
-  // the unique version needs a Deleter object for destruction of the newly created stuff
-  std::string type = commandData.params[commandData.returnParam].pureType;
-  std::string typeValue = startLowerCase(type);
-  os << indentation << "  " << type << "Deleter deleter( ";
-  if (vkData.deleterData.find(commandData.className) != vkData.deleterData.end())
-  {
-    // if the Deleter is specific to the command's class, add '*this' to the deleter
-    os << "*this, ";
-  }
-
-  // get the DeleterData corresponding to the returned type
-  std::map<std::string, DeleterData>::const_iterator ddit = vkData.deleterData.find(type);
-  assert(ddit != vkData.deleterData.end());
-  if (ddit->second.pool.empty())
-  {
-    // if this type isn't pooled, use the allocator (provided as a function argument)
-    os << "allocator";
-  }
-  else
-  {
-    // otherwise use the pool, which always is a member of the second argument
-    os << startLowerCase(strip(commandData.params[1].name, "p")) << "." << startLowerCase(ddit->second.pool);
-  }
-  os << " );" << std::endl;
-
-  bool returnsVector = !singular && (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end());
-  if (returnsVector)
-  {
-    // if a vector of data is returned, use a local variable to hold the returned data from the non-unique function call
-    os << indentation << "  std::vector<" << type << ",Allocator> " << typeValue << "s = ";
-  }
-  else
-  {
-    // otherwise create a Unique stuff out of the returned data from the non-unique function call
-    os << indentation << "  return Unique" << type << "( ";
-  }
-
-  // the call to the non-unique function
-  os << (singular ? stripPluralS(commandData.fullName) : commandData.fullName) << "( ";
-  bool argEncountered = false;
-  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  {
-    if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
-    {
-      if (argEncountered)
-      {
-        os << ", ";
-      }
-      argEncountered = true;
-
-      // strip off the leading 'p' for pointer arguments
-      std::string argumentName = (commandData.params[i].type.back() == '*') ? startLowerCase(strip(commandData.params[i].name, "p")) : commandData.params[i].name;
-      if (singular && (commandData.vectorParams.find(i) != commandData.vectorParams.end()))
-      {
-        // and strip off the plural 's' if appropriate
-        argumentName = stripPluralS(argumentName);
-      }
-      os << argumentName;
-    }
-  }
-  os << " )";
-  if (returnsVector)
-  {
-    std::string const stringTemplate = R"(;
-${i}  std::vector<Unique${type}> unique${type}s;
-${i}  unique${type}s.reserve( ${typeValue}s.size() );
-${i}  for ( auto ${typeValue} : ${typeValue}s )
-${i}  {
-${i}    unique${type}s.push_back( Unique${type}( ${typeValue}, deleter ) );
-${i}  }
-${i}  return unique${type}s;
-)";
-    os << replaceWithMap(stringTemplate, std::map<std::string, std::string>{
-      { "i", indentation },
-      { "type", type },
-      { "typeValue", typeValue }
-    });
-  }
-  else
-  {
-    // for non-vector returns, just add the deleter (local variable) to the Unique-stuff constructor
-    os << ", deleter );" << std::endl;
-  }
+//  // the unique version needs a Deleter object for destruction of the newly created stuff
+//  std::string type = commandData.params[commandData.returnParam].pureType;
+//  std::string typeValue = startLowerCase(type);
+//  os << indentation << "  " << type << "Deleter deleter( ";
+//  if (vkData.deleterData.find(commandData.className) != vkData.deleterData.end())
+//  {
+//    // if the Deleter is specific to the command's class, add '*this' to the deleter
+//    os << "*this, ";
+//  }
+//
+//  // get the DeleterData corresponding to the returned type
+//  std::map<std::string, DeleterData>::const_iterator ddit = vkData.deleterData.find(type);
+//  assert(ddit != vkData.deleterData.end());
+//  if (ddit->second.pool.empty())
+//  {
+//    // if this type isn't pooled, use the allocator (provided as a function argument)
+//    os << "allocator";
+//  }
+//  else
+//  {
+//    // otherwise use the pool, which always is a member of the second argument
+//    os << startLowerCase(strip(commandData.params[1].name, "p")) << "." << startLowerCase(ddit->second.pool);
+//  }
+//  os << " );" << std::endl;
+//
+//  bool returnsVector = !singular && (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end());
+//  if (returnsVector)
+//  {
+//    // if a vector of data is returned, use a local variable to hold the returned data from the non-unique function call
+//    os << indentation << "  std::vector<" << type << ",Allocator> " << typeValue << "s = ";
+//  }
+//  else
+//  {
+//    // otherwise create a Unique stuff out of the returned data from the non-unique function call
+//    os << indentation << "  return Unique" << type << "( ";
+//  }
+//
+//  // the call to the non-unique function
+//  os << (singular ? stripPluralS(commandData.fullName) : commandData.fullName) << "( ";
+//  bool argEncountered = false;
+//  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+//  {
+//    if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
+//    {
+//      if (argEncountered)
+//      {
+//        os << ", ";
+//      }
+//      argEncountered = true;
+//
+//      // strip off the leading 'p' for pointer arguments
+//      std::string argumentName = (commandData.params[i].type.back() == '*') ? startLowerCase(strip(commandData.params[i].name, "p")) : commandData.params[i].name;
+//      if (singular && (commandData.vectorParams.find(i) != commandData.vectorParams.end()))
+//      {
+//        // and strip off the plural 's' if appropriate
+//        argumentName = stripPluralS(argumentName);
+//      }
+//      os << argumentName;
+//    }
+//  }
+//  os << " )";
+//  if (returnsVector)
+//  {
+//    std::string const stringTemplate = R"(;
+//${i}  std::vector<Unique${type}> unique${type}s;
+//${i}  unique${type}s.reserve( ${typeValue}s.size() );
+//${i}  for ( auto ${typeValue} : ${typeValue}s )
+//${i}  {
+//${i}    unique${type}s.push_back( Unique${type}( ${typeValue}, deleter ) );
+//${i}  }
+//${i}  return unique${type}s;
+//)";
+//    os << replaceWithMap(stringTemplate, std::map<std::string, std::string>{
+//      { "i", indentation },
+//      { "type", type },
+//      { "typeValue", typeValue }
+//    });
+//  }
+//  else
+//  {
+//    // for non-vector returns, just add the deleter (local variable) to the Unique-stuff constructor
+//    os << ", deleter );" << std::endl;
+//  }
 }
 
 void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults)
@@ -2838,141 +2847,141 @@ void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, Comma
 
 void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool singular, bool withDefaults)
 {
-  // check if there's at least one argument left to put in here
-  if (commandData.skippedParams.size() + (commandData.className.empty() ? 0 : 1) < commandData.params.size())
-  {
-    // determine the last argument, where we might provide some default for
-    size_t lastArgument = ~0;
-    for (size_t i = commandData.params.size() - 1; i < commandData.params.size(); i--)
-    {
-      if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
-      {
-        lastArgument = i;
-        break;
-      }
-    }
+  //// check if there's at least one argument left to put in here
+  //if (commandData.skippedParams.size() + (commandData.className.empty() ? 0 : 1) < commandData.params.size())
+  //{
+  //  // determine the last argument, where we might provide some default for
+  //  size_t lastArgument = ~0;
+  //  for (size_t i = commandData.params.size() - 1; i < commandData.params.size(); i--)
+  //  {
+  //    if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
+  //    {
+  //      lastArgument = i;
+  //      break;
+  //    }
+  //  }
 
-    os << " ";
-    bool argEncountered = false;
-    for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-    {
-      if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
-      {
-        if (argEncountered)
-        {
-          os << ", ";
-        }
-        std::string strippedParameterName = startLowerCase(strip(commandData.params[i].name, "p"));
+  //  os << " ";
+  //  bool argEncountered = false;
+  //  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+  //  {
+  //    if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
+  //    {
+  //      if (argEncountered)
+  //      {
+  //        os << ", ";
+  //      }
+  //      std::string strippedParameterName = startLowerCase(strip(commandData.params[i].name, "p"));
 
-        std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.find(i);
-        size_t rightStarPos = commandData.params[i].type.rfind('*');
-        if (it == commandData.vectorParams.end())
-        {
-          // the argument ist not a vector
-          if (rightStarPos == std::string::npos)
-          {
-            // and its not a pointer -> just use its type and name here
-            os << commandData.params[i].type << " " << commandData.params[i].name;
-            if (!commandData.params[i].arraySize.empty())
-            {
-              os << "[" << commandData.params[i].arraySize << "]";
-            }
+  //      std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.find(i);
+  //      size_t rightStarPos = commandData.params[i].type.rfind('*');
+  //      if (it == commandData.vectorParams.end())
+  //      {
+  //        // the argument ist not a vector
+  //        if (rightStarPos == std::string::npos)
+  //        {
+  //          // and its not a pointer -> just use its type and name here
+  //          os << commandData.params[i].type << " " << commandData.params[i].name;
+  //          if (!commandData.params[i].arraySize.empty())
+  //          {
+  //            os << "[" << commandData.params[i].arraySize << "]";
+  //          }
 
-            if (withDefaults && (lastArgument == i))
-            {
-              // check if the very last argument is a flag without any bits -> provide some empty default for it
-              std::map<std::string, FlagData>::const_iterator flagIt = vkData.flags.find(commandData.params[i].pureType);
-              if (flagIt != vkData.flags.end())
-              {
-				  // TODO: Removed dependencies
+  //          if (withDefaults && (lastArgument == i))
+  //          {
+  //            // check if the very last argument is a flag without any bits -> provide some empty default for it
+  //            std::map<std::string, FlagData>::const_iterator flagIt = vkData.flags.find(commandData.params[i].pureType);
+  //            if (flagIt != vkData.flags.end())
+  //            {
+		//		  // TODO: Removed dependencies
 
-                //// get the enum corresponding to this flag, to check if it's empty
-                //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&flagIt](DependencyData const& dd) { return(dd.name == flagIt->first); });
-                //assert((depIt != vkData.dependencies.end()) && (depIt->dependencies.size() == 1));
-                //std::map<std::string, EnumData>::const_iterator enumIt = vkData.enums.find(*depIt->dependencies.begin());
-                ///assert(enumIt != vkData.enums.end());
-                //if (enumIt->second.members.empty())
-                //{
-                //  // there are no bits in this flag -> provide the default
-                //  os << " = " << commandData.params[i].pureType << "()";
-                //}
-              }
-            }
-          }
-          else
-          {
-            // the argument is not a vector, but a pointer
-            assert(commandData.params[i].type[rightStarPos] == '*');
-            if (commandData.params[i].optional)
-            {
-              // for an optional argument, trim the trailing '*' from the type, and the leading 'p' from the name
-              os << "Optional<" << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << "> " << strippedParameterName;
-              if (withDefaults)
-              {
-                os << " = nullptr";
-              }
-            }
-            else if (commandData.params[i].pureType == "void")
-            {
-              // for void-pointer, just use type and name
-              os << commandData.params[i].type << " " << commandData.params[i].name;
-            }
-            else if (commandData.params[i].pureType != "char")
-            {
-              // for non-char-pointer, change to reference
-              os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << strippedParameterName;
-            }
-            else
-            {
-              // for char-pointer, change to const reference to std::string
-              os << "const std::string & " << strippedParameterName;
-            }
-          }
-        }
-        else
-        {
-          // the argument is a vector
-          // it's optional, if it's marked as optional and there's no size specified
-          bool optional = commandData.params[i].optional && (it->second == ~0);
-          assert((rightStarPos != std::string::npos) && (commandData.params[i].type[rightStarPos] == '*'));
-          if (commandData.params[i].type.find("char") != std::string::npos)
-          {
-            // it's a char-vector -> use a std::string (either optional or a const-reference
-            if (optional)
-            {
-              os << "Optional<const std::string> " << strippedParameterName;
-              if (withDefaults)
-              {
-                os << " = nullptr";
-              }
-            }
-            else
-            {
-              os << "const std::string & " << strippedParameterName;
-            }
-          }
-          else
-          {
-            // it's a non-char vector (they are never optional)
-            assert(!optional);
-            if (singular)
-            {
-              // in singular case, change from pointer to reference
-              os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << stripPluralS(strippedParameterName);
-            }
-            else
-            {
-              // otherwise, use our ArrayProxy
-              bool isConst = (commandData.params[i].type.find("const") != std::string::npos);
-              os << "ArrayProxy<" << ((commandData.templateParam == i) ? (isConst ? "const T" : "T") : trimEnd(commandData.params[i].type.substr(0, rightStarPos))) << "> " << strippedParameterName;
-            }
-          }
-        }
-        argEncountered = true;
-      }
-    }
-    os << " ";
-  }
+  //              //// get the enum corresponding to this flag, to check if it's empty
+  //              //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&flagIt](DependencyData const& dd) { return(dd.name == flagIt->first); });
+  //              //assert((depIt != vkData.dependencies.end()) && (depIt->dependencies.size() == 1));
+  //              //std::map<std::string, EnumData>::const_iterator enumIt = vkData.enums.find(*depIt->dependencies.begin());
+  //              ///assert(enumIt != vkData.enums.end());
+  //              //if (enumIt->second.members.empty())
+  //              //{
+  //              //  // there are no bits in this flag -> provide the default
+  //              //  os << " = " << commandData.params[i].pureType << "()";
+  //              //}
+  //            }
+  //          }
+  //        }
+  //        else
+  //        {
+  //          // the argument is not a vector, but a pointer
+  //          assert(commandData.params[i].type[rightStarPos] == '*');
+  //          if (commandData.params[i].optional)
+  //          {
+  //            // for an optional argument, trim the trailing '*' from the type, and the leading 'p' from the name
+  //            os << "Optional<" << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << "> " << strippedParameterName;
+  //            if (withDefaults)
+  //            {
+  //              os << " = nullptr";
+  //            }
+  //          }
+  //          else if (commandData.params[i].pureType == "void")
+  //          {
+  //            // for void-pointer, just use type and name
+  //            os << commandData.params[i].type << " " << commandData.params[i].name;
+  //          }
+  //          else if (commandData.params[i].pureType != "char")
+  //          {
+  //            // for non-char-pointer, change to reference
+  //            os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << strippedParameterName;
+  //          }
+  //          else
+  //          {
+  //            // for char-pointer, change to const reference to std::string
+  //            os << "const std::string & " << strippedParameterName;
+  //          }
+  //        }
+  //      }
+  //      else
+  //      {
+  //        // the argument is a vector
+  //        // it's optional, if it's marked as optional and there's no size specified
+  //        bool optional = commandData.params[i].optional && (it->second == ~0);
+  //        assert((rightStarPos != std::string::npos) && (commandData.params[i].type[rightStarPos] == '*'));
+  //        if (commandData.params[i].type.find("char") != std::string::npos)
+  //        {
+  //          // it's a char-vector -> use a std::string (either optional or a const-reference
+  //          if (optional)
+  //          {
+  //            os << "Optional<const std::string> " << strippedParameterName;
+  //            if (withDefaults)
+  //            {
+  //              os << " = nullptr";
+  //            }
+  //          }
+  //          else
+  //          {
+  //            os << "const std::string & " << strippedParameterName;
+  //          }
+  //        }
+  //        else
+  //        {
+  //          // it's a non-char vector (they are never optional)
+  //          assert(!optional);
+  //          if (singular)
+  //          {
+  //            // in singular case, change from pointer to reference
+  //            os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << stripPluralS(strippedParameterName);
+  //          }
+  //          else
+  //          {
+  //            // otherwise, use our ArrayProxy
+  //            bool isConst = (commandData.params[i].type.find("const") != std::string::npos);
+  //            os << "ArrayProxy<" << ((commandData.templateParam == i) ? (isConst ? "const T" : "T") : trimEnd(commandData.params[i].type.substr(0, rightStarPos))) << "> " << strippedParameterName;
+  //          }
+  //        }
+  //      }
+  //      argEncountered = true;
+  //    }
+  //  }
+  //  os << " ";
+  //}
 }
 
 void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData)
@@ -3010,57 +3019,57 @@ void writeFunctionHeaderName(std::ostream & os, std::string const& name, bool si
 
 void writeFunctionHeaderReturnType(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool enhanced, bool singular, bool unique)
 {
-  std::string templateString;
-  std::string returnType;
-  if (enhanced)
-  {
-    // the enhanced function might return some pretty complex return stuff
-    if (unique)
-    {
-      // the unique version returns something prefixed with 'Unique'; potentially a vector of that stuff
-      // it's a vector, if it's not the singular version and the return parameter is a vector parameter
-      bool returnsVector = !singular && (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end());
-      templateString = returnsVector ? "std::vector<Unique${returnType}> " : "Unique${returnType} ";
-      returnType = commandData.params[commandData.returnParam].pureType;
-      //os << replaceWithMap(, {{"returnType", commandData.params[commandData.returnParam].pureType }});
-    }
-    else if ((commandData.enhancedReturnType != commandData.returnType) && (commandData.returnType != "void"))
-    {
-      // if the enhanced return type differs from the original return type, and it's not void, we return a ResultValueType<...>::type
-      if (!singular && (commandData.enhancedReturnType.find("Allocator") != std::string::npos))
-      {
-        // for the non-singular case with allocation, we need to prepend with 'typename' to keep compilers happy
-        templateString = "typename ResultValueType<${returnType}>::type ";
-      }
-      else
-      {
-        templateString = "ResultValueType<${returnType}>::type ";
-      }
-      assert(commandData.returnType == "Result");
-      // in singular case, we create the ResultValueType from the pure return type, otherwise from the enhanced return type
-      returnType = singular ? commandData.params[commandData.returnParam].pureType : commandData.enhancedReturnType;
-    }
-    else if ((commandData.returnParam != ~0) && (1 < commandData.successCodes.size()))
-    {
-      // if there is a return parameter at all, and there are multiple success codes, we return a ResultValue<...> with the pure return type
-      assert(commandData.returnType == "Result");
-      templateString = "ResultValue<${returnType}> ";
-      returnType = commandData.params[commandData.returnParam].pureType;
-    }
-    else
-    {
-      // and in every other case, we just return the enhanced return type.
-      templateString = "${returnType} ";
-      returnType = commandData.enhancedReturnType;
-    }
-  }
-  else
-  {
-    // the non-enhanced function just uses the return type
-    templateString = "${returnType} ";
-    returnType = commandData.returnType;
-  }
-  os << replaceWithMap(templateString, { { "returnType", returnType } });
+  //std::string templateString;
+  //std::string returnType;
+  //if (enhanced)
+  //{
+  //  // the enhanced function might return some pretty complex return stuff
+  //  if (unique)
+  //  {
+  //    // the unique version returns something prefixed with 'Unique'; potentially a vector of that stuff
+  //    // it's a vector, if it's not the singular version and the return parameter is a vector parameter
+  //    bool returnsVector = !singular && (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end());
+  //    templateString = returnsVector ? "std::vector<Unique${returnType}> " : "Unique${returnType} ";
+  //    returnType = commandData.params[commandData.returnParam].pureType;
+  //    //os << replaceWithMap(, {{"returnType", commandData.params[commandData.returnParam].pureType }});
+  //  }
+  //  else if ((commandData.enhancedReturnType != commandData.returnType) && (commandData.returnType != "void"))
+  //  {
+  //    // if the enhanced return type differs from the original return type, and it's not void, we return a ResultValueType<...>::type
+  //    if (!singular && (commandData.enhancedReturnType.find("Allocator") != std::string::npos))
+  //    {
+  //      // for the non-singular case with allocation, we need to prepend with 'typename' to keep compilers happy
+  //      templateString = "typename ResultValueType<${returnType}>::type ";
+  //    }
+  //    else
+  //    {
+  //      templateString = "ResultValueType<${returnType}>::type ";
+  //    }
+  //    assert(commandData.returnType == "Result");
+  //    // in singular case, we create the ResultValueType from the pure return type, otherwise from the enhanced return type
+  //    returnType = singular ? commandData.params[commandData.returnParam].pureType : commandData.enhancedReturnType;
+  //  }
+  //  else if ((commandData.returnParam != ~0) && (1 < commandData.successCodes.size()))
+  //  {
+  //    // if there is a return parameter at all, and there are multiple success codes, we return a ResultValue<...> with the pure return type
+  //    assert(commandData.returnType == "Result");
+  //    templateString = "ResultValue<${returnType}> ";
+  //    returnType = commandData.params[commandData.returnParam].pureType;
+  //  }
+  //  else
+  //  {
+  //    // and in every other case, we just return the enhanced return type.
+  //    templateString = "${returnType} ";
+  //    returnType = commandData.enhancedReturnType;
+  //  }
+  //}
+  //else
+  //{
+  //  // the non-enhanced function just uses the return type
+  //  templateString = "${returnType} ";
+  //  returnType = commandData.returnType;
+  //}
+  //os << replaceWithMap(templateString, { { "returnType", returnType } });
 }
 
 void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool withDefault)
@@ -3313,7 +3322,7 @@ void writeTypeCommand(std::ostream & os, std::string const& indentation, VkData 
 
   // then a singular version, if a sized vector would be returned
   std::map<size_t, size_t>::const_iterator returnVector = commandData.vectorParams.find(commandData.returnParam);
-  bool singular = (returnVector != commandData.vectorParams.end()) && (returnVector->second != ~0) && (commandData.params[returnVector->second].type.back() != '*');
+  bool singular = (returnVector != commandData.vectorParams.end()) && (returnVector->second != ~0) /*&& (commandData.params[returnVector->second].type.back() != '*')*/;
   if (singular)
   {
     writeFunction(enhanced, indentation, vkData, commandData, definition, true, true, false);
