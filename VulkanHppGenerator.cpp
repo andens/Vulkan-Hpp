@@ -85,6 +85,39 @@ public:
 	}
 } *indent;
 
+class Type;
+
+struct ParamData
+{
+	Type* type;
+	std::string name;
+	std::string arraySize;
+};
+
+struct CommandData
+{
+	CommandData(Type* returnType, std::string const& fn)
+		: returnType(returnType)
+		, fullName(fn)
+		, returnParam(~0)
+		, templateParam(~0)
+		, twoStep(false)
+	{}
+
+	std::string               className;
+	std::string               enhancedReturnType;
+	std::string               fullName;
+	std::vector<ParamData>    params;
+	std::string               protect;
+	std::string               reducedName;
+	size_t                    returnParam;
+	Type*                     returnType;
+	std::set<size_t>          skippedParams;
+	size_t                    templateParam;
+	bool                      twoStep;
+	std::map<size_t, size_t>  vectorParams;
+};
+
 class Type {
 	friend class Types;
 
@@ -106,6 +139,7 @@ public:
 		VulkanHandleTypedef,
 		VulkanStruct,
 		VulkanEnum,
+		VulkanCommand,
 	};
 
 	bool isCType() {
@@ -206,6 +240,16 @@ private:
 		new(&_enum.variants) std::vector<std::pair<std::string, std::string>>();
 	}
 
+	// Upgrade undefined to command
+	void makeCommand(CommandData& commandData) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanCommand;
+		new(&_command) VulkanCommand();
+		_command.returnType = commandData.returnType;
+		_command.name = commandData.fullName;
+		_command.params = commandData.params;
+	}
+
 private:
 	std::string _type;
 	Kind _kind;
@@ -245,6 +289,12 @@ private:
 		std::vector<std::pair<std::string, std::string>> variants;
 	};
 
+	struct VulkanCommand {
+		Type* returnType;
+		std::string name;
+		std::vector<ParamData> params;
+	};
+
 	union {
 		CType _ctype;
 		Ptr _pointer;
@@ -254,9 +304,15 @@ private:
 		VulkanHandleTypedef _handleTypedef;
 		VulkanStruct _struct;
 		VulkanEnum _enum;
+		VulkanCommand _command;
 	};
 };
 
+// TODO: To make things a bit cleaner, I could probably just have the typeOracle
+// define types (and return them) and let the user manipulate their data via
+// methods on Type instead. This would result in a better separation of concerns.
+// The oracle deals with awareness of types whereas Type deals with the specifics
+// of one particular type.
 class Types {
 public:
 	Types()
@@ -351,6 +407,13 @@ public:
 		assert(name.find_first_of("* ") == std::string::npos);
 
 		getVulkanType(name)->makeEnum();
+	}
+
+	void command(CommandData& commandData) {
+		assert(strncmp(commandData.fullName.c_str(), "vk", 2) == 0);
+		assert(commandData.fullName.find_first_of("* ") == std::string::npos);
+
+		getVulkanType(commandData.fullName)->makeCommand(commandData);
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -565,37 +628,6 @@ std::string replaceWithMap(std::string const &input, std::map<std::string, std::
   }
   return result;
 }
-
-struct ParamData
-{
-  Type* type;
-  std::string name;
-  std::string arraySize;
-};
-
-struct CommandData
-{
-  CommandData(Type* returnType, std::string const& fn)
-    : returnType(returnType)
-    , fullName(fn)
-    , returnParam(~0)
-    , templateParam(~0)
-    , twoStep(false)
-  {}
-
-  std::string               className;
-  std::string               enhancedReturnType;
-  std::string               fullName;
-  std::vector<ParamData>    params;
-  std::string               protect;
-  std::string               reducedName;
-  size_t                    returnParam;
-  Type*                     returnType;
-  std::set<size_t>          skippedParams;
-  size_t                    templateParam;
-  bool                      twoStep;
-  std::map<size_t, size_t>  vectorParams;
-};
 
 struct NameValue
 {
@@ -1252,6 +1284,8 @@ void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData)
   readCommandProto(child, commandData);
   // TODO: Removed dependencies
   readCommandParams(child, commandData);
+
+  typeOracle.command(commandData);
 }
 
 void readComment(tinyxml2::XMLElement * element, std::string & header)
@@ -1560,8 +1594,14 @@ void readExtensions(tinyxml2::XMLElement * element, VkData & vkData)
 void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData)
 {
   assert( element->Attribute( "name" ) );
-  std::string tag = extractTag(element->Attribute("name"));
+  std::string name = element->Attribute("name");
+  std::string tag = extractTag(name);
   assert(vkData.tags.find(tag) != vkData.tags.end());
+
+  // Note: type attribute (optional, either 'device' or 'instance' if present) could be useful
+  // The original code used protect, which is a preprocessor define that must be
+  // present for the definition. This could be for example VK_USE_PLATFORM_WIN32
+  // in order to use Windows surface or external semaphores.
 
   tinyxml2::XMLElement * child = element->FirstChildElement();
   assert(child && (strcmp(child->Value(), "require") == 0) && !child->NextSiblingElement());
