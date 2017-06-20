@@ -308,11 +308,22 @@ private:
 	};
 };
 
+struct Extension {
+	std::string name;
+	std::string number;
+	std::string tag;
+	std::string type; // instance or device if not empty string
+	std::vector<Type*> commands; // TODO: Should be Command*
+};
+
 // TODO: To make things a bit cleaner, I could probably just have the typeOracle
 // define types (and return them) and let the user manipulate their data via
 // methods on Type instead. This would result in a better separation of concerns.
 // The oracle deals with awareness of types whereas Type deals with the specifics
 // of one particular type.
+// Also make Command into its own class instead of a type (Type should only be
+// actual types) but one that holds pointer to Type for parameters. Turn this
+// class into a VulkanOracle, responsible for tracking Vulkan items.
 class Types {
 public:
 	Types()
@@ -572,6 +583,10 @@ public:
 		return _scalarTypedefs;
 	}
 
+	void extension(Extension const&& ext) {
+		assert(_extensions.insert(std::make_pair(ext.name, ext)).second == true);
+	}
+
 private:
 	Type* getVulkanType(const std::string& type) {
 		Type* t = nullptr;
@@ -591,6 +606,7 @@ private:
 	std::map<std::string, Type*> _ctypes;
 	std::map<std::string, Type*> _vulkanTypes;
 	std::map<std::string, std::string> _scalarTypedefs; // typedef <Value> <Key>
+	std::map<std::string, Extension> _extensions;
 } typeOracle;
 
 const std::string flagsMacro = R"(
@@ -740,8 +756,8 @@ void readEnumsEnum( tinyxml2::XMLElement * element, std::function<void(const std
 void readEnumsBitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make);
 void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData);
 void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect);
-void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag);
-void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag);
+void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag, std::string const& extensionNumber);
+void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag, Extension& ext);
 void readExtensions( tinyxml2::XMLElement * element, VkData & vkData );
 void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData);
 void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect);
@@ -1346,13 +1362,9 @@ void readEnums(tinyxml2::XMLElement * element, VkData & vkData)
 	}
 
 	if (type == "bitmask") {
-		size_t pos = name.find("Bits", name.length() - 4);
-		if (pos == std::string::npos) { // Probably tag at end
-			pos = name.find("Bits", name.length() - 7);
-		}
-
+		size_t pos = name.rfind("FlagBits");
 		assert(pos != std::string::npos);
-		name.replace(pos, 4, "s");
+		name.replace(pos, 8, "Flags");
 
 		Type* t = typeOracle.getType(name);
 		assert(t->isBitmask());
@@ -1478,43 +1490,11 @@ void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkDat
     {
       // disable a command or a type !
       assert(child->Attribute("name"));
-      std::string name = (value == "command") ? startLowerCase(strip(child->Attribute("name"), "vk")) : strip(child->Attribute("name"), "Vk");
+	  // TODO: removed strip
+      //std::string name = (value == "command") ? startLowerCase(strip(child->Attribute("name"), "vk")) : strip(child->Attribute("name"), "Vk");
+	  std::string name = child->Attribute("name");
 
-	  // TODO: Removed dependencies
-
-      //// search this name in the dependencies list and remove it
-      //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&name](DependencyData const& dd) { return(dd.name == name); });
-      //assert(depIt != vkData.dependencies.end());
-      //vkData.dependencies.erase(depIt);
-
-      //// erase it from all dependency sets
-      //for (auto & dep : vkData.dependencies)
-      //{
-      //  dep.dependencies.erase(name);
-      //}
-
-      if (value == "command")
-      {
-        // first unlink the command from its class
-        auto commandsIt = vkData.commands.find(name);
-        assert(commandsIt != vkData.commands.end());
-        assert(!commandsIt->second.className.empty());
-        auto handlesIt = vkData.handles.find(commandsIt->second.className);
-        assert(handlesIt != vkData.handles.end());
-        auto it = std::find(handlesIt->second.commands.begin(), handlesIt->second.commands.end(), name);
-        assert(it != handlesIt->second.commands.end());
-        handlesIt->second.commands.erase(it);
-
-        // then remove the command
-        vkData.commands.erase(name);
-      }
-      else
-      {
-        // a type simply needs to be removed from the structs and vkTypes sets
-        assert((vkData.structs.find(name) != vkData.structs.end()) && (vkData.vkTypes.find(name) != vkData.vkTypes.end()));
-        vkData.structs.erase(name);
-        vkData.vkTypes.erase(name);
-      }
+	  // TODO: Get type from oracle and mark it as disabled
     }
     else
     {
@@ -1524,40 +1504,87 @@ void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkDat
   }
 }
 
-void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect)
+void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect, std::vector<Type*> extensionCommands)
 {
- // // just add the protect string to the CommandData
- // if (!protect.empty())
- // {
- //   assert(element->Attribute("name"));
-	//// TODO: Removed strip and startLowerCase
- //   //std::string name = startLowerCase(strip(element->Attribute("name"), "vk"));
-	//std::string name = element->Attribute("name");
- //   std::map<std::string, CommandData>::iterator cit = commands.find(name);
- //   assert(cit != commands.end());
- //   cit->second.protect = protect;
- // }
+	assert(element->Attribute("name"));
+	// TODO: Removed strip and startLowerCase
+	//std::string name = startLowerCase(strip(element->Attribute("name"), "vk"));
+	Type* t = typeOracle.getType(element->Attribute("name"));
+	extensionCommands.push_back(t);
+
+	// TODO: Tell command that it belongs to an extension (just boolean to prevent
+	// adding to core dispatch tables)
 }
 
-void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag)
+void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag, std::string const& extensionNumber)
 {
- // // TODO process enums which don't extend existing enums
- // if (element->Attribute("extends"))
- // {
- //   assert(element->Attribute("name"));
-	//// TODO: removed strip
- //   //assert(enums.find(strip(element->Attribute("extends"), "Vk")) != enums.end());
-	//assert(enums.find(element->Attribute("extends")) != enums.end());
- //   assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
- //   // TODO: removed strip
-	////auto enumIt = enums.find(strip(element->Attribute("extends"), "Vk"));
-	//auto enumIt = enums.find(element->Attribute("extends"));
- //   assert(enumIt != enums.end());
- //   enumIt->second.addEnumMember(element->Attribute("name"), tag);
- // }
+	assert(element->Attribute("name"));
+	std::string name = element->Attribute("name");
+	
+  if (element->Attribute("extends"))
+  {
+    assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
+	if (!!element->Attribute("bitpos")) {
+		// Manipulate type name a bit
+		std::string bitmaskEnum = element->Attribute("extends");
+		size_t pos = bitmaskEnum.rfind("FlagBits");
+		assert(pos != std::string::npos);
+		bitmaskEnum.replace(pos, 8, "Flags");
+		Type* t = typeOracle.getType(bitmaskEnum);
+		t->bitmaskAddMember(name, element->Attribute("bitpos"), true);
+	}
+	else if (element->Attribute("offset")) {
+		// The value depends on extension number and offset. See
+		// https://www.khronos.org/registry/vulkan/specs/1.0/styleguide.html#_assigning_extension_token_values
+		// for calculation.
+		int value = 1000000000 + (std::stoi(extensionNumber) - 1) * 1000 + std::stoi(element->Attribute("offset"));
+
+		if (element->Attribute("dir") && strcmp(element->Attribute("dir"), "-") == 0) {
+			value = -value;
+		}
+
+		std::string valueString = std::to_string(value);
+
+		Type* t = typeOracle.getType(element->Attribute("extends"));
+		t->enumAddMember(name, valueString);
+	}
+	else {
+		// This is a special case for an enum variant that used to be core.
+		// It uses value instead of offset.
+		Type* t = typeOracle.getType(element->Attribute("extends"));
+		t->enumAddMember(name, element->Attribute("value"));
+	}
+  }
+  // Inline definition of extension-specific constant.
+  else if (element->Attribute("value")) {
+	  // Unimplemented.
+	  // All extensions have a constant for spec version and one for the extension
+	  // name as a string literal. Other than that, some have redefines. I guess
+	  // I could read the redefines, determine its enum, and mark a variant to
+	  // use the new name instead.
+	  //std::cout << "Unimplemented: extension enum with inline constants" << std::endl;
+  }
+  // Inline definition of extension-specific bitmask value.
+  else if (element->Attribute("bitpos")) {
+	  assert(false); // Not implemented
+  }
+  // Should be a reference enum, which only supports name and comment. These
+  // pull in already existing definitions from other enums blocks. They only
+  // seem to be used for purposes of listing items the extension depends on,
+  // and since they are defined elsewhere I ignore them.
+  else {
+	  const tinyxml2::XMLAttribute* att = element->FirstAttribute();
+	  assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
+	  att = att->Next();
+	  if (att) {
+		  assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
+		  assert(!att->Next());
+	  }
+  }
 }
 
-void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag)
+// Defines what types, enumerants, and commands are used by an extension
+void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag, Extension& ext)
 {
   for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
   {
@@ -1565,19 +1592,16 @@ void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::
 
     if ( value == "command" )
     {
-      readExtensionCommand(child, vkData.commands, protect);
+      readExtensionCommand(child, vkData.commands, protect, ext.commands);
     }
     else if (value == "type")
     {
       readExtensionType(child, vkData, protect);
     }
-    else if ( value == "enum")
-    {
-      readExtensionEnum(child, vkData.enums, tag);
-    }
     else
     {
-      assert(value=="usage");
+	  assert(value == "enum");
+      readExtensionEnum(child, vkData.enums, tag, ext.number);
     }
   }
 }
@@ -1593,12 +1617,19 @@ void readExtensions(tinyxml2::XMLElement * element, VkData & vkData)
 
 void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData)
 {
-  assert( element->Attribute( "name" ) );
-  std::string name = element->Attribute("name");
-  std::string tag = extractTag(name);
-  assert(vkData.tags.find(tag) != vkData.tags.end());
+	Extension ext;
 
-  // Note: type attribute (optional, either 'device' or 'instance' if present) could be useful
+  assert( element->Attribute( "name" ) && element->Attribute("number") );
+  ext.name = element->Attribute("name");
+  ext.number = element->Attribute("number");
+  ext.tag = extractTag(ext.name);
+  assert(vkData.tags.find(ext.tag) != vkData.tags.end());
+
+  if (element->Attribute("type")) {
+	  ext.type = element->Attribute("type");
+	  assert(ext.type == "instance" || ext.type == "device");
+  }
+
   // The original code used protect, which is a preprocessor define that must be
   // present for the definition. This could be for example VK_USE_PLATFORM_WIN32
   // in order to use Windows surface or external semaphores.
@@ -1608,75 +1639,21 @@ void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData)
 
   if (strcmp(element->Attribute("supported"), "disabled") == 0)
   {
-    // kick out all the disabled stuff we've read before !!
+    // Types and commands of disabled extensions should not be present in the
+	// final bindings, so mark them as disabled.
     readDisabledExtensionRequire(child, vkData);
   }
   else
   {
-    std::string protect;
-    if (element->Attribute("protect"))
-    {
-      protect = element->Attribute("protect");
-    }
-
-    readExtensionRequire(child, vkData, protect, tag);
+    readExtensionRequire(child, vkData, "", ext.tag, ext);
   }
+
+  typeOracle.extension(std::move(ext));
 }
 
 void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect)
 {
-	// TODO: Removed dependencies
-
-  //// add the protect-string to the appropriate type: enum, flag, handle, scalar, or struct
-  //if (!protect.empty())
-  //{
-  //  assert(element->Attribute("name"));
-  //  std::string name = strip(element->Attribute("name"), "Vk");
-  //  std::map<std::string, EnumData>::iterator eit = vkData.enums.find(name);
-  //  if (eit != vkData.enums.end())
-  //  {
-  //    eit->second.protect = protect;
-  //  }
-  //  else
-  //  {
-  //    std::map<std::string, FlagData>::iterator fit = vkData.flags.find(name);
-  //    if (fit != vkData.flags.end())
-  //    {
-  //      fit->second.protect = protect;
-
-  //      // if the enum of this flags is auto-generated, protect it as well
-  //      std::string enumName = generateEnumNameForFlags(name);
-  //      std::map<std::string, EnumData>::iterator eit = vkData.enums.find(enumName);
-  //      assert(eit != vkData.enums.end());
-  //      if (eit->second.members.empty())
-  //      {
-  //        eit->second.protect = protect;
-  //      }
-  //    }
-  //    else
-  //    {
-  //      std::map<std::string, HandleData>::iterator hait = vkData.handles.find(name);
-  //      if (hait != vkData.handles.end())
-  //      {
-  //        hait->second.protect = protect;
-  //      }
-  //      else
-  //      {
-  //        std::map<std::string, ScalarData>::iterator scit = vkData.scalars.find(name);
-  //        if (scit != vkData.scalars.end())
-  //        {
-  //          scit->second.protect = protect;
-  //        }
-  //        else
-  //        {
-  //          std::map<std::string, StructData>::iterator stit = vkData.structs.find(name);
-  //          assert(stit != vkData.structs.end() && stit->second.protect.empty());
-  //          stit->second.protect = protect;
-  //        }
-  //      }
-  //    }
-  //  }
-  //}
+	// TODO: Get type from oracle and mark it as extension-provided.
 }
 
 void readTypeBasetype(tinyxml2::XMLElement * element)
