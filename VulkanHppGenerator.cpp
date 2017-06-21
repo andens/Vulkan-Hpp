@@ -16,15 +16,20 @@
 // The original code generates modified bindings that leverage C++ features.
 // For example it alters how error handling is done, checks what parameters to
 // commands represent out-variables, and generates wrapper classes over the raw
-// Vulkan functions. The intention of this generator is not to make wrapper
+// Vulkan functions. The intention of this generator is not to make safe wrapper
 // code but rather just keep raw Rust bindings to the Vulkan API. Functions
 // keep their original parameters and return values as normal. I do however
 // generate dispatch tables that make sure all functions are accounted for when
 // loading pointers. I also generate special bitflag structs to get type safety
-// for bitflags, but the API usage is the same. Thus large portions have been
-// removed and altered. Type management has been completely reimplemented to
-// ease translating to Rust equivalents. The Vulkan registry contains inline C
-// code which I can't use directly, so I needed something more robust.
+// for bitflags, preventing accidentally using a flag from another type. It's
+// easy enough to implement without chaning the API. Note that no effort is put
+// in making sure that types taking FlagBits only accept one of the variants.
+// Just as with C any combination still works, and the programmer must make sure
+// to use Vulkan correctly. Other than that the API usage is the same. Thus
+// large portions have been removed and altered. Type management has been
+// completely reimplemented to ease translating to Rust equivalents. The Vulkan
+// registry contains inline C code which I can't use directly, so I needed
+// something more robust.
 
 #include <cassert>
 #include <algorithm>
@@ -135,6 +140,7 @@ public:
 		Pointer,
 		VulkanScalarTypedef,
 		VulkanFunctionTypedef,
+		VulkanBitmaskTypedef,
 		VulkanBitmasks,
 		VulkanHandleTypedef,
 		VulkanStruct,
@@ -152,6 +158,10 @@ public:
 
 	bool isEnum() {
 		return _kind == Kind::VulkanEnum;
+	}
+
+	bool isUndefined() {
+		return _kind == Kind::Undefined;
 	}
 
 	void ptrSetInner(Type* ptr) {
@@ -209,6 +219,13 @@ private:
 		_kind = Kind::VulkanFunctionTypedef;
 		_functionTypedef.returnType = returnType;
 		new(&_functionTypedef.params) auto(params);
+	}
+
+	// Upgrade undefined to bitmaskTypedef
+	void makeBitmaskTypedef(Type* bitdefinitions) {
+		assert(_kind == Kind::Undefined);
+		_kind = Kind::VulkanBitmaskTypedef;
+		_bitmaskTypedef.bitDefinitions = bitdefinitions;
 	}
 
 	// Upgrade undefined to bitmasks
@@ -272,6 +289,10 @@ private:
 		std::vector<std::pair<Type*, std::string>> params;
 	};
 
+	struct VulkanBitmaskTypedef {
+		Type* bitDefinitions;
+	};
+
 	struct VulkanBitmasks {
 		std::vector<std::tuple<std::string, std::string, bool>> variants; // Bool represents if it's bitpos (otherwise it's direct value)
 	};
@@ -300,6 +321,7 @@ private:
 		Ptr _pointer;
 		VulkanScalarTypedef _scalarTypedef;
 		VulkanFunctionTypedef _functionTypedef;
+		VulkanBitmaskTypedef _bitmaskTypedef;
 		VulkanBitmasks _bitmasks;
 		VulkanHandleTypedef _handleTypedef;
 		VulkanStruct _struct;
@@ -390,6 +412,13 @@ public:
 		assert(name.find_first_of("* ") == std::string::npos);
 
 		getVulkanType(name)->makeFunctionTypedef(returnType, params);
+	}
+
+	void bitmaskTypedef(const std::string& newType, Type* underlying) {
+		assert(strncmp(newType.c_str(), "Vk", 2) == 0);
+		assert(newType.find_first_of("* ") == std::string::npos);
+
+		getVulkanType(newType)->makeBitmaskTypedef(underlying);
 	}
 
 	void bitmasks(const std::string& name) {
@@ -585,6 +614,14 @@ public:
 
 	void extension(Extension const&& ext) {
 		assert(_extensions.insert(std::make_pair(ext.name, ext)).second == true);
+	}
+
+	void undefinedCheck() {
+		for (auto vkType : _vulkanTypes) {
+			if (vkType.second->isUndefined()) {
+				throw std::runtime_error("Vulkan type '" + vkType.first + "' was undefined after parsing.");
+			}
+		}
 	}
 
 private:
@@ -1362,10 +1399,6 @@ void readEnums(tinyxml2::XMLElement * element, VkData & vkData)
 	}
 
 	if (type == "bitmask") {
-		size_t pos = name.rfind("FlagBits");
-		assert(pos != std::string::npos);
-		name.replace(pos, 8, "Flags");
-
 		Type* t = typeOracle.getType(name);
 		assert(t->isBitmask());
 
@@ -1525,12 +1558,7 @@ void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, Enu
   {
     assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
 	if (!!element->Attribute("bitpos")) {
-		// Manipulate type name a bit
-		std::string bitmaskEnum = element->Attribute("extends");
-		size_t pos = bitmaskEnum.rfind("FlagBits");
-		assert(pos != std::string::npos);
-		bitmaskEnum.replace(pos, 8, "Flags");
-		Type* t = typeOracle.getType(bitmaskEnum);
+		Type* t = typeOracle.getType(element->Attribute("extends"));
 		t->bitmaskAddMember(name, element->Attribute("bitpos"), true);
 	}
 	else if (element->Attribute("offset")) {
@@ -1694,18 +1722,23 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 
 	assert(!nameElement->NextSiblingElement());
 
-	// In the regular C API, bitmasks are defined like for example VkQueueFlags
-	// which is a typedef to VkFlags. This is the typedef that is used by the
-	// various functions. The actual values are defined in enums tags with names
-	// similar to VkQueueFlagBits, i.e. with 'Bits' at the end, using implicit
-	// compatibility in C. Enums without members are not present in enums tags
-	// and thus will remain as unknown Vulkan types (in functions that use them)
-	// if I were to only define them in enums tags. For C this is not a problem,
-	// but since I use Rust's type system I need to at least have empty enums.
-	// By telling the type oracle about these types they are no longer unknown
-	// but rather treated as actual enums that can be empty.
+	// Requires contains the type that will eventually hold definitions (with
+	// a name containing FlagBits). Oftentimes however, a type containing Flags
+	// is used instead. This separation is done to indicate that several flags
+	// can be used as opposed to just one. For C it's implemented as a regular
+	// typedef, but since some of the Flag types do not have members, they are
+	// not present in the enums tags. The C typedef makes them work anyway, but
+	// in Rust where I gain a little more type safety I at least need to make
+	// the oracle aware that these types are bitmask typedefs so that their
+	// structs will be generated, albeit with no way to create them with flags.
 
-	typeOracle.bitmasks(name);
+	Type* bitDefs = nullptr;
+	if (element->Attribute("requires")) {
+		typeOracle.bitmasks(element->Attribute("requires"));
+		bitDefs = typeOracle.getType(element->Attribute("requires"));
+	}
+
+	typeOracle.bitmaskTypedef(name, bitDefs);
 }
 
 void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1920,7 +1953,8 @@ tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::str
 	// TODO: Removed strip
 	//pureType = strip(element->ToElement()->GetText(), "Vk");
 	//type += pureType;
-	type += element->ToElement()->GetText();
+	std::string pureType = element->ToElement()->GetText();
+	type += pureType;
 
 	element = element->NextSibling();
 	assert(element);
@@ -4077,6 +4111,8 @@ int main(int argc, char **argv)
 		}
 
 		// Finished parsing the spec.
+
+		typeOracle.undefinedCheck();
 
 		// TODO: Removed dependencies
 
