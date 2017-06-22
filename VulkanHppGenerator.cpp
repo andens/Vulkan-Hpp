@@ -330,6 +330,36 @@ private:
 	std::vector<std::pair<std::string, std::string>> _members;
 };
 
+class Pointer : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return "*" + _constness + " " + ((IType*)_inner)->type_name();
+	}
+
+	// TODO: make private
+	void set_inner(Type const* inner) {
+		_inner = inner;
+	}
+
+private:
+	Pointer(Type const* inner, bool constness) : _inner(inner) {
+		if (constness) {
+			_constness = "const";
+		}
+		else {
+			_constness = "mut";
+		}
+	}
+	Pointer(Pointer const&) = delete;
+	void operator=(Pointer const&) = delete;
+
+private:
+	Type const* _inner;
+	std::string _constness;
+};
+
 // Not technically a type, but integrates with my existing checks for definitions and stuff.
 // Come to think of it, types should really be items or something.
 class Command : public IType {
@@ -369,7 +399,6 @@ public:
 	// TODO: private
 	enum class Kind {
 		Undefined,
-		Pointer,
 	};
 
 	virtual std::string const& type_name(void) const override final {
@@ -409,17 +438,16 @@ public:
 		return dynamic_cast<Enum*>(_type);
 	}
 
+	Pointer* to_pointer(void) {
+		return dynamic_cast<Pointer*>(_type);
+	}
+
 	Command* to_command(void) {
 		return dynamic_cast<Command*>(_type);
 	}
 
 	bool isUndefined() {
 		return _kind == Kind::Undefined;
-	}
-
-	void ptrSetInner(Type* ptr) {
-		assert(_kind == Kind::Pointer);
-		_pointer.inner = ptr;
 	}
 
 private:
@@ -433,26 +461,9 @@ private:
 		_type = type;
 	}
 
-	// Upgrade undefined to pointer
-	void makePointer(const std::string& constness) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::Pointer;
-		new(&_pointer.constness) auto(constness);
-		_pointer.inner = nullptr;
-	}
-
 private:
 	IType* _type = nullptr;
 	Kind _kind;
-
-	struct Ptr {
-		std::string constness;
-		Type* inner;
-	};
-
-	union {
-		Ptr _pointer;
-	};
 };
 
 struct Extension {
@@ -580,6 +591,15 @@ public:
 		return t;
 	}
 
+	Type* pointer_to(Type const* type, bool constness) {
+		// Nothing to define. Just create and store
+		Type* t = new Type();
+		Pointer* p = new Pointer(type, constness);
+		t->make_concrete(p);
+		_pointers.push_back(std::make_pair(t, p));
+		return t;
+	}
+
 	Command* define_command(std::string const& name, Type const* return_type) {
 		Command* t = new Command(name, return_type);
 		define(name, t);
@@ -693,36 +713,38 @@ public:
 				outer = ptr;
 			}
 			else if (!inner) {
-				outer->ptrSetInner(ptr);
+				assert(outer->to_pointer());
+				outer->to_pointer()->set_inner(ptr);
 				inner = ptr;
 			}
 			else {
-				inner->ptrSetInner(ptr);
+				assert(inner->to_pointer());
+				inner->to_pointer()->set_inner(ptr);
 				inner = ptr;
 			}
 		};
 
 		parts.erase(parts.begin()); // No longer need this
 
-		auto walker = parts.crbegin();
-		while (walker != parts.crend()) {
-			assert(*walker == "*");
-			walker++;
-			// No more => mutable pointer. Another pointer immediately => mutable
-			if (walker == parts.crend() || *walker == "*") {
-				Type* t = new Type();
-				t->makePointer("mut");
-				hookupPtr(t);
-			}
-			// Something more and it's not a pointer
-			else {
-				assert(*walker == "const");
-				walker++; // For next inner pointer
-				Type* t = new Type();
-				t->makePointer("const");
-				hookupPtr(t);
-			}
-		}
+		//auto walker = parts.crbegin();
+		//while (walker != parts.crend()) {
+		//	assert(*walker == "*");
+		//	walker++;
+		//	// No more => mutable pointer. Another pointer immediately => mutable
+		//	if (walker == parts.crend() || *walker == "*") {
+		//		Type* t = new Type();
+		//		t->makePointer("mut");
+		//		hookupPtr(t);
+		//	}
+		//	// Something more and it's not a pointer
+		//	else {
+		//		assert(*walker == "const");
+		//		walker++; // For next inner pointer
+		//		Type* t = new Type();
+		//		t->makePointer("const");
+		//		hookupPtr(t);
+		//	}
+		//}
 
 		// Insert the base type
 		hookupPtr(type);
@@ -790,6 +812,7 @@ private:
 	std::vector<HandleTypedef*> _handle_typedefs;
 	std::vector<Struct*> _structs;
 	std::vector<Enum*> _enums;
+	std::vector<std::pair<Type*, Pointer*>> _pointers;
 	std::vector<Command*> _commands;
 	std::map<std::string, Extension> _extensions;
 
