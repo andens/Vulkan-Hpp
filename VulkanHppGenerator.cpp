@@ -236,6 +236,24 @@ private:
 	std::vector<std::pair<std::string, std::string>> _members;
 };
 
+class BitmaskTypedef : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _alias;
+	}
+
+private:
+	BitmaskTypedef(std::string const& alias, Type* bit_definitions) : _alias(alias), _bit_definitions(bit_definitions) {}
+	BitmaskTypedef(BitmaskTypedef const&) = delete;
+	void operator=(BitmaskTypedef const&) = delete;
+
+private:
+	std::string _alias;
+	Type* _bit_definitions;
+};
+
 // Container for some type used by Vulkan. Undefined types are marked by the
 // wrapped pointer being null.
 class Type : public IType {
@@ -246,7 +264,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanBitmaskTypedef,
 		VulkanHandleTypedef,
 		VulkanStruct,
 		VulkanEnum,
@@ -272,6 +289,10 @@ public:
 
 	Bitmasks* to_bitmasks(void) {
 		return dynamic_cast<Bitmasks*>(_type);
+	}
+
+	BitmaskTypedef* to_bitmask_typedef(void) {
+		return dynamic_cast<BitmaskTypedef*>(_type);
 	}
 
 	bool isEnum() {
@@ -316,13 +337,6 @@ private:
 		_pointer.inner = nullptr;
 	}
 
-	// Upgrade undefined to bitmaskTypedef
-	void makeBitmaskTypedef(Type* bitdefinitions) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanBitmaskTypedef;
-		_bitmaskTypedef.bitDefinitions = bitdefinitions;
-	}
-
 	// Upgrade undefined to handle typedef
 	void makeHandleTypedef(Type* underlying) {
 		assert(_kind == Kind::Undefined);
@@ -364,10 +378,6 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanBitmaskTypedef {
-		Type* bitDefinitions;
-	};
-
 	struct VulkanHandleTypedef {
 		Type* underlying;
 	};
@@ -389,7 +399,6 @@ private:
 
 	union {
 		Ptr _pointer;
-		VulkanBitmaskTypedef _bitmaskTypedef;
 		VulkanHandleTypedef _handleTypedef;
 		VulkanStruct _struct;
 		VulkanEnum _enum;
@@ -494,11 +503,11 @@ public:
 		return t;
 	}
 
-	void define_bitmask_typedef(const std::string& newType, Type* underlying) {
-		assert(strncmp(newType.c_str(), "Vk", 2) == 0);
-		assert(newType.find_first_of("* ") == std::string::npos);
-
-		get_type(newType)->makeBitmaskTypedef(underlying);
+	BitmaskTypedef* define_bitmask_typedef(std::string const& alias, Type* bit_definitions) {
+		BitmaskTypedef* t = new BitmaskTypedef(alias, bit_definitions);
+		define(alias, t);
+		_bitmask_typedefs.push_back(t);
+		return t;
 	}
 
 	void handleTypedef(Type* underlying, const std::string& alias) {
@@ -728,6 +737,7 @@ private:
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
+	std::vector<BitmaskTypedef*> _bitmask_typedefs;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
