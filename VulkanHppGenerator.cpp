@@ -245,13 +245,31 @@ public:
 	}
 
 private:
-	BitmaskTypedef(std::string const& alias, Type* bit_definitions) : _alias(alias), _bit_definitions(bit_definitions) {}
+	BitmaskTypedef(std::string const& alias, Type const* bit_definitions) : _alias(alias), _bit_definitions(bit_definitions) {}
 	BitmaskTypedef(BitmaskTypedef const&) = delete;
 	void operator=(BitmaskTypedef const&) = delete;
 
 private:
 	std::string _alias;
-	Type* _bit_definitions;
+	Type const* _bit_definitions;
+};
+
+class HandleTypedef : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _alias;
+	}
+
+private:
+	HandleTypedef(std::string const& alias, Type const* actual) : _alias(alias), _actual(actual) {}
+	HandleTypedef(HandleTypedef const&) = delete;
+	void operator=(HandleTypedef const&) = delete;
+
+private:
+	std::string _alias;
+	Type const* _actual;
 };
 
 // Container for some type used by Vulkan. Undefined types are marked by the
@@ -264,7 +282,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanHandleTypedef,
 		VulkanStruct,
 		VulkanEnum,
 		VulkanCommand,
@@ -293,6 +310,10 @@ public:
 
 	BitmaskTypedef* to_bitmask_typedef(void) {
 		return dynamic_cast<BitmaskTypedef*>(_type);
+	}
+
+	HandleTypedef* to_handle_typedef(void) {
+		return dynamic_cast<HandleTypedef*>(_type);
 	}
 
 	bool isEnum() {
@@ -337,13 +358,6 @@ private:
 		_pointer.inner = nullptr;
 	}
 
-	// Upgrade undefined to handle typedef
-	void makeHandleTypedef(Type* underlying) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanHandleTypedef;
-		_handleTypedef.underlying = underlying;
-	}
-
 	// Upgrade undefined to struct
 	void makeStruct(bool isUnion) {
 		assert(_kind == Kind::Undefined);
@@ -378,10 +392,6 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanHandleTypedef {
-		Type* underlying;
-	};
-
 	struct VulkanStruct {
 		std::vector<std::tuple<Type*, std::string, std::string>> members;
 		bool isUnion;
@@ -399,7 +409,6 @@ private:
 
 	union {
 		Ptr _pointer;
-		VulkanHandleTypedef _handleTypedef;
 		VulkanStruct _struct;
 		VulkanEnum _enum;
 		VulkanCommand _command;
@@ -489,8 +498,8 @@ public:
 		return t;
 	}
 
-	FunctionTypedef* define_function_typedef(std::string const& alias, Type const* returnType) {
-		FunctionTypedef* t = new FunctionTypedef(alias, returnType);
+	FunctionTypedef* define_function_typedef(std::string const& alias, Type const* return_type) {
+		FunctionTypedef* t = new FunctionTypedef(alias, return_type);
 		define(alias, t);
 		_function_typedefs.push_back(t);
 		return t;
@@ -503,18 +512,18 @@ public:
 		return t;
 	}
 
-	BitmaskTypedef* define_bitmask_typedef(std::string const& alias, Type* bit_definitions) {
+	BitmaskTypedef* define_bitmask_typedef(std::string const& alias, Type const* bit_definitions) {
 		BitmaskTypedef* t = new BitmaskTypedef(alias, bit_definitions);
 		define(alias, t);
 		_bitmask_typedefs.push_back(t);
 		return t;
 	}
 
-	void handleTypedef(Type* underlying, const std::string& alias) {
-		assert(strncmp(alias.c_str(), "Vk", 2) == 0);
-		assert(alias.find_first_of("* ") == std::string::npos);
-
-		get_type(alias)->makeHandleTypedef(underlying);
+	HandleTypedef* define_handle_typedef(std::string const& alias, Type const* actual) {
+		HandleTypedef* t = new HandleTypedef(alias, actual);
+		define(alias, t);
+		_handle_typedefs.push_back(t);
+		return t;
 	}
 
 	void defineStruct(const std::string& type, bool isUnion) {
@@ -738,6 +747,7 @@ private:
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
 	std::vector<BitmaskTypedef*> _bitmask_typedefs;
+	std::vector<HandleTypedef*> _handle_typedefs;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -1973,7 +1983,7 @@ void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
 	//std::string name = strip(nameElement->GetText(), "Vk");
 	std::string name = nameElement->GetText();
 
-	typeOracle.handleTypedef(underlying, name);
+	typeOracle.define_handle_typedef(name, underlying);
 
 	// TODO: Removed dependencies
 	//vkData.dependencies.push_back(DependencyData(DependencyData::Category::HANDLE, name));
