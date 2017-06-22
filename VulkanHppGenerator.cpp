@@ -130,7 +130,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanScalarTypedef,
 		VulkanFunctionTypedef,
 		VulkanBitmaskTypedef,
 		VulkanBitmasks,
@@ -178,7 +177,6 @@ public:
 
 protected:
 	Type(std::string type) : _type(type), _kind(Kind::Undefined) {}
-	Type() {}
 	virtual ~Type() {}
 
 private:
@@ -191,13 +189,6 @@ private:
 		_kind = Kind::Pointer;
 		new(&_pointer.constness) auto(constness);
 		_pointer.inner = nullptr;
-	}
-
-	// Upgrade undefined to scalar typedef
-	void makeScalarTypedef(Type* underlying) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanScalarTypedef;
-		_scalarTypedef.underlying = underlying;
 	}
 
 	// Upgrade undefined to function typedef
@@ -263,10 +254,6 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanScalarTypedef {
-		Type* underlying;
-	};
-
 	struct VulkanFunctionTypedef {
 		Type* returnType;
 		std::vector<std::pair<Type*, std::string>> params;
@@ -301,7 +288,6 @@ private:
 
 	union {
 		Ptr _pointer;
-		VulkanScalarTypedef _scalarTypedef;
 		VulkanFunctionTypedef _functionTypedef;
 		VulkanBitmaskTypedef _bitmaskTypedef;
 		VulkanBitmasks _bitmasks;
@@ -331,14 +317,30 @@ public:
 	}
 
 private:
-	CType(std::string const& translation, Kind kind) : _translation(translation), _kind(kind) {}
-
+	CType(std::string const& c_type, std::string const& translation, Kind kind) : Type(c_type), _translation(translation), _kind(kind) {}
 	CType(CType const&) = delete;
 	void operator=(CType const&) = delete;
 
 private:
 	Kind _kind;
 	std::string _translation;
+};
+
+class VulkanScalarTypedef : public Type {
+	friend class Registry;
+
+public:
+	std::string const& actual(void) const {
+		return _actual->type();
+	}
+
+private:
+	VulkanScalarTypedef(std::string const& alias, Type const* actual) : Type(alias), _actual(actual) {}
+	VulkanScalarTypedef(VulkanScalarTypedef const&) = delete;
+	void operator=(VulkanScalarTypedef const&) = delete;
+
+private:
+	const Type* _actual;
 };
 
 struct Extension {
@@ -361,7 +363,7 @@ class Registry {
 public:
 	Registry()
 	{
-#define INSERT_C_TYPE(type, rustType, kind) { CType* t = new CType(rustType, kind); assert(_ctypes.insert(std::make_pair(type, t)).second == true); }
+#define INSERT_C_TYPE(type, rustType, kind) { CType* t = new CType(type, rustType, kind); assert(_ctypes.insert(std::make_pair(type, t)).second == true); }
 
 		// I'm working under the assumption that the C and OS types used will
 		// be a comparatively small set so that I can deal with those manually.
@@ -412,16 +414,13 @@ public:
 		return it->second;
 	}
 
-	void scalarTypedef(Type* existing, const std::string& alias) {
-		assert(strncmp(alias.c_str(), "Vk", 2) == 0);
-		assert(alias.find_first_of("* ") == std::string::npos);
-
-		getVulkanType(alias)->makeScalarTypedef(existing);
-
-		// TODO: Remove _scalarTypedefs and when I need them later I can find on all
-		// Vulkan types using a lambda to check that the enum is VulkanTypedef.
-		// Maybe using find_if
-		//assert(_scalarTypedefs.insert({ alias, existing }).second == true);
+	VulkanScalarTypedef* define_scalar_typedef(std::string const& alias, Type const* actual) {
+		assert(_defined_types.find(alias) == _defined_types.end());
+		_undefined_types.erase(alias);
+		VulkanScalarTypedef* t = new VulkanScalarTypedef(alias, actual);
+		_defined_types[alias] = t;
+		_scalar_typedefs.push_back(t);
+		return t;
 	}
 
 	void functionTypedef(const std::string& name, Type* returnType, const std::vector<std::pair<Type*, std::string>> params) {
@@ -625,8 +624,8 @@ public:
 		return outer;
 	}
 
-	const std::map<std::string, std::string>& getScalarTypedefs() {
-		return _scalarTypedefs;
+	std::vector<VulkanScalarTypedef*> const& get_scalar_typedefs(void) const {
+		return _scalar_typedefs;
 	}
 
 	void extension(Extension const&& ext) {
@@ -634,11 +633,13 @@ public:
 	}
 
 	void undefinedCheck() {
-		for (auto vkType : _vulkanTypes) {
-			if (vkType.second->isUndefined()) {
-				throw std::runtime_error("Vulkan type '" + vkType.first + "' was undefined after parsing.");
-			}
-		}
+		//for (auto vkType : _vulkanTypes) {
+		//	if (vkType.second->isUndefined()) {
+		//		throw std::runtime_error("Vulkan type '" + vkType.first + "' was undefined after parsing.");
+		//	}
+		//}
+		// TODO:
+		//assert(_undefined_types.empty());
 	}
 
 private:
@@ -657,10 +658,13 @@ private:
 	}
 
 private:
+	std::map<std::string, Type*> _defined_types; // All types defined in the registry
+	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
 	std::map<std::string, CType*> _ctypes;
-	std::map<std::string, Type*> _vulkanTypes;
-	std::map<std::string, std::string> _scalarTypedefs; // typedef <Value> <Key>
+	std::map<std::string, Type*> _vulkanTypes; // TODO: Remove later
+	std::vector<VulkanScalarTypedef*> _scalar_typedefs;
 	std::map<std::string, Extension> _extensions;
+
 } typeOracle;
 
 const std::string flagsMacro = R"(
@@ -1716,7 +1720,7 @@ void readTypeBasetype(tinyxml2::XMLElement * element)
 	//std::string name = strip(nameElement->GetText(), "Vk");
 	std::string newType = nameElement->GetText();
 
-	typeOracle.scalarTypedef(underlying, newType);
+	typeOracle.define_scalar_typedef(newType, underlying);
 
 	// TODO: Removed dependencies
 
@@ -4158,8 +4162,8 @@ pub mod core {
 
 		ofs << std::endl;
 
-		for (auto tdef : typeOracle.getScalarTypedefs()) {
-			ofs << "type " << tdef.first << " = " << tdef.second << ";" << std::endl;
+		for (auto tdef : typeOracle.get_scalar_typedefs()) {
+			ofs << "type " << tdef->actual() << " = " << tdef->type() << ";" << std::endl;
 		}
 
 		ofs << std::endl;
