@@ -124,18 +124,10 @@ struct CommandData
 };
 
 class Type {
-	friend class Types;
+	friend class Registry;
 
 public:
 	enum class Kind {
-		IntrinsicC = 0,
-		X11,
-		Android,
-		Mir,
-		Wayland,
-		Windows,
-		Xcb,
-		C_MAX,
 		Undefined,
 		Pointer,
 		VulkanScalarTypedef,
@@ -148,8 +140,8 @@ public:
 		VulkanCommand,
 	};
 
-	bool isCType() {
-		return _kind < Kind::C_MAX;
+	virtual std::string const& type(void) const {
+		return _type;
 	}
 
 	bool isBitmask() {
@@ -184,19 +176,14 @@ public:
 		_enum.variants.push_back(std::make_pair(member, value));
 	}
 
-	~Type() {
-
-	}
+protected:
+	Type(std::string type) : _type(type), _kind(Kind::Undefined) {}
+	Type() {}
+	virtual ~Type() {}
 
 private:
-	Type(std::string type) : _type(type), _kind(Kind::Undefined) {}
-
-	// Upgrade undefined to C type
-	void makeCType(const std::string& translation, Kind kind) {
-		assert(_kind == Kind::Undefined);
-		_kind = kind;
-		new(&_ctype.translation) std::string(translation);
-	}
+	Type(Type const&) = delete;
+	Type& operator=(Type const&) = delete;
 
 	// Upgrade undefined to pointer
 	void makePointer(const std::string& constness) {
@@ -271,10 +258,6 @@ private:
 	std::string _type;
 	Kind _kind;
 
-	struct CType {
-		std::string translation;
-	};
-
 	struct Ptr {
 		std::string constness;
 		Type* inner;
@@ -317,7 +300,6 @@ private:
 	};
 
 	union {
-		CType _ctype;
 		Ptr _pointer;
 		VulkanScalarTypedef _scalarTypedef;
 		VulkanFunctionTypedef _functionTypedef;
@@ -328,6 +310,35 @@ private:
 		VulkanEnum _enum;
 		VulkanCommand _command;
 	};
+};
+
+class CType : public Type {
+	friend class Registry;
+
+public:
+	enum class Kind {
+		Intrinsic,
+		X11,
+		Android,
+		Mir,
+		Wayland,
+		Windows,
+		Xcb,
+	};
+
+	virtual std::string const& type(void) const override final {
+		return _translation;
+	}
+
+private:
+	CType(std::string const& translation, Kind kind) : _translation(translation), _kind(kind) {}
+
+	CType(CType const&) = delete;
+	void operator=(CType const&) = delete;
+
+private:
+	Kind _kind;
+	std::string _translation;
 };
 
 struct Extension {
@@ -346,11 +357,11 @@ struct Extension {
 // Also make Command into its own class instead of a type (Type should only be
 // actual types) but one that holds pointer to Type for parameters. Turn this
 // class into a VulkanOracle, responsible for tracking Vulkan items.
-class Types {
+class Registry {
 public:
-	Types()
+	Registry()
 	{
-#define INSERT_C_TYPE(type, rustType, kind) { Type* t = new Type(type); t->makeCType(rustType, kind); assert(_ctypes.insert(std::make_pair(type, t)).second == true); }
+#define INSERT_C_TYPE(type, rustType, kind) { CType* t = new CType(rustType, kind); assert(_ctypes.insert(std::make_pair(type, t)).second == true); }
 
 		// I'm working under the assumption that the C and OS types used will
 		// be a comparatively small set so that I can deal with those manually.
@@ -358,41 +369,47 @@ public:
 		// are Vulkan types that will be defined later. In other words, I can
 		// defer definitions of Vulkan types in particular and have a separate
 		// API for them.
-		INSERT_C_TYPE("void", "()", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("char", "c_char", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("float", "f32", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("uint8_t", "u8", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("uint32_t", "u32", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("uint64_t", "u64", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("int32_t", "i32", Type::Kind::IntrinsicC);
-		INSERT_C_TYPE("size_t", "usize", Type::Kind::IntrinsicC); // unsigned according to reference
-		INSERT_C_TYPE("int", "c_int", Type::Kind::IntrinsicC);
+		INSERT_C_TYPE("void", "()", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("char", "c_char", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("float", "f32", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("uint8_t", "u8", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("uint32_t", "u32", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("uint64_t", "u64", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("int32_t", "i32", CType::Kind::Intrinsic);
+		INSERT_C_TYPE("size_t", "usize", CType::Kind::Intrinsic); // unsigned according to reference
+		INSERT_C_TYPE("int", "c_int", CType::Kind::Intrinsic);
 
-		INSERT_C_TYPE("Display", "Display", Type::Kind::X11);
-		INSERT_C_TYPE("VisualID", "VisualID", Type::Kind::X11);
-		INSERT_C_TYPE("Window", "Window", Type::Kind::X11);
-		INSERT_C_TYPE("RROutput", "RROutput", Type::Kind::X11);
+		INSERT_C_TYPE("Display", "Display", CType::Kind::X11);
+		INSERT_C_TYPE("VisualID", "VisualID", CType::Kind::X11);
+		INSERT_C_TYPE("Window", "Window", CType::Kind::X11);
+		INSERT_C_TYPE("RROutput", "RROutput", CType::Kind::X11);
 
-		INSERT_C_TYPE("ANativeWindow", "ANativeWindow", Type::Kind::Android);
+		INSERT_C_TYPE("ANativeWindow", "ANativeWindow", CType::Kind::Android);
 
-		INSERT_C_TYPE("MirConnection", "MirConnection", Type::Kind::Mir);
-		INSERT_C_TYPE("MirSurface", "MirSurface", Type::Kind::Mir);
+		INSERT_C_TYPE("MirConnection", "MirConnection", CType::Kind::Mir);
+		INSERT_C_TYPE("MirSurface", "MirSurface", CType::Kind::Mir);
 
-		INSERT_C_TYPE("wl_display", "wl_display", Type::Kind::Wayland);
-		INSERT_C_TYPE("wl_surface", "wl_surface", Type::Kind::Wayland);
+		INSERT_C_TYPE("wl_display", "wl_display", CType::Kind::Wayland);
+		INSERT_C_TYPE("wl_surface", "wl_surface", CType::Kind::Wayland);
 
-		INSERT_C_TYPE("HINSTANCE", "HINSTANCE", Type::Kind::Windows);
-		INSERT_C_TYPE("HWND", "HWND", Type::Kind::Windows);
-		INSERT_C_TYPE("HANDLE", "HANDLE", Type::Kind::Windows);
-		INSERT_C_TYPE("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", Type::Kind::Windows);
-		INSERT_C_TYPE("DWORD", "DWORD", Type::Kind::Windows);
-		INSERT_C_TYPE("LPCWSTR", "LPCWSTR", Type::Kind::Windows);
+		INSERT_C_TYPE("HINSTANCE", "HINSTANCE", CType::Kind::Windows);
+		INSERT_C_TYPE("HWND", "HWND", CType::Kind::Windows);
+		INSERT_C_TYPE("HANDLE", "HANDLE", CType::Kind::Windows);
+		INSERT_C_TYPE("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", CType::Kind::Windows);
+		INSERT_C_TYPE("DWORD", "DWORD", CType::Kind::Windows);
+		INSERT_C_TYPE("LPCWSTR", "LPCWSTR", CType::Kind::Windows);
 
-		INSERT_C_TYPE("xcb_connection_t", "xcb_connection_t", Type::Kind::Xcb);
-		INSERT_C_TYPE("xcb_visualid_t", "xcb_visualid_t", Type::Kind::Xcb);
-		INSERT_C_TYPE("xcb_window_t", "xcb_window_t", Type::Kind::Xcb);
+		INSERT_C_TYPE("xcb_connection_t", "xcb_connection_t", CType::Kind::Xcb);
+		INSERT_C_TYPE("xcb_visualid_t", "xcb_visualid_t", CType::Kind::Xcb);
+		INSERT_C_TYPE("xcb_window_t", "xcb_window_t", CType::Kind::Xcb);
 
 #undef INSERT_C_TYPE
+	}
+
+	CType* define_c_type(std::string const& type) {
+		auto it = _ctypes.find(type);
+		assert(it != _ctypes.end());
+		return it->second;
 	}
 
 	void scalarTypedef(Type* existing, const std::string& alias) {
@@ -640,7 +657,7 @@ private:
 	}
 
 private:
-	std::map<std::string, Type*> _ctypes;
+	std::map<std::string, CType*> _ctypes;
 	std::map<std::string, Type*> _vulkanTypes;
 	std::map<std::string, std::string> _scalarTypedefs; // typedef <Value> <Key>
 	std::map<std::string, Extension> _extensions;
@@ -2049,8 +2066,7 @@ void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
 
 			std::string name = child->Attribute("name");
 
-			Type* t = typeOracle.getType(name);
-			assert(t && t->isCType());
+			typeOracle.define_c_type(name);
 
 			// TODO: Removed dependencies
 			//vkData.dependencies.push_back(DependencyData(DependencyData::Category::REQUIRED, child->Attribute("name")));
