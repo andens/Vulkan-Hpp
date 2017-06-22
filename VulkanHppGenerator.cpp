@@ -184,8 +184,9 @@ private:
 };
 
 struct Parameter {
-	Type* type;
+	Type const* type;
 	std::string name;
+	std::string array_size;
 };
 
 class FunctionTypedef : public IType {
@@ -329,6 +330,36 @@ private:
 	std::vector<std::pair<std::string, std::string>> _members;
 };
 
+// Not technically a type, but integrates with my existing checks for definitions and stuff.
+// Come to think of it, types should really be items or something.
+class Command : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _name;
+	}
+
+	// TODO: make private
+	void add_parameter(Type const* type, std::string const& name, std::string const& array_size) {
+		Parameter param;
+		param.type = type;
+		param.name = name;
+		param.array_size = array_size;
+		_params.push_back(param);
+	}
+
+private:
+	Command(std::string const& name, Type const* return_type) : _name(name), _return_type(return_type) {}
+	Command(Command const&) = delete;
+	void operator=(Command const&) = delete;
+
+private:
+	Type const* _return_type;
+	std::string _name;
+	std::vector<Parameter> _params;
+};
+
 // Container for some type used by Vulkan. Undefined types are marked by the
 // wrapped pointer being null.
 class Type : public IType {
@@ -339,7 +370,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanCommand,
 	};
 
 	virtual std::string const& type_name(void) const override final {
@@ -379,6 +409,10 @@ public:
 		return dynamic_cast<Enum*>(_type);
 	}
 
+	Command* to_command(void) {
+		return dynamic_cast<Command*>(_type);
+	}
+
 	bool isUndefined() {
 		return _kind == Kind::Undefined;
 	}
@@ -407,16 +441,6 @@ private:
 		_pointer.inner = nullptr;
 	}
 
-	// Upgrade undefined to command
-	void makeCommand(CommandData& commandData) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanCommand;
-		new(&_command) VulkanCommand();
-		_command.returnType = commandData.returnType;
-		_command.name = commandData.fullName;
-		_command.params = commandData.params;
-	}
-
 private:
 	IType* _type = nullptr;
 	Kind _kind;
@@ -426,15 +450,8 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanCommand {
-		Type* returnType;
-		std::string name;
-		std::vector<ParamData> params;
-	};
-
 	union {
 		Ptr _pointer;
-		VulkanCommand _command;
 	};
 };
 
@@ -563,11 +580,11 @@ public:
 		return t;
 	}
 
-	void command(CommandData& commandData) {
-		assert(strncmp(commandData.fullName.c_str(), "vk", 2) == 0);
-		assert(commandData.fullName.find_first_of("* ") == std::string::npos);
-
-		get_type(commandData.fullName)->makeCommand(commandData);
+	Command* define_command(std::string const& name, Type const* return_type) {
+		Command* t = new Command(name, return_type);
+		define(name, t);
+		_commands.push_back(t);
+		return t;
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -773,6 +790,7 @@ private:
 	std::vector<HandleTypedef*> _handle_typedefs;
 	std::vector<Struct*> _structs;
 	std::vector<Enum*> _enums;
+	std::vector<Command*> _commands;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -910,10 +928,10 @@ bool hasPointerParam(std::vector<ParamData> const& params);
 void leaveProtect(std::ostream &os, std::string const& protect);
 void linkCommandToHandle(VkData & vkData, CommandData & commandData);
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name);
-void readCommandParam( tinyxml2::XMLElement * element, std::vector<ParamData> & params );
-void readCommandParams(tinyxml2::XMLElement* element, CommandData & commandData);
+void readCommandParam( tinyxml2::XMLElement * element, Command* cmd );
+void readCommandParams(tinyxml2::XMLElement* element, Command* cmd);
 tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& typeString);
-void readCommandProto(tinyxml2::XMLElement * element, CommandData& commandData);
+Command* readCommandProto(tinyxml2::XMLElement * element);
 void readCommands( tinyxml2::XMLElement * element, VkData & vkData );
 void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData);
 std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, std::set<std::string> const& tags);
@@ -1335,26 +1353,24 @@ std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
   return arraySize;
 }
 
-void readCommandParam( tinyxml2::XMLElement * element, std::vector<ParamData> & params )
+void readCommandParam( tinyxml2::XMLElement * element, Command* cmd )
 {
-  ParamData param;
-
   std::string typeString;
   tinyxml2::XMLNode * afterType = readCommandParamType(element->FirstChild(), typeString);
   // TODO: Removed dependencies
   //dependencies.insert(param.pureType);
 
   assert(afterType->ToElement() && ( strcmp(afterType->Value(), "name" ) == 0 ) && afterType->ToElement()->GetText() );
-  param.name = afterType->ToElement()->GetText();
+  std::string name = afterType->ToElement()->GetText();
 
-  param.arraySize = readArraySize(afterType, param.name);
+  std::string arraySize = readArraySize(afterType, name);
 
-  param.type = typeOracle.getType(typeString, param.arraySize);
+  Type const* type = typeOracle.getType(typeString, arraySize);
 
-  params.push_back(param);
+  cmd->add_parameter(type, name, arraySize);
 }
 
-void readCommandParams(tinyxml2::XMLElement* element, CommandData & commandData)
+void readCommandParams(tinyxml2::XMLElement* element, Command* cmd)
 {
   // iterate over the siblings of the element and read the command parameters
   assert(element);
@@ -1363,7 +1379,7 @@ void readCommandParams(tinyxml2::XMLElement* element, CommandData & commandData)
     std::string value = element->Value();
     if (value == "param")
     {
-      readCommandParam(element, commandData.params);
+      readCommandParam(element, cmd);
     }
     else
     {
@@ -1411,7 +1427,7 @@ tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& ty
   return node;
 }
 
-void readCommandProto(tinyxml2::XMLElement * element, CommandData& commandData)
+Command* readCommandProto(tinyxml2::XMLElement * element)
 {
 	// Defines the return type and name of a command
 
@@ -1442,8 +1458,7 @@ void readCommandProto(tinyxml2::XMLElement * element, CommandData& commandData)
 	// insert an empty CommandData into the commands-map, and return the newly created CommandData
 	//assert(vkData.commands.find(name) == vkData.commands.end());
 	//return vkData.commands.insert(std::make_pair(name, CommandData(type, name))).first->second;
-	commandData.returnType = type;
-	commandData.fullName = name;
+	return typeOracle.define_command(name, type);
 }
 
 void readCommands(tinyxml2::XMLElement * element, VkData & vkData)
@@ -1464,12 +1479,9 @@ void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData)
   tinyxml2::XMLElement * child = element->FirstChildElement();
   assert( child && ( strcmp( child->Value(), "proto" ) == 0 ) );
 
-  CommandData commandData(nullptr, "");
-  readCommandProto(child, commandData);
+  Command* cmd = readCommandProto(child);
   // TODO: Removed dependencies
-  readCommandParams(child, commandData);
-
-  typeOracle.command(commandData);
+  readCommandParams(child, cmd);
 }
 
 void readComment(tinyxml2::XMLElement * element, std::string & header)
@@ -1981,6 +1993,7 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 		Parameter param;
 		param.type = p.first;
 		param.name = p.second;
+		param.array_size = ""; // Not used here. I have an assertion so it should catch in case things change
 		t->add_parameter(param);
 	}
 
