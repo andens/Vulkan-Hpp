@@ -37,10 +37,12 @@ string(REPLACE "\\" "\\\\" vulkan_hpp ${vulkan_hpp})
 add_definitions(-DVULKAN_HPP="${vulkan_hpp}")
 
 set(HEADERS
+  vkspec.h
 )
 
 set(SOURCES
   VulkanHppGenerator.cpp
+  vkspec.cpp
 )
 
 set(TINYXML2_SOURCES
