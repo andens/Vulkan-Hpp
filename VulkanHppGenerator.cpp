@@ -123,10 +123,102 @@ struct CommandData
 	std::map<size_t, size_t>  vectorParams;
 };
 
-class Type {
+class IType {
+public:
+	// Returns type name as used in bindings. For most types, this would be the
+	// same name as defined in the registry. For C types, the translated type is
+	// returned instead.
+	virtual std::string const& type_name(void) const = 0;
+};
+
+class CType : public IType {
 	friend class Registry;
 
 public:
+	// TODO: Private?
+	enum class Kind {
+		Intrinsic,
+		X11,
+		Android,
+		Mir,
+		Wayland,
+		Windows,
+		Xcb,
+	};
+
+	virtual std::string const& type_name(void) const override final {
+		return _translation;
+	}
+
+private:
+	CType(std::string const& c_type, std::string const& translation, Kind kind) : _c_type(c_type), _translation(translation), _kind(kind) {}
+	CType(CType const&) = delete;
+	void operator=(CType const&) = delete;
+
+private:
+	std::string _c_type;
+	std::string _translation;
+	Kind _kind;
+};
+
+class ScalarTypedef : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _alias;
+	}
+
+	Type const* actual(void) const {
+		return _actual;
+	}
+
+private:
+	ScalarTypedef(std::string const& alias, Type const* actual) : _alias(alias), _actual(actual) {}
+	ScalarTypedef(ScalarTypedef const&) = delete;
+	void operator=(ScalarTypedef const&) = delete;
+
+private:
+	std::string _alias;
+	Type const* _actual;
+};
+
+struct Parameter {
+	Type* type;
+	std::string name;
+};
+
+class FunctionTypedef : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _alias;
+	}
+
+	// TODO: Make private when parsing is part of Registry
+	void add_parameter(Parameter const& param) {
+		_params.push_back(param);
+	}
+
+private:
+	FunctionTypedef(std::string const& alias, Type const* return_type) : _alias(alias), _return_type(return_type) {}
+	FunctionTypedef(FunctionTypedef const&) = delete;
+	void operator=(FunctionTypedef const&) = delete;
+
+private:
+	std::string _alias;
+	Type const* _return_type;
+	std::vector<Parameter> _params;
+};
+
+// Container for some type used by Vulkan. Undefined types are marked by the
+// wrapped pointer being null.
+class Type : public IType {
+	friend class Registry;
+
+public:
+	// TODO: private
 	enum class Kind {
 		Undefined,
 		Pointer,
@@ -138,8 +230,21 @@ public:
 		VulkanCommand,
 	};
 
-	virtual std::string const& type(void) const {
-		return _type;
+	virtual std::string const& type_name(void) const override final {
+		assert(_type);
+		return _type->type_name();
+	}
+
+	CType* to_c_type(void) {
+		return dynamic_cast<CType*>(_type);
+	}
+
+	ScalarTypedef* to_scalar_typedef(void) {
+		return dynamic_cast<ScalarTypedef*>(_type);
+	}
+
+	FunctionTypedef* to_function_typedef(void) {
+		return dynamic_cast<FunctionTypedef*>(_type);
 	}
 
 	bool isBitmask() {
@@ -174,13 +279,16 @@ public:
 		_enum.variants.push_back(std::make_pair(member, value));
 	}
 
-protected:
-	Type(std::string type) : _type(type), _kind(Kind::Undefined) {}
-	virtual ~Type() {}
-
 private:
+	Type() : _type(nullptr), _kind(Kind::Undefined) {}
 	Type(Type const&) = delete;
 	Type& operator=(Type const&) = delete;
+	~Type() {} // TODO: Remove later
+
+	void make_concrete(IType* type) {
+		assert(!_type);
+		_type = type;
+	}
 
 	// Upgrade undefined to pointer
 	void makePointer(const std::string& constness) {
@@ -237,7 +345,7 @@ private:
 	}
 
 private:
-	std::string _type;
+	IType* _type = nullptr;
 	Kind _kind;
 
 	struct Ptr {
@@ -283,75 +391,6 @@ private:
 	};
 };
 
-class CType : public Type {
-	friend class Registry;
-
-public:
-	enum class Kind {
-		Intrinsic,
-		X11,
-		Android,
-		Mir,
-		Wayland,
-		Windows,
-		Xcb,
-	};
-
-	virtual std::string const& type(void) const override final {
-		return _translation;
-	}
-
-private:
-	CType(std::string const& c_type, std::string const& translation, Kind kind) : Type(c_type), _translation(translation), _kind(kind) {}
-	CType(CType const&) = delete;
-	void operator=(CType const&) = delete;
-
-private:
-	Kind _kind;
-	std::string _translation;
-};
-
-class VulkanScalarTypedef : public Type {
-	friend class Registry;
-
-public:
-	std::string const& actual(void) const {
-		return _actual->type();
-	}
-
-private:
-	VulkanScalarTypedef(std::string const& alias, Type const* actual) : Type(alias), _actual(actual) {}
-	VulkanScalarTypedef(VulkanScalarTypedef const&) = delete;
-	void operator=(VulkanScalarTypedef const&) = delete;
-
-private:
-	Type const* _actual;
-};
-
-struct Parameter {
-	Type* type;
-	std::string name;
-};
-
-class VulkanFunctionTypedef : public Type {
-	friend class Registry;
-
-public:
-	// TODO: Make private when parsing is part of Registry
-	void add_parameter(Parameter const& param) {
-		_params.push_back(param);
-	}
-
-private:
-	VulkanFunctionTypedef(std::string const& alias, Type const* return_type) : Type(alias), _return_type(return_type) {}
-	VulkanFunctionTypedef(VulkanFunctionTypedef const&) = delete;
-	void operator=(VulkanFunctionTypedef const&) = delete;
-
-private:
-	Type const* _return_type;
-	std::vector<Parameter> _params;
-};
-
 struct Extension {
 	std::string name;
 	std::string number;
@@ -372,71 +411,72 @@ class Registry {
 public:
 	Registry()
 	{
-#define INSERT_C_TYPE(type, rustType, kind) { CType* t = new CType(type, rustType, kind); assert(_ctypes.insert(std::make_pair(type, t)).second == true); }
+		auto insert_c_type = [this](std::string const& c_type, std::string const& rust_type, CType::Kind kind) {
+			// Define the C type used in the API
+			CType* t = new CType(c_type, rust_type, kind);
+			define(c_type, t);
+			_c_types.push_back(t);
 
+			// Add a phantom type to prevent the translated types from accidentally
+			// being used somewhere.
+			//define(rust_type, nullptr); // TODO: uncomment when get_type don't mess with pointers
+		};
 		// I'm working under the assumption that the C and OS types used will
 		// be a comparatively small set so that I can deal with those manually.
 		// This way I can assume that types not existing at the time I need them
 		// are Vulkan types that will be defined later. In other words, I can
 		// defer definitions of Vulkan types in particular and have a separate
 		// API for them.
-		INSERT_C_TYPE("void", "()", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("char", "c_char", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("float", "f32", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("uint8_t", "u8", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("uint32_t", "u32", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("uint64_t", "u64", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("int32_t", "i32", CType::Kind::Intrinsic);
-		INSERT_C_TYPE("size_t", "usize", CType::Kind::Intrinsic); // unsigned according to reference
-		INSERT_C_TYPE("int", "c_int", CType::Kind::Intrinsic);
+		insert_c_type("void", "()", CType::Kind::Intrinsic);
+		insert_c_type("char", "c_char", CType::Kind::Intrinsic);
+		insert_c_type("float", "f32", CType::Kind::Intrinsic);
+		insert_c_type("uint8_t", "u8", CType::Kind::Intrinsic);
+		insert_c_type("uint32_t", "u32", CType::Kind::Intrinsic);
+		insert_c_type("uint64_t", "u64", CType::Kind::Intrinsic);
+		insert_c_type("int32_t", "i32", CType::Kind::Intrinsic);
+		insert_c_type("size_t", "usize", CType::Kind::Intrinsic); // unsigned according to reference
+		insert_c_type("int", "c_int", CType::Kind::Intrinsic);
 
-		INSERT_C_TYPE("Display", "Display", CType::Kind::X11);
-		INSERT_C_TYPE("VisualID", "VisualID", CType::Kind::X11);
-		INSERT_C_TYPE("Window", "Window", CType::Kind::X11);
-		INSERT_C_TYPE("RROutput", "RROutput", CType::Kind::X11);
+		insert_c_type("Display", "Display", CType::Kind::X11);
+		insert_c_type("VisualID", "VisualID", CType::Kind::X11);
+		insert_c_type("Window", "Window", CType::Kind::X11);
+		insert_c_type("RROutput", "RROutput", CType::Kind::X11);
 
-		INSERT_C_TYPE("ANativeWindow", "ANativeWindow", CType::Kind::Android);
+		insert_c_type("ANativeWindow", "ANativeWindow", CType::Kind::Android);
 
-		INSERT_C_TYPE("MirConnection", "MirConnection", CType::Kind::Mir);
-		INSERT_C_TYPE("MirSurface", "MirSurface", CType::Kind::Mir);
+		insert_c_type("MirConnection", "MirConnection", CType::Kind::Mir);
+		insert_c_type("MirSurface", "MirSurface", CType::Kind::Mir);
 
-		INSERT_C_TYPE("wl_display", "wl_display", CType::Kind::Wayland);
-		INSERT_C_TYPE("wl_surface", "wl_surface", CType::Kind::Wayland);
+		insert_c_type("wl_display", "wl_display", CType::Kind::Wayland);
+		insert_c_type("wl_surface", "wl_surface", CType::Kind::Wayland);
 
-		INSERT_C_TYPE("HINSTANCE", "HINSTANCE", CType::Kind::Windows);
-		INSERT_C_TYPE("HWND", "HWND", CType::Kind::Windows);
-		INSERT_C_TYPE("HANDLE", "HANDLE", CType::Kind::Windows);
-		INSERT_C_TYPE("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", CType::Kind::Windows);
-		INSERT_C_TYPE("DWORD", "DWORD", CType::Kind::Windows);
-		INSERT_C_TYPE("LPCWSTR", "LPCWSTR", CType::Kind::Windows);
+		insert_c_type("HINSTANCE", "HINSTANCE", CType::Kind::Windows);
+		insert_c_type("HWND", "HWND", CType::Kind::Windows);
+		insert_c_type("HANDLE", "HANDLE", CType::Kind::Windows);
+		insert_c_type("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", CType::Kind::Windows);
+		insert_c_type("DWORD", "DWORD", CType::Kind::Windows);
+		insert_c_type("LPCWSTR", "LPCWSTR", CType::Kind::Windows);
 
-		INSERT_C_TYPE("xcb_connection_t", "xcb_connection_t", CType::Kind::Xcb);
-		INSERT_C_TYPE("xcb_visualid_t", "xcb_visualid_t", CType::Kind::Xcb);
-		INSERT_C_TYPE("xcb_window_t", "xcb_window_t", CType::Kind::Xcb);
-
-#undef INSERT_C_TYPE
+		insert_c_type("xcb_connection_t", "xcb_connection_t", CType::Kind::Xcb);
+		insert_c_type("xcb_visualid_t", "xcb_visualid_t", CType::Kind::Xcb);
+		insert_c_type("xcb_window_t", "xcb_window_t", CType::Kind::Xcb);
 	}
 
-	CType* define_c_type(std::string const& type) {
-		auto it = _ctypes.find(type);
-		assert(it != _ctypes.end());
-		return it->second;
+	void define_c_type(std::string const& type) {
+		auto it = _types.find(type);
+		assert(it != _types.end());
 	}
 
-	VulkanScalarTypedef* define_scalar_typedef(std::string const& alias, Type const* actual) {
-		assert(_defined_types.find(alias) == _defined_types.end());
-		_undefined_types.erase(alias);
-		VulkanScalarTypedef* t = new VulkanScalarTypedef(alias, actual);
-		_defined_types[alias] = t;
+	ScalarTypedef* define_scalar_typedef(std::string const& alias, Type const* actual) {
+		ScalarTypedef* t = new ScalarTypedef(alias, actual);
+		define(alias, t);
 		_scalar_typedefs.push_back(t);
 		return t;
 	}
 
-	VulkanFunctionTypedef* define_function_typedef(std::string const& alias, Type const* returnType) {
-		assert(_defined_types.find(alias) == _defined_types.end());
-		_undefined_types.erase(alias);
-		VulkanFunctionTypedef* t = new VulkanFunctionTypedef(alias, returnType);
-		_defined_types[alias] = t;
+	FunctionTypedef* define_function_typedef(std::string const& alias, Type const* returnType) {
+		FunctionTypedef* t = new FunctionTypedef(alias, returnType);
+		define(alias, t);
 		_function_typedefs.push_back(t);
 		return t;
 	}
@@ -445,42 +485,42 @@ public:
 		assert(strncmp(newType.c_str(), "Vk", 2) == 0);
 		assert(newType.find_first_of("* ") == std::string::npos);
 
-		getVulkanType(newType)->makeBitmaskTypedef(underlying);
+		get_type(newType)->makeBitmaskTypedef(underlying);
 	}
 
 	void bitmasks(const std::string& name) {
 		assert(strncmp(name.c_str(), "Vk", 2) == 0);
 		assert(name.find_first_of("* ") == std::string::npos);
 
-		getVulkanType(name)->makeBitmasks();
+		get_type(name)->makeBitmasks();
 	}
 
 	void handleTypedef(Type* underlying, const std::string& alias) {
 		assert(strncmp(alias.c_str(), "Vk", 2) == 0);
 		assert(alias.find_first_of("* ") == std::string::npos);
 
-		getVulkanType(alias)->makeHandleTypedef(underlying);
+		get_type(alias)->makeHandleTypedef(underlying);
 	}
 
 	void defineStruct(const std::string& type, bool isUnion) {
 		assert(strncmp(type.c_str(), "Vk", 2) == 0);
 		assert(type.find_first_of("* ") == std::string::npos);
 
-		getVulkanType(type)->makeStruct(isUnion);
+		get_type(type)->makeStruct(isUnion);
 	}
 
 	void defineEnum(const std::string& name) {
 		assert(strncmp(name.c_str(), "Vk", 2) == 0);
 		assert(name.find_first_of("* ") == std::string::npos);
 
-		getVulkanType(name)->makeEnum();
+		get_type(name)->makeEnum();
 	}
 
 	void command(CommandData& commandData) {
 		assert(strncmp(commandData.fullName.c_str(), "vk", 2) == 0);
 		assert(commandData.fullName.find_first_of("* ") == std::string::npos);
 
-		getVulkanType(commandData.fullName)->makeCommand(commandData);
+		get_type(commandData.fullName)->makeCommand(commandData);
 	}
 
 	// The purpose of this function is to return an object that represents some
@@ -565,24 +605,16 @@ public:
 		Type* type = nullptr;
 
 		// Attempt to acquire the type first from C types.
-		auto c_it = _ctypes.find(baseType);
-		if (c_it != _ctypes.end()) {
-			type = c_it->second;
-		}
-
-		// Attempt to acquire the type from Vulkan types.
-		auto vk_it = _vulkanTypes.find(baseType);
-		if (vk_it != _vulkanTypes.end()) {
-			// If we found a Vulkan type it must not also be a C type
-			assert(!type);
-			type = vk_it->second;
+		auto type_it = _types.find(baseType);
+		if (type_it != _types.end()) {
+			type = type_it->second;
 		}
 
 		// If neither C nor Vulkan types worked, it's a new type that we create
 		// as an undefined type for now.
 		if (!type) {
-			type = new Type(baseType);
-			_vulkanTypes.insert(std::make_pair(baseType, type));
+			type = new Type();
+			_types.insert(std::make_pair(baseType, type));
 		}
 
 		// Now that we have the base type, we can work from the back to generate
@@ -613,7 +645,7 @@ public:
 			walker++;
 			// No more => mutable pointer. Another pointer immediately => mutable
 			if (walker == parts.crend() || *walker == "*") {
-				Type* t = new Type("");
+				Type* t = new Type();
 				t->makePointer("mut");
 				hookupPtr(t);
 			}
@@ -621,7 +653,7 @@ public:
 			else {
 				assert(*walker == "const");
 				walker++; // For next inner pointer
-				Type* t = new Type("");
+				Type* t = new Type();
 				t->makePointer("const");
 				hookupPtr(t);
 			}
@@ -635,7 +667,7 @@ public:
 		return outer;
 	}
 
-	std::vector<VulkanScalarTypedef*> const& get_scalar_typedefs(void) const {
+	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
 		return _scalar_typedefs;
 	}
 
@@ -654,27 +686,38 @@ public:
 	}
 
 private:
-	Type* getVulkanType(const std::string& type) {
+	Type* get_type(const std::string& type) {
 		Type* t = nullptr;
-		auto it = _vulkanTypes.find(type);
-		if (it != _vulkanTypes.end()) {
+		auto it = _types.find(type);
+		if (it != _types.end()) {
 			t = it->second;
 		}
 		else {
-			t = new Type(type);
-			_vulkanTypes.insert(std::make_pair(type, t));
+			t = new Type();
+			_types.insert(std::make_pair(type, t));
+			_undefined_types.insert(type);
 		}
 
 		return t;
 	}
 
+	void define(std::string const& name, IType* type) {
+		// Type must not already be defined
+		assert(_types.find(name) == _types.end() || _undefined_types.find(name) != _undefined_types.end());
+
+		// Get existing type, or create one if not present
+		Type* wrap = get_type(name);
+		wrap->make_concrete(type);
+
+		_undefined_types.erase(name);
+	}
+
 private:
-	std::map<std::string, Type*> _defined_types; // All types defined in the registry
+	std::map<std::string, Type*> _types; // All types referenced in the registry
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
-	std::map<std::string, CType*> _ctypes;
-	std::map<std::string, Type*> _vulkanTypes; // TODO: Remove later
-	std::vector<VulkanScalarTypedef*> _scalar_typedefs;
-	std::vector<VulkanFunctionTypedef*> _function_typedefs;
+	std::vector<CType*> _c_types;
+	std::vector<ScalarTypedef*> _scalar_typedefs;
+	std::vector<FunctionTypedef*> _function_typedefs;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -1875,7 +1918,7 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 		});
 	}
 
-	VulkanFunctionTypedef* t = typeOracle.define_function_typedef(name, typeOracle.getType(returnType));
+	FunctionTypedef* t = typeOracle.define_function_typedef(name, typeOracle.getType(returnType));
 	for (auto p : params) {
 		Parameter param;
 		param.type = p.first;
@@ -4181,7 +4224,7 @@ pub mod core {
 		ofs << std::endl;
 
 		for (auto tdef : typeOracle.get_scalar_typedefs()) {
-			ofs << "type " << tdef->actual() << " = " << tdef->type() << ";" << std::endl;
+			ofs << "type " << tdef->actual()->type_name() << " = " << tdef->type_name() << ";" << std::endl;
 		}
 
 		ofs << std::endl;
