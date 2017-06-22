@@ -306,6 +306,29 @@ private:
 	bool _is_union;
 };
 
+class Enum : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _name;
+	}
+
+	// TODO: make private
+	void add_member(std::string const& name, std::string const& value) {
+		_members.push_back(std::make_pair(name, value));
+	}
+
+private:
+	Enum(std::string const& name) : _name(name) {}
+	Enum(Enum const&) = delete;
+	void operator=(Enum const&) = delete;
+
+private:
+	std::string _name;
+	std::vector<std::pair<std::string, std::string>> _members;
+};
+
 // Container for some type used by Vulkan. Undefined types are marked by the
 // wrapped pointer being null.
 class Type : public IType {
@@ -316,7 +339,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanEnum,
 		VulkanCommand,
 	};
 
@@ -353,8 +375,8 @@ public:
 		return dynamic_cast<Struct*>(_type);
 	}
 
-	bool isEnum() {
-		return _kind == Kind::VulkanEnum;
+	Enum* to_enum(void) {
+		return dynamic_cast<Enum*>(_type);
 	}
 
 	bool isUndefined() {
@@ -364,11 +386,6 @@ public:
 	void ptrSetInner(Type* ptr) {
 		assert(_kind == Kind::Pointer);
 		_pointer.inner = ptr;
-	}
-
-	void enumAddMember(const std::string& member, const std::string& value) {
-		assert(_kind == Kind::VulkanEnum);
-		_enum.variants.push_back(std::make_pair(member, value));
 	}
 
 private:
@@ -390,13 +407,6 @@ private:
 		_pointer.inner = nullptr;
 	}
 
-	// Upgrade undefined to enum
-	void makeEnum() {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanEnum;
-		new(&_enum.variants) std::vector<std::pair<std::string, std::string>>();
-	}
-
 	// Upgrade undefined to command
 	void makeCommand(CommandData& commandData) {
 		assert(_kind == Kind::Undefined);
@@ -416,10 +426,6 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanEnum {
-		std::vector<std::pair<std::string, std::string>> variants;
-	};
-
 	struct VulkanCommand {
 		Type* returnType;
 		std::string name;
@@ -428,7 +434,6 @@ private:
 
 	union {
 		Ptr _pointer;
-		VulkanEnum _enum;
 		VulkanCommand _command;
 	};
 };
@@ -551,11 +556,11 @@ public:
 		return t;
 	}
 
-	void defineEnum(const std::string& name) {
-		assert(strncmp(name.c_str(), "Vk", 2) == 0);
-		assert(name.find_first_of("* ") == std::string::npos);
-
-		get_type(name)->makeEnum();
+	Enum* define_enum(std::string const& name) {
+		Enum* t = new Enum(name);
+		define(name, t);
+		_enums.push_back(t);
+		return t;
 	}
 
 	void command(CommandData& commandData) {
@@ -767,6 +772,7 @@ private:
 	std::vector<BitmaskTypedef*> _bitmask_typedefs;
 	std::vector<HandleTypedef*> _handle_typedefs;
 	std::vector<Struct*> _structs;
+	std::vector<Enum*> _enums;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -1531,11 +1537,10 @@ void readEnums(tinyxml2::XMLElement * element, VkData & vkData)
 		});
 	}
 	else {
-		typeOracle.defineEnum(name);
-		Type* t = typeOracle.getType(name);
+		Enum* t = typeOracle.define_enum(name);
 
 		readEnumsEnum(element, [t](const std::string& member, const std::string& value) {
-			t->enumAddMember(member, value);
+			t->add_member(member, value);
 		});
 	}
 }
@@ -1698,14 +1703,16 @@ void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, Enu
 
 		std::string valueString = std::to_string(value);
 
-		Type* t = typeOracle.getType(element->Attribute("extends"));
-		t->enumAddMember(name, valueString);
+		Enum* t = typeOracle.getType(element->Attribute("extends"))->to_enum();
+		assert(t);
+		t->add_member(name, valueString);
 	}
 	else {
 		// This is a special case for an enum variant that used to be core.
 		// It uses value instead of offset.
-		Type* t = typeOracle.getType(element->Attribute("extends"));
-		t->enumAddMember(name, element->Attribute("value"));
+		Enum* t = typeOracle.getType(element->Attribute("extends"))->to_enum();
+		assert(t);
+		t->add_member(name, element->Attribute("value"));
 	}
   }
   // Inline definition of extension-specific constant.
