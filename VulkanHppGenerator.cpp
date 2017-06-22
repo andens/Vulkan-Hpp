@@ -130,7 +130,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanFunctionTypedef,
 		VulkanBitmaskTypedef,
 		VulkanBitmasks,
 		VulkanHandleTypedef,
@@ -191,14 +190,6 @@ private:
 		_pointer.inner = nullptr;
 	}
 
-	// Upgrade undefined to function typedef
-	void makeFunctionTypedef(Type* returnType, const std::vector<std::pair<Type*, std::string>>& params) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanFunctionTypedef;
-		_functionTypedef.returnType = returnType;
-		new(&_functionTypedef.params) auto(params);
-	}
-
 	// Upgrade undefined to bitmaskTypedef
 	void makeBitmaskTypedef(Type* bitdefinitions) {
 		assert(_kind == Kind::Undefined);
@@ -254,11 +245,6 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanFunctionTypedef {
-		Type* returnType;
-		std::vector<std::pair<Type*, std::string>> params;
-	};
-
 	struct VulkanBitmaskTypedef {
 		Type* bitDefinitions;
 	};
@@ -288,7 +274,6 @@ private:
 
 	union {
 		Ptr _pointer;
-		VulkanFunctionTypedef _functionTypedef;
 		VulkanBitmaskTypedef _bitmaskTypedef;
 		VulkanBitmasks _bitmasks;
 		VulkanHandleTypedef _handleTypedef;
@@ -340,7 +325,31 @@ private:
 	void operator=(VulkanScalarTypedef const&) = delete;
 
 private:
-	const Type* _actual;
+	Type const* _actual;
+};
+
+struct Parameter {
+	Type* type;
+	std::string name;
+};
+
+class VulkanFunctionTypedef : public Type {
+	friend class Registry;
+
+public:
+	// TODO: Make private when parsing is part of Registry
+	void add_parameter(Parameter const& param) {
+		_params.push_back(param);
+	}
+
+private:
+	VulkanFunctionTypedef(std::string const& alias, Type const* return_type) : Type(alias), _return_type(return_type) {}
+	VulkanFunctionTypedef(VulkanFunctionTypedef const&) = delete;
+	void operator=(VulkanFunctionTypedef const&) = delete;
+
+private:
+	Type const* _return_type;
+	std::vector<Parameter> _params;
 };
 
 struct Extension {
@@ -423,11 +432,13 @@ public:
 		return t;
 	}
 
-	void functionTypedef(const std::string& name, Type* returnType, const std::vector<std::pair<Type*, std::string>> params) {
-		assert(strncmp(name.c_str(), "PFN_vk", 6) == 0);
-		assert(name.find_first_of("* ") == std::string::npos);
-
-		getVulkanType(name)->makeFunctionTypedef(returnType, params);
+	VulkanFunctionTypedef* define_function_typedef(std::string const& alias, Type const* returnType) {
+		assert(_defined_types.find(alias) == _defined_types.end());
+		_undefined_types.erase(alias);
+		VulkanFunctionTypedef* t = new VulkanFunctionTypedef(alias, returnType);
+		_defined_types[alias] = t;
+		_function_typedefs.push_back(t);
+		return t;
 	}
 
 	void bitmaskTypedef(const std::string& newType, Type* underlying) {
@@ -663,6 +674,7 @@ private:
 	std::map<std::string, CType*> _ctypes;
 	std::map<std::string, Type*> _vulkanTypes; // TODO: Remove later
 	std::vector<VulkanScalarTypedef*> _scalar_typedefs;
+	std::vector<VulkanFunctionTypedef*> _function_typedefs;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -1863,7 +1875,13 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 		});
 	}
 
-	typeOracle.functionTypedef(name, typeOracle.getType(returnType), params);
+	VulkanFunctionTypedef* t = typeOracle.define_function_typedef(name, typeOracle.getType(returnType));
+	for (auto p : params) {
+		Parameter param;
+		param.type = p.first;
+		param.name = p.second;
+		t->add_parameter(param);
+	}
 
 	// TODO: Removed dependencies
 
