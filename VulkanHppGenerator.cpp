@@ -396,11 +396,6 @@ class Type : public IType {
 	friend class Registry;
 
 public:
-	// TODO: private
-	enum class Kind {
-		Undefined,
-	};
-
 	virtual std::string const& type_name(void) const override final {
 		assert(_type);
 		return _type->type_name();
@@ -446,15 +441,14 @@ public:
 		return dynamic_cast<Command*>(_type);
 	}
 
-	bool isUndefined() {
-		return _kind == Kind::Undefined;
+	bool undefined() {
+		return !!_type;
 	}
 
 private:
-	Type() : _type(nullptr), _kind(Kind::Undefined) {}
+	Type() : _type(nullptr) {}
 	Type(Type const&) = delete;
 	Type& operator=(Type const&) = delete;
-	~Type() {} // TODO: Remove later
 
 	void make_concrete(IType* type) {
 		assert(!_type);
@@ -463,7 +457,6 @@ private:
 
 private:
 	IType* _type = nullptr;
-	Kind _kind;
 };
 
 struct Extension {
