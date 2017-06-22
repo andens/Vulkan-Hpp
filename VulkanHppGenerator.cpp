@@ -212,6 +212,30 @@ private:
 	std::vector<Parameter> _params;
 };
 
+class Bitmasks : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		return _name;
+	}
+
+	// TODO: make private
+	void add_member(std::string const& name, std::string const& value, bool bitpos) {
+		// TODO: If bitpos is true, convert value to int to generate actual value
+		_members.push_back(make_pair(name, value));
+	}
+
+private:
+	Bitmasks(std::string const& name) : _name(name) {}
+	Bitmasks(Bitmasks const&) = delete;
+	void operator=(Bitmasks const&) = delete;
+
+private:
+	std::string _name;
+	std::vector<std::pair<std::string, std::string>> _members;
+};
+
 // Container for some type used by Vulkan. Undefined types are marked by the
 // wrapped pointer being null.
 class Type : public IType {
@@ -223,7 +247,6 @@ public:
 		Undefined,
 		Pointer,
 		VulkanBitmaskTypedef,
-		VulkanBitmasks,
 		VulkanHandleTypedef,
 		VulkanStruct,
 		VulkanEnum,
@@ -247,8 +270,8 @@ public:
 		return dynamic_cast<FunctionTypedef*>(_type);
 	}
 
-	bool isBitmask() {
-		return _kind == Kind::VulkanBitmasks;
+	Bitmasks* to_bitmasks(void) {
+		return dynamic_cast<Bitmasks*>(_type);
 	}
 
 	bool isEnum() {
@@ -267,11 +290,6 @@ public:
 	void structAddMember(Type* type, const std::string& name, const std::string& arraySize) {
 		assert(_kind == Kind::VulkanStruct);
 		_struct.members.push_back(std::make_tuple(type, name, arraySize));
-	}
-
-	void bitmaskAddMember(const std::string& member, const std::string& value, bool isBitpos) {
-		assert(_kind == Kind::VulkanBitmasks);
-		_bitmasks.variants.push_back(std::make_tuple(member, value, isBitpos));
 	}
 
 	void enumAddMember(const std::string& member, const std::string& value) {
@@ -303,13 +321,6 @@ private:
 		assert(_kind == Kind::Undefined);
 		_kind = Kind::VulkanBitmaskTypedef;
 		_bitmaskTypedef.bitDefinitions = bitdefinitions;
-	}
-
-	// Upgrade undefined to bitmasks
-	void makeBitmasks() {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanBitmasks;
-		new(&_bitmasks.variants) std::vector<std::tuple<std::string, std::string, bool>>();
 	}
 
 	// Upgrade undefined to handle typedef
@@ -357,10 +368,6 @@ private:
 		Type* bitDefinitions;
 	};
 
-	struct VulkanBitmasks {
-		std::vector<std::tuple<std::string, std::string, bool>> variants; // Bool represents if it's bitpos (otherwise it's direct value)
-	};
-
 	struct VulkanHandleTypedef {
 		Type* underlying;
 	};
@@ -383,7 +390,6 @@ private:
 	union {
 		Ptr _pointer;
 		VulkanBitmaskTypedef _bitmaskTypedef;
-		VulkanBitmasks _bitmasks;
 		VulkanHandleTypedef _handleTypedef;
 		VulkanStruct _struct;
 		VulkanEnum _enum;
@@ -481,18 +487,18 @@ public:
 		return t;
 	}
 
-	void bitmaskTypedef(const std::string& newType, Type* underlying) {
+	Bitmasks* define_bitmasks(std::string const& name) {
+		Bitmasks* t = new Bitmasks(name);
+		define(name, t);
+		_bitmasks.push_back(t);
+		return t;
+	}
+
+	void define_bitmask_typedef(const std::string& newType, Type* underlying) {
 		assert(strncmp(newType.c_str(), "Vk", 2) == 0);
 		assert(newType.find_first_of("* ") == std::string::npos);
 
 		get_type(newType)->makeBitmaskTypedef(underlying);
-	}
-
-	void bitmasks(const std::string& name) {
-		assert(strncmp(name.c_str(), "Vk", 2) == 0);
-		assert(name.find_first_of("* ") == std::string::npos);
-
-		get_type(name)->makeBitmasks();
 	}
 
 	void handleTypedef(Type* underlying, const std::string& alias) {
@@ -615,6 +621,7 @@ public:
 		if (!type) {
 			type = new Type();
 			_types.insert(std::make_pair(baseType, type));
+			_undefined_types.insert(baseType);
 		}
 
 		// Now that we have the base type, we can work from the back to generate
@@ -703,7 +710,9 @@ private:
 
 	void define(std::string const& name, IType* type) {
 		// Type must not already be defined
-		assert(_types.find(name) == _types.end() || _undefined_types.find(name) != _undefined_types.end());
+		if (_types.find(name) != _types.end()) {
+			assert(_undefined_types.find(name) != _undefined_types.end());
+		}
 
 		// Get existing type, or create one if not present
 		Type* wrap = get_type(name);
@@ -713,11 +722,12 @@ private:
 	}
 
 private:
-	std::map<std::string, Type*> _types; // All types referenced in the registry
+	std::map<std::string, Type*> _types; // All types referenced in the registry, undefined or not.
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
 	std::vector<CType*> _c_types;
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
+	std::vector<Bitmasks*> _bitmasks;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -1475,11 +1485,10 @@ void readEnums(tinyxml2::XMLElement * element, VkData & vkData)
 	}
 
 	if (type == "bitmask") {
-		Type* t = typeOracle.getType(name);
-		assert(t->isBitmask());
+		Bitmasks* t = typeOracle.define_bitmasks(name);
 
 		readEnumsBitmask(element, [t](const std::string& member, const std::string& value, bool isBitpos) {
-			t->bitmaskAddMember(member, value, isBitpos);
+			t->add_member(member, value, isBitpos);
 		});
 	}
 	else {
@@ -1633,9 +1642,10 @@ void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, Enu
   if (element->Attribute("extends"))
   {
     assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
-	if (!!element->Attribute("bitpos")) {
-		Type* t = typeOracle.getType(element->Attribute("extends"));
-		t->bitmaskAddMember(name, element->Attribute("bitpos"), true);
+	if (element->Attribute("bitpos")) {
+		Bitmasks* t = typeOracle.getType(element->Attribute("extends"))->to_bitmasks();
+		assert(t);
+		t->add_member(name, element->Attribute("bitpos"), true);
 	}
 	else if (element->Attribute("offset")) {
 		// The value depends on extension number and offset. See
@@ -1808,13 +1818,15 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 	// the oracle aware that these types are bitmask typedefs so that their
 	// structs will be generated, albeit with no way to create them with flags.
 
-	Type* bitDefs = nullptr;
+	Type* bit_definitions = nullptr;
 	if (element->Attribute("requires")) {
-		typeOracle.bitmasks(element->Attribute("requires"));
-		bitDefs = typeOracle.getType(element->Attribute("requires"));
+		// I don't define bitmasks here, but rather when parsing its members.
+		// Non-existant definitions should not be a requirement, so this turns
+		// into an extra check that the type is not undefined later.
+		bit_definitions = typeOracle.getType(element->Attribute("requires"));
 	}
 
-	typeOracle.bitmaskTypedef(name, bitDefs);
+	typeOracle.define_bitmask_typedef(name, bit_definitions);
 }
 
 void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
@@ -4193,6 +4205,8 @@ int main(int argc, char **argv)
 
 		// Finished parsing the spec.
 
+		// TODO: Don't have this as a method, but rather do the check after having parsed
+		// the spec when it's put into a method of its own.
 		typeOracle.undefinedCheck();
 
 		// TODO: Removed dependencies
