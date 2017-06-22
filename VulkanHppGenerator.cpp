@@ -272,6 +272,40 @@ private:
 	Type const* _actual;
 };
 
+class Struct : public IType {
+	friend class Registry;
+
+public:
+	struct StructMember {
+		Type const* type;
+		std::string name;
+		std::string array_size;
+	};
+
+	virtual std::string const& type_name(void) const override final {
+		return _name;
+	}
+
+	// TODO: make private
+	void add_member(Type const* type, std::string const& name, std::string const& array_size) {
+		StructMember member;
+		member.type = type;
+		member.name = name;
+		member.array_size = array_size;
+		_members.push_back(member);
+	}
+
+private:
+	Struct(std::string const& name, bool is_union) : _name(name), _is_union(is_union) {}
+	Struct(Struct const&) = delete;
+	void operator=(Struct const&) = delete;
+
+private:
+	std::string _name;
+	std::vector<StructMember> _members;
+	bool _is_union;
+};
+
 // Container for some type used by Vulkan. Undefined types are marked by the
 // wrapped pointer being null.
 class Type : public IType {
@@ -282,7 +316,6 @@ public:
 	enum class Kind {
 		Undefined,
 		Pointer,
-		VulkanStruct,
 		VulkanEnum,
 		VulkanCommand,
 	};
@@ -316,6 +349,10 @@ public:
 		return dynamic_cast<HandleTypedef*>(_type);
 	}
 
+	Struct* to_struct(void) {
+		return dynamic_cast<Struct*>(_type);
+	}
+
 	bool isEnum() {
 		return _kind == Kind::VulkanEnum;
 	}
@@ -327,11 +364,6 @@ public:
 	void ptrSetInner(Type* ptr) {
 		assert(_kind == Kind::Pointer);
 		_pointer.inner = ptr;
-	}
-
-	void structAddMember(Type* type, const std::string& name, const std::string& arraySize) {
-		assert(_kind == Kind::VulkanStruct);
-		_struct.members.push_back(std::make_tuple(type, name, arraySize));
 	}
 
 	void enumAddMember(const std::string& member, const std::string& value) {
@@ -356,14 +388,6 @@ private:
 		_kind = Kind::Pointer;
 		new(&_pointer.constness) auto(constness);
 		_pointer.inner = nullptr;
-	}
-
-	// Upgrade undefined to struct
-	void makeStruct(bool isUnion) {
-		assert(_kind == Kind::Undefined);
-		_kind = Kind::VulkanStruct;
-		new(&_struct.members) std::vector<std::tuple<Type*, std::string, std::string>>();
-		_struct.isUnion = isUnion;
 	}
 
 	// Upgrade undefined to enum
@@ -392,11 +416,6 @@ private:
 		Type* inner;
 	};
 
-	struct VulkanStruct {
-		std::vector<std::tuple<Type*, std::string, std::string>> members;
-		bool isUnion;
-	};
-
 	struct VulkanEnum {
 		std::vector<std::pair<std::string, std::string>> variants;
 	};
@@ -409,7 +428,6 @@ private:
 
 	union {
 		Ptr _pointer;
-		VulkanStruct _struct;
 		VulkanEnum _enum;
 		VulkanCommand _command;
 	};
@@ -526,11 +544,11 @@ public:
 		return t;
 	}
 
-	void defineStruct(const std::string& type, bool isUnion) {
-		assert(strncmp(type.c_str(), "Vk", 2) == 0);
-		assert(type.find_first_of("* ") == std::string::npos);
-
-		get_type(type)->makeStruct(isUnion);
+	Struct* define_struct(std::string const& name, bool is_union) {
+		Struct* t = new Struct(name, is_union);
+		define(name, t);
+		_structs.push_back(t);
+		return t;
 	}
 
 	void defineEnum(const std::string& name) {
@@ -748,6 +766,7 @@ private:
 	std::vector<Bitmasks*> _bitmasks;
 	std::vector<BitmaskTypedef*> _bitmask_typedefs;
 	std::vector<HandleTypedef*> _handle_typedefs;
+	std::vector<Struct*> _structs;
 	std::map<std::string, Extension> _extensions;
 
 } typeOracle;
@@ -912,7 +931,7 @@ void readTypeFuncpointer( tinyxml2::XMLElement * element );
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion );
 void readTypeStructMember( tinyxml2::XMLElement * element, std::vector<MemberData> & members, std::set<std::string> & dependencies );
-void readTypeStructMember(Type* type, tinyxml2::XMLElement * element);
+void readTypeStructMember(Struct* type, tinyxml2::XMLElement * element);
 tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::string& type);
 void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags);
 void readTypes(tinyxml2::XMLElement * element, VkData & vkData);
@@ -2006,8 +2025,7 @@ void readTypeStruct(tinyxml2::XMLElement * element, VkData & vkData, bool isUnio
 	//vkData.dependencies.push_back( DependencyData( isUnion ? DependencyData::Category::UNION : DependencyData::Category::STRUCT, name ) );
 
 	// element->Attribute("returnedonly") is also applicable for structs and unions
-	typeOracle.defineStruct(name, isUnion);
-	Type* t = typeOracle.getType(name);
+	Struct* t = typeOracle.define_struct(name, isUnion);
 
 	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
 	{
@@ -2020,7 +2038,7 @@ void readTypeStruct(tinyxml2::XMLElement * element, VkData & vkData, bool isUnio
 }
 
 // Read a member tag of a struct, adding members to the provided struct.
-void readTypeStructMember(Type* theStruct, tinyxml2::XMLElement * element) {
+void readTypeStructMember(Struct* theStruct, tinyxml2::XMLElement * element) {
 	// The attributes of member tags seem to mostly concern documentation
 	// generation, so they are not of interest for the bindings.
 
@@ -2037,7 +2055,7 @@ void readTypeStructMember(Type* theStruct, tinyxml2::XMLElement * element) {
 	std::string arraySize = readArraySize(child, memberName);
 
 	// Add member to struct
-	theStruct->structAddMember(type, memberName, arraySize);
+	theStruct->add_member(type, memberName, arraySize);
 }
 
 // Reads the type tag of a member tag, including potential text nodes around
