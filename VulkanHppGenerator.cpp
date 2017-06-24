@@ -756,13 +756,7 @@ public:
 	}
 
 	void undefinedCheck() {
-		//for (auto vkType : _vulkanTypes) {
-		//	if (vkType.second->isUndefined()) {
-		//		throw std::runtime_error("Vulkan type '" + vkType.first + "' was undefined after parsing.");
-		//	}
-		//}
-		// TODO:
-		//assert(_undefined_types.empty());
+		assert(_undefined_types.empty());
 	}
 
 private:
@@ -929,20 +923,7 @@ struct VkData
   std::vector<std::tuple<std::string, std::string, std::string>> vkApiConstants;
 };
 
-void createDefaults( VkData const& vkData, std::map<std::string,std::string> & defaultValues );
-void determineEnhancedReturnType(CommandData & commandData);
-void determineReducedName(CommandData & commandData);
-void determineReturnParam(CommandData & commandData);
-void determineSkippedParams(CommandData & commandData);
-void determineTemplateParam(CommandData & commandData);
-void determineVectorParams(CommandData & commandData);
-void enterProtect(std::ostream &os, std::string const& protect);
 std::string extractTag(std::string const& name);
-std::string findTag(std::string const& name, std::set<std::string> const& tags);
-std::string generateEnumNameForFlags(std::string const& name);
-bool hasPointerParam(std::vector<ParamData> const& params);
-void leaveProtect(std::ostream &os, std::string const& protect);
-void linkCommandToHandle(VkData & vkData, CommandData & commandData);
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name);
 void readCommandParam( tinyxml2::XMLElement * element, Command* cmd );
 void readCommandParams(tinyxml2::XMLElement* element, Command* cmd);
@@ -950,33 +931,28 @@ tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& ty
 Command* readCommandProto(tinyxml2::XMLElement * element);
 void readCommands( tinyxml2::XMLElement * element, VkData & vkData );
 void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData);
-std::vector<std::string> readCommandSuccessCodes(tinyxml2::XMLElement* element, std::set<std::string> const& tags);
 void readComment(tinyxml2::XMLElement * element, std::string & header);
 void readEnums( tinyxml2::XMLElement * element, VkData & vkData );
 void readApiConstants(tinyxml2::XMLElement* element, std::vector<std::tuple<std::string, std::string, std::string>>& apiConstants);
 void readEnumsEnum( tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make);
 void readEnumsBitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make);
 void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData);
-void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect);
 void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag, std::string const& extensionNumber);
 void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag, Extension& ext);
 void readExtensions( tinyxml2::XMLElement * element, VkData & vkData );
 void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData);
 void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect);
-tinyxml2::XMLNode* readType(tinyxml2::XMLNode* element, std::string & type, std::string & pureType);
 void readTypeBasetype( tinyxml2::XMLElement * element );
 void readTypeBitmask( tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeDefine( tinyxml2::XMLElement * element, VkData & vkData );
 void readTypeFuncpointer( tinyxml2::XMLElement * element );
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion );
-void readTypeStructMember( tinyxml2::XMLElement * element, std::vector<MemberData> & members, std::set<std::string> & dependencies );
 void readTypeStructMember(Struct* type, tinyxml2::XMLElement * element);
 tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::string& type);
 void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags);
 void readTypes(tinyxml2::XMLElement * element, VkData & vkData);
 std::string reduceName(std::string const& name, bool singular = false);
-void registerDeleter(VkData & vkData, CommandData const& commandData);
 std::string startLowerCase(std::string const& input);
 std::string startUpperCase(std::string const& input);
 std::string strip(std::string const& value, std::string const& prefix, std::string const& postfix = std::string());
@@ -987,7 +963,6 @@ std::string trimEnd(std::string const& input);
 void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
 std::string generateCall(CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
 void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it);
-void writeCallParameter(std::ostream & os, ParamData const& paramData, std::set<std::string> const& vkTypes);
 void writeCallPlainTypeParameter(std::ostream & os, ParamData const& paramData);
 void writeCallVectorParameter(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular, std::map<size_t, size_t>::const_iterator it);
 void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData);
@@ -1001,9 +976,7 @@ void writeFunctionBodyEnhancedCallTwoStep(std::ostream & os, std::string const& 
 void writeFunctionBodyEnhancedCallTwoStepChecked(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
 void writeFunctionBodyEnhancedCallTwoStepIterate(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
 void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData);
-std::string writeFunctionBodyEnhancedLocalReturnVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool singular);
 void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData);
-void writeFunctionBodyEnhancedReturnResultValue(std::ostream & os, std::string const& indentation, std::string const& returnName, CommandData const& commandData, bool singular);
 void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData);
 void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
 void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults);
@@ -1015,7 +988,6 @@ void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentati
 void writeReinterpretCast(std::ostream & os, bool leadingConst, bool vulkanType, std::string const& type, bool trailingPointerToConst);
 void writeStandardOrEnhanced(std::ostream & os, std::string const& standard, std::string const& enhanced);
 void writeStructConstructor( std::ostream & os, std::string const& name, StructData const& structData, std::set<std::string> const& vkTypes, std::map<std::string,std::string> const& defaultValues );
-void writeStructSetter( std::ostream & os, std::string const& structureName, MemberData const& memberData, std::set<std::string> const& vkTypes, std::map<std::string,StructData> const& structs );
 void writeTypeCommand(std::ostream & os, VkData const& vkData);
 void writeTypeCommand(std::ostream &os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition);
 void writeTypeEnum(std::ostream & os, EnumData const& enumData);
@@ -1049,209 +1021,6 @@ void EnumData::addEnumMember(std::string const &name, std::string const& tag)
   members.push_back(nv);
 }
 
-void createDefaults( VkData const& vkData, std::map<std::string,std::string> & defaultValues )
-{
-	// TODO: Can probbly delete defaultValues?
-  //for (auto dependency : vkData.dependencies)
-  //{
-  //  assert( defaultValues.find( dependency.name ) == defaultValues.end() );
-  //  switch( dependency.category )
-  //  {
-  //    case DependencyData::Category::COMMAND :    // commands should never be asked for defaults
-  //      break;
-  //    case DependencyData::Category::ENUM :
-  //      {
-  //        assert(vkData.enums.find(dependency.name) != vkData.enums.end());
-  //        EnumData const & enumData = vkData.enums.find(dependency.name)->second;
-  //        if (!enumData.members.empty())
-  //        {
-  //          defaultValues[dependency.name] = dependency.name + "::" + vkData.enums.find(dependency.name)->second.members.front().name;
-  //        }
-  //        else
-  //        {
-  //          defaultValues[dependency.name] = dependency.name + "()";
-  //        }
-  //      }
-  //      break;
-  //    case DependencyData::Category::FLAGS :
-  //    case DependencyData::Category::HANDLE:
-  //    case DependencyData::Category::STRUCT:
-  //    case DependencyData::Category::UNION :        // just call the default constructor for flags, structs, and structs (which are mapped to classes)
-  //      defaultValues[dependency.name] = dependency.name + "()";
-  //      break;
-  //    case DependencyData::Category::FUNC_POINTER : // func_pointers default to nullptr
-  //      defaultValues[dependency.name] = "nullptr";
-  //      break;
-  //    case DependencyData::Category::REQUIRED :     // all required default to "0"
-  //    case DependencyData::Category::SCALAR :       // all scalars default to "0"
-  //      defaultValues[dependency.name] = "0";
-  //      break;
-  //    default :
-  //      assert( false );
-  //      break;
-  //  }
-  //}
-}
-
-//void determineReducedName(CommandData & commandData)
-//{
-//  commandData.reducedName = commandData.fullName;
-//  std::string searchName = commandData.params[0].pureType;
-//  size_t pos = commandData.fullName.find(searchName);
-//  if ((pos == std::string::npos) && isupper(searchName[0]))
-//  {
-//    searchName[0] = tolower(searchName[0]);
-//    pos = commandData.fullName.find(searchName);
-//  }
-//  if (pos != std::string::npos)
-//  {
-//    commandData.reducedName.erase(pos, searchName.length());
-//  }
-//  else if ((searchName == "commandBuffer") && (commandData.fullName.find("cmd") == 0))
-//  {
-//    commandData.reducedName.erase(0, 3);
-//    pos = 0;
-//  }
-//  if ((pos == 0) && isupper(commandData.reducedName[0]))
-//  {
-//    commandData.reducedName[0] = tolower(commandData.reducedName[0]);
-//  }
-//}
-
-//void determineEnhancedReturnType(CommandData & commandData)
-//{
-//  std::string returnType;
-//  // if there is a return parameter of type void or Result, and if it's of type Result it either has just one success code
-//  // or two success codes, where the second one is of type eIncomplete and it's a two-step process
-//  // -> we can return that parameter
-//  if ((commandData.returnParam != ~0)
-//    && ((commandData.returnType == "void")
-//      || ((commandData.returnType == "Result")
-//        && ((commandData.successCodes.size() == 1)
-//          || ((commandData.successCodes.size() == 2)
-//            && (commandData.successCodes[1] == "eIncomplete")
-//            && commandData.twoStep)))))
-//  {
-//    if (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end())
-//    {
-//      // the return parameter is a vector-type parameter
-//      if (commandData.params[commandData.returnParam].pureType == "void")
-//      {
-//        // for a vector of void, we use a vector of uint8_t, instead
-//        commandData.enhancedReturnType = "std::vector<uint8_t,Allocator>";
-//      }
-//      else
-//      {
-//        // for the other parameters, we use a vector of the pure type
-//        commandData.enhancedReturnType = "std::vector<" + commandData.params[commandData.returnParam].pureType + ",Allocator>";
-//      }
-//    }
-//    else
-//    {
-//      // it's a simple parameter -> get the type and just remove the trailing '*' (originally, it's a pointer)
-//      assert(commandData.params[commandData.returnParam].type.back() == '*');
-//      assert(commandData.params[commandData.returnParam].type.find("const") == std::string::npos);
-//      commandData.enhancedReturnType = commandData.params[commandData.returnParam].type;
-//      commandData.enhancedReturnType.pop_back();
-//    }
-//  }
-//  else if ((commandData.returnType == "Result") && (commandData.successCodes.size() == 1))
-//  {
-//    // an original return of type "Result" with just one successCode is changed to void, errors throw an exception
-//    commandData.enhancedReturnType = "void";
-//  }
-//  else
-//  {
-//    // the return type just stays the original return type
-//    commandData.enhancedReturnType = commandData.returnType;
-//  }
-//}
-
-//void determineReturnParam(CommandData & commandData)
-//{
-//  // for return types of type Result or void, we can replace determine a parameter to return
-//  if ((commandData.returnType == "Result") || (commandData.returnType == "void"))
-//  {
-//    for (size_t i = 0; i < commandData.params.size(); i++)
-//    {
-//      if ((commandData.params[i].type.find('*') != std::string::npos)
-//        && (commandData.params[i].type.find("const") == std::string::npos)
-//        && std::find_if(commandData.vectorParams.begin(), commandData.vectorParams.end(), [i](std::pair<size_t, size_t> const& vp) { return vp.second == i; }) == commandData.vectorParams.end()
-//        && ((commandData.vectorParams.find(i) == commandData.vectorParams.end()) || commandData.twoStep || (commandData.successCodes.size() == 1)))
-//      {
-//        // it's a non-const pointer, not a vector-size parameter, if it's a vector parameter, its a two-step process or there's just one success code
-//        // -> look for another non-cost pointer argument
-//        auto paramIt = std::find_if(commandData.params.begin() + i + 1, commandData.params.end(), [](ParamData const& pd)
-//        {
-//          return (pd.type.find('*') != std::string::npos) && (pd.type.find("const") == std::string::npos);
-//        });
-//        // if there is another such argument, we can't decide which one to return -> return none (~0)
-//        // otherwise return the index of the selcted parameter
-//        commandData.returnParam = paramIt != commandData.params.end() ? ~0 : i;
-//      }
-//    }
-//  }
-//}
-
-//void determineSkippedParams(CommandData & commandData)
-//{
-//  // the size-parameters of vector parameters are not explicitly used in the enhanced API
-//  std::for_each(commandData.vectorParams.begin(), commandData.vectorParams.end(), [&commandData](std::pair<size_t, size_t> const& vp) { if (vp.second != ~0) commandData.skippedParams.insert(vp.second); });
-//  // and the return parameter is also skipped
-//  if (commandData.returnParam != ~0)
-//  {
-//    commandData.skippedParams.insert(commandData.returnParam);
-//  }
-//}
-
-//void determineTemplateParam(CommandData & commandData)
-//{
-//  for (size_t i = 0; i < commandData.params.size(); i++)
-//  {
-//    // any vector parameter on the pure type void is templatized in the enhanced API
-//    if ((commandData.vectorParams.find(i) != commandData.vectorParams.end()) && (commandData.params[i].pureType == "void"))
-//    {
-//#if !defined(NDEBUG)
-//      for (size_t j = i + 1; j < commandData.params.size(); j++)
-//      {
-//        assert((commandData.vectorParams.find(j) == commandData.vectorParams.end()) || (commandData.params[j].pureType != "void"));
-//      }
-//#endif
-//      commandData.templateParam = i;
-//      break;
-//    }
-//  }
-//  assert((commandData.templateParam == ~0) || (commandData.vectorParams.find(commandData.templateParam) != commandData.vectorParams.end()));
-//}
-
-//void determineVectorParams(CommandData & commandData)
-//{
-//  // look for the parameters whose len equals the name of an other parameter
-//  for (auto it = commandData.params.begin(), begin = it, end = commandData.params.end(); it != end; ++it)
-//  {
-//    if (!it->len.empty())
-//    {
-//      auto findLambda = [it](ParamData const& pd) { return pd.name == it->len; };
-//      auto findIt = std::find_if(begin, it, findLambda);                        // look for a parameter named as the len of this parameter
-//      assert((std::count_if(begin, end, findLambda) == 0) || (findIt < it));    // make sure, there is no other parameter like that
-//      // add this parameter as a vector parameter, using the len-name parameter as the second value (or ~0 if there is nothing like that)
-//      commandData.vectorParams.insert(std::make_pair(std::distance(begin, it), findIt < it ? std::distance(begin, findIt) : ~0));
-//      assert((commandData.vectorParams[std::distance(begin, it)] != ~0)
-//        || (it->len == "null-terminated")
-//        || (it->len == "pAllocateInfo::descriptorSetCount")
-//        || (it->len == "pAllocateInfo::commandBufferCount"));
-//    }
-//  }
-//}
-
-void enterProtect(std::ostream &os, std::string const& protect)
-{
-  if (!protect.empty())
-  {
-    os << "#ifdef " << protect << std::endl;
-  }
-}
-
 std::string extractTag(std::string const& name)
 {
   // the name is supposed to look like: VK_<tag>_<other>
@@ -1260,73 +1029,6 @@ std::string extractTag(std::string const& name)
   size_t end = name.find('_', start + 1);
   assert(end != std::string::npos);
   return name.substr(start + 1, end - start - 1);
-}
-
-std::string findTag(std::string const& name, std::set<std::string> const& tags)
-{
-  // find the tag in a name, return that tag or an empty string
-  auto tagIt = std::find_if(tags.begin(), tags.end(), [&name](std::string const& t)
-  {
-    size_t pos = name.find(t);
-    return (pos != std::string::npos) && (pos == name.length() - t.length());
-  });
-  return tagIt != tags.end() ? *tagIt : "";
-}
-
-std::string generateEnumNameForFlags(std::string const& name)
-{
-	// create a string, where the substring "Flags" is replaced by "FlagBits"
-	std::string generatedName = name;
-	size_t pos = generatedName.rfind("Flags");
-	assert(pos != std::string::npos);
-	generatedName.replace(pos, 5, "FlagBits");
-	return generatedName;
-}
-
-//bool hasPointerParam(std::vector<ParamData> const& params)
-//{
-//  // check if any of the parameters is a pointer
-//  auto it = std::find_if(params.begin(), params.end(), [](ParamData const& pd)
-//  {
-//    return (pd.type.find('*') != std::string::npos);
-//  });
-//  return it != params.end();
-//}
-
-void leaveProtect(std::ostream &os, std::string const& protect)
-{
-  if (!protect.empty())
-  {
-    os << "#endif /*" << protect << "*/" << std::endl;
-  }
-}
-
-void linkCommandToHandle(VkData & vkData, CommandData & commandData)
-{
-  //// first, find the handle named like the type of the first argument
-  //// if there is no such handle, look for the unnamed "handle", that gathers all the functions not tied to a specific handle
-  //assert(!commandData.params.empty());
-  //std::map<std::string, HandleData>::iterator hit = vkData.handles.find(commandData.params[0].pureType);
-  //if (hit == vkData.handles.end())
-  //{
-  //  hit = vkData.handles.find("");
-  //}
-  //assert(hit != vkData.handles.end());
-
-  //// put the command into the handle's list of commands, and store the handle in the commands className
-  //hit->second.commands.push_back(commandData.fullName);
-  //commandData.className = hit->first;
-
-  //// TODO: Removed dependencies
-
-  ////// add the dependencies of the command to the dependencies of the handle
-  ////DependencyData const& commandDD = vkData.dependencies.back();
-  ////std::list<DependencyData>::iterator handleDD = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [hit](DependencyData const& dd) { return dd.name == hit->first; });
-  ////assert((handleDD != vkData.dependencies.end()) || hit->first.empty());
-  ////if (handleDD != vkData.dependencies.end())
-  ////{
-  ////  std::copy_if(commandDD.dependencies.begin(), commandDD.dependencies.end(), std::inserter(handleDD->dependencies, handleDD->dependencies.end()), [hit](std::string const& d) { return d != hit->first; });
-  ////}
 }
 
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
@@ -3528,7 +3230,7 @@ void writeTypeCommand(std::ostream & os, VkData const& vkData)
 
 void writeTypeCommand(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition)
 {
-  enterProtect(os, commandData.protect);
+  //enterProtect(os, commandData.protect);
 
   // first create the standard version of the function
   std::ostringstream standard;
@@ -3564,14 +3266,14 @@ void writeTypeCommand(std::ostream & os, std::string const& indentation, VkData 
 
   // and write one or both of them
   writeStandardOrEnhanced(os, standard.str(), enhanced.str());
-  leaveProtect(os, commandData.protect);
+  //leaveProtect(os, commandData.protect);
   os << std::endl;
 }
 
 void writeTypeEnum( std::ostream & os, EnumData const& enumData )
 {
   // a named enum per enum, listing all its values by setting them to the original Vulkan names
-  enterProtect(os, enumData.protect);
+  //enterProtect(os, enumData.protect);
   os << "  enum class " << enumData.name << std::endl
       << "  {" << std::endl;
   for ( size_t i=0 ; i<enumData.members.size() ; i++ )
@@ -3584,7 +3286,7 @@ void writeTypeEnum( std::ostream & os, EnumData const& enumData )
     os << std::endl;
   }
   os << "  };" << std::endl;
-  leaveProtect(os, enumData.protect);
+  //leaveProtect(os, enumData.protect);
   os << std::endl;
 }
 
@@ -3750,7 +3452,7 @@ void writeDeleterForwardDeclarations(std::ostream &os, std::pair<std::string, st
 
 void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData const& flagData, EnumData const& enumData)
 {
-  enterProtect(os, flagData.protect);
+  //enterProtect(os, flagData.protect);
   // each Flags class is using on the class 'Flags' with the corresponding FlagBits enum as the template parameter
   os << "  using " << flagsName << " = Flags<" << enumData.name << ", Vk" << flagsName << ">;" << std::endl;
 
@@ -3787,7 +3489,7 @@ void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData co
 )";
     os << replaceWithMap(templateString, { { "flagsName", flagsName}, { "enumName", enumData.name }, { "allFlags", allFlags.str() } } );
   }
-  leaveProtect(os, flagData.protect);
+  //leaveProtect(os, flagData.protect);
   os << std::endl;
 }
 
@@ -4288,7 +3990,7 @@ int main(int argc, char **argv)
 		//sortDependencies(vkData.dependencies);
 
 		std::map<std::string, std::string> defaultValues;
-		createDefaults(vkData, defaultValues);
+		//createDefaults(vkData, defaultValues);
 
 		std::ofstream ofs(VULKAN_HPP);
 		ofs << vkData.vulkanLicenseHeader << std::endl
