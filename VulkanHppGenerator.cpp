@@ -511,8 +511,10 @@ public:
 			_c_types.push_back(t);
 
 			// Add a phantom type to prevent the translated types from accidentally
-			// being used somewhere.
-			//define(rust_type, nullptr); // TODO: uncomment when get_type don't mess with pointers
+			// being defined somewhere.
+			if (_types.find(rust_type) == _types.end()) {
+				_types.insert(std::make_pair(rust_type, nullptr));
+			}
 		};
 		// I'm working under the assumption that the C and OS types used will
 		// be a comparatively small set so that I can deal with those manually.
