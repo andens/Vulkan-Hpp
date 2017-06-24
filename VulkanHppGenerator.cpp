@@ -507,7 +507,7 @@ public:
 		auto insert_c_type = [this](std::string const& c_type, std::string const& rust_type, CType::Kind kind) {
 			// Define the C type used in the API
 			CType* t = new CType(c_type, rust_type, kind);
-			define(c_type, t);
+			_define(c_type, t);
 			_c_types.push_back(t);
 
 			// Add a phantom type to prevent the translated types from accidentally
@@ -557,61 +557,1026 @@ public:
 		insert_c_type("xcb_window_t", "xcb_window_t", CType::Kind::Xcb);
 	}
 
-	void define_c_type(std::string const& type) {
+	void parse(std::string const& spec) {
+		std::cout << "Loading vk.xml from " << spec << std::endl;
+
+		tinyxml2::XMLDocument doc;
+		tinyxml2::XMLError error = doc.LoadFile(spec.c_str());
+		if (error != tinyxml2::XML_SUCCESS)
+		{
+			throw std::runtime_error("VkGenerate: failed to load file " + spec + ". Error code: " + std::to_string(error));
+		}
+
+		// The very first element is expected to be a registry, and it should
+		// be the only root element.
+		tinyxml2::XMLElement * registryElement = doc.FirstChildElement();
+		assert(strcmp(registryElement->Value(), "registry") == 0);
+		assert(!registryElement->NextSiblingElement());
+
+		// The root tag contains zero or more of the following tags. Order may change.
+		for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(child->Value());
+			const std::string value = child->Value();
+
+			if (value == "comment")
+			{
+				// Get the vulkan license header and skip any leading spaces
+				_read_comment(child);
+				_license_header.erase(_license_header.begin(), std::find_if(_license_header.begin(), _license_header.end(), [](char c) { return !std::isspace(c); }));
+			}
+			else if (value == "tags")
+			{
+				// Author IDs for extensions and layers
+				_read_tags(child);
+			}
+			else if (value == "types")
+			{
+				// Defines API types
+				_read_types(child);
+			}
+			else if (value == "enums")
+			{
+				// Enum definitions
+				_read_enums(child);
+			}
+			else if (value == "commands")
+			{
+				// Function definitions
+				_read_commands(child);
+			}
+			else if (value == "extensions")
+			{
+				// Extension interfaces
+				_read_extensions(child);
+			}
+			else
+			{
+				assert((value == "feature") || (value == "vendorids"));
+			}
+		}
+
+		_undefined_check();
+	}
+
+	std::string const& license(void) const {
+		return _license_header;
+	}
+
+	std::string const& version(void) const {
+		return _version;
+	}
+
+	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
+		return _scalar_typedefs;
+	}
+
+private:
+	void _read_comment(tinyxml2::XMLElement * element)
+	{
+		assert(element->GetText());
+		assert(_license_header.empty());
+		_license_header = element->GetText();
+		assert(_license_header.find("\nCopyright") == 0);
+
+		// erase the part after the Copyright text
+		size_t pos = _license_header.find("\n\n-----");
+		assert(pos != std::string::npos);
+		_license_header.erase(pos);
+
+		// replace any '\n' with '\n//' to make comments of the license text
+		for (size_t pos = _license_header.find('\n'); pos != std::string::npos; pos = _license_header.find('\n', pos + 1))
+		{
+			_license_header.replace(pos, 1, "\n// ");
+		}
+
+		// and add a little message on our own
+		_license_header += "\n\n// This header is generated from the Khronos Vulkan XML API Registry.";
+	}
+
+	void _read_tags(tinyxml2::XMLElement * element)
+	{
+		_tags.insert("KHX"); // Not listed
+		_tags.insert("EXT");
+		_tags.insert("KHR");
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(child->Attribute("name"));
+			_tags.insert(child->Attribute("name"));
+		}
+	}
+
+	void _read_types(tinyxml2::XMLElement * element)
+	{
+		// The types tag consists of individual type tags that each describe types used in the API.
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(strcmp(child->Value(), "type") == 0);
+			std::string type = child->Value();
+			assert(type == "type");
+
+			// A present category indicates a type has a more complex definition.
+			// I.e, it's not just a basic C type.
+			if (child->Attribute("category"))
+			{
+				std::string category = child->Attribute("category");
+
+				if (category == "basetype")
+				{
+					// C code for scalar typedefs.
+					_read_type_basetype(child);
+				}
+				else if (category == "bitmask")
+				{
+					// C typedefs for enums that are bitmasks.
+					_read_type_bitmask(child);
+				}
+				else if (category == "define")
+				{
+					// C code for #define directives. Generally not interested in
+					// defines, but we can get Vulkan header version here.
+					_read_type_define(child);
+				}
+				else if (category == "funcpointer")
+				{
+					// C typedefs for function pointers.
+					_read_type_funcpointer(child);
+				}
+				else if (category == "handle")
+				{
+					// C macros that define handle types such as VkInstance
+					_read_type_handle(child);
+				}
+				else if (category == "struct")
+				{
+					_read_type_struct(child, false);
+				}
+				else if (category == "union")
+				{
+					_read_type_struct(child, true);
+				}
+				else
+				{
+					// enum: These are covered later in 'registry > enums' tags so I ignore them here.
+					// include: C code for #include directives
+					assert((category == "enum") || (category == "include"));
+				}
+			}
+			// Unspecified category: non-structured definition. These should be some
+			// C type.
+			else
+			{
+				assert(child->FirstChildElement() == nullptr);
+				assert(child->Attribute("name"));
+
+				std::string name = child->Attribute("name");
+
+				_define_c_type(name);
+			}
+		}
+	}
+
+	void _read_type_basetype(tinyxml2::XMLElement * element)
+	{
+		tinyxml2::XMLElement * typeElement = element->FirstChildElement();
+		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
+		std::string type = typeElement->GetText();
+		assert(type == "uint32_t" || type == "uint64_t");
+
+		Type* underlying = _get_type(type);
+
+		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+		std::string newType = nameElement->GetText();
+
+		_define_scalar_typedef(newType, underlying);
+	}
+
+	void _read_type_bitmask(tinyxml2::XMLElement * element)
+	{
+		assert(strcmp(element->GetText(), "typedef ") == 0);
+		tinyxml2::XMLElement * typeElement = element->FirstChildElement();
+		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText() && (strcmp(typeElement->GetText(), "VkFlags") == 0));
+		std::string type = typeElement->GetText();
+
+		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+		std::string name = nameElement->GetText();
+
+		assert(!nameElement->NextSiblingElement());
+
+		// Requires contains the type that will eventually hold definitions (with
+		// a name containing FlagBits). Oftentimes however, a type containing Flags
+		// is used instead. This separation is done to indicate that several flags
+		// can be used as opposed to just one. For C it's implemented as a regular
+		// typedef, but since some of the Flag types do not have members, they are
+		// not present in the enums tags. The C typedef makes them work anyway, but
+		// in Rust where I gain a little more type safety I at least need to make
+		// the oracle aware that these types are bitmask typedefs so that their
+		// structs will be generated, albeit with no way to create them with flags.
+
+		Type* bit_definitions = nullptr;
+		if (element->Attribute("requires")) {
+			// I don't define bitmasks here, but rather when parsing its members.
+			// Non-existant definitions should not be a requirement, so this turns
+			// into an extra check that the type is not undefined later.
+			bit_definitions = _get_type(element->Attribute("requires"));
+		}
+
+		_define_bitmask_typedef(name, bit_definitions);
+	}
+
+	void _read_type_define(tinyxml2::XMLElement * element)
+	{
+		tinyxml2::XMLElement * child = element->FirstChildElement();
+		if (child && (strcmp(child->GetText(), "VK_HEADER_VERSION") == 0))
+		{
+			_version = element->LastChild()->ToText()->Value();
+		}
+
+		// ignore all the other defines
+	}
+
+	void _read_type_funcpointer(tinyxml2::XMLElement * element)
+	{
+		// The typedef <ret> text node
+		tinyxml2::XMLNode * node = element->FirstChild();
+		assert(node && node->ToText());
+		std::string text = node->Value();
+
+		// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
+		// group 1.
+		std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
+		auto it = std::sregex_iterator(text.begin(), text.end(), re);
+		auto end = std::sregex_iterator();
+		assert(it != end);
+		std::smatch match = *it;
+		Type* returnType = _get_type(match[1].str());
+		if (match[2].matched) {
+			returnType = _pointer_to(returnType, false);
+		}
+
+		// name tag containing the type def name
+		node = node->NextSibling();
+		assert(node && node->ToElement());
+		tinyxml2::XMLElement * tag = node->ToElement();
+		assert(tag && strcmp(tag->Value(), "name") == 0 && tag->GetText());
+		std::string name = tag->GetText();
+		assert(!tag->FirstChildElement());
+
+		// Text node after name tag beginning parameter list. Note that for void
+		// functions this is the last node that also ends the function definition.
+		node = node->NextSibling();
+		assert(node && node->ToText());
+		text = node->Value();
+		bool nextParamConst = false;
+		if (text != ")(void);") {
+			// In this case we will begin parameters, so we check if the first has
+			// a const modifier.
+			re = std::regex(R"(\)\(\n[ ]+(const )?)");
+			auto it = std::sregex_iterator(text.begin(), text.end(), re);
+			assert(it != end);
+			match = *it;
+			nextParamConst = match[1].matched;
+		}
+
+		// Storage for parsed parameters (type, name)
+		std::vector<std::pair<Type*, std::string>> params;
+
+		// Start processing parameters.
+		while (node = node->NextSibling()) {
+			bool constModifier = nextParamConst;
+			nextParamConst = false;
+
+			// Type of parameter
+			tag = node->ToElement();
+			assert(tag && strcmp(tag->Value(), "type") == 0 && tag->GetText());
+			std::string paramType = tag->GetText();
+			assert(!tag->FirstChildElement());
+
+			// Text node containing parameter name and at times a pointer modifier.
+			node = node->NextSibling();
+			assert(node && node->ToText());
+			text = node->ToText()->Value();
+
+			// Match optional asterisk (group 1), a bunch of spaces, the parameter
+			// name (group 2), and the rest (group 3). It doesn't seem that newline
+			// is a part of this. It's probably good because then I can easily work
+			// directly with suffix instead of more regex magic.
+			re = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
+			it = std::sregex_iterator(text.begin(), text.end(), re);
+			assert(it != end);
+			match = *it;
+			bool pointer = match[1].matched;
+			std::string paramName = match[2].str();
+			if (match[3].str() == ");") {
+				assert(!node->NextSibling());
+			}
+			else {
+				assert(match[3].str() == ",");
+
+				// Match on the suffix to know if the upcoming parameter is const.
+				std::string suffix = match.suffix().str();
+				re = std::regex(R"(^\n[ ]+(const )?$)");
+				it = std::sregex_iterator(suffix.begin(), suffix.end(), re);
+				assert(it != end);
+				match = *it;
+				nextParamConst = match[1].matched;
+			}
+
+			Type* t = _get_type(paramType);
+
+			if (constModifier) {
+				assert(pointer);
+			}
+
+			if (pointer) {
+				t = _pointer_to(t, constModifier);
+			}
+
+			params.push_back({
+				t,
+				paramName,
+			});
+		}
+
+		FunctionTypedef* t = _define_function_typedef(name, returnType);
+		for (auto p : params) {
+			Parameter param;
+			param.type = p.first;
+			param.name = p.second;
+			param.array_size = ""; // Not used here. I have an assertion so it should catch in case things change
+			t->add_parameter(param);
+		}
+	}
+
+	void _read_type_handle(tinyxml2::XMLElement * element)
+	{
+		tinyxml2::XMLElement * typeElement = element->FirstChildElement();
+		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
+		std::string type = typeElement->GetText();
+		Type* underlying = nullptr;
+		if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
+			underlying = _get_type("size_t");
+		}
+		else {
+			assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
+			underlying = _get_type("uint64_t");
+		}
+
+		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+		std::string name = nameElement->GetText();
+
+		_define_handle_typedef(name, underlying);
+	}
+
+	void _read_type_struct(tinyxml2::XMLElement * element, bool isUnion)
+	{
+		assert(!element->Attribute("returnedonly") || (strcmp(element->Attribute("returnedonly"), "true") == 0));
+
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+
+		// element->Attribute("returnedonly") is also applicable for structs and unions
+		Struct* t = _define_struct(name, isUnion);
+
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(child->Value() && strcmp(child->Value(), "member") == 0);
+			_read_type_struct_member(t, child);
+		}
+	}
+
+	// Read a member tag of a struct, adding members to the provided struct.
+	void _read_type_struct_member(Struct* theStruct, tinyxml2::XMLElement * element) {
+		// The attributes of member tags seem to mostly concern documentation
+		// generation, so they are not of interest for the bindings.
+
+		// Read the type, parsing modifiers to get a string of the type.
+		Type* type;
+		tinyxml2::XMLNode* child = _read_type_struct_member_type(element->FirstChild(), type);
+
+		// After we have parsed the type we expect to find the name of the member
+		assert(child->ToElement() && strcmp(child->Value(), "name") == 0 && child->ToElement()->GetText());
+		std::string memberName = child->ToElement()->GetText();
+
+		// Some members have more information about array size
+		std::string arraySize = _read_array_size(child, memberName);
+
+		// Add member to struct
+		theStruct->add_member(type, memberName, arraySize);
+	}
+
+	// Reads the type tag of a member tag, including potential text nodes around
+	// the type tag to get qualifiers. We pass the first node that could potentially
+	// be a text node.
+	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, Type*& type)
+	{
+		assert(element);
+
+		bool constant = false;
+		if (element->ToText())
+		{
+			std::string value = _trim_end(element->Value());
+			if (value == "const") {
+				constant = true;
+			}
+			else {
+				// struct can happen as in VkWaylandSurfaceCreateInfoKHR. I just
+				// ignore them because I don't need them in Rust.
+				assert(value == "struct");
+			}
+			element = element->NextSibling();
+			assert(element);
+		}
+
+		assert(element->ToElement());
+		assert((strcmp(element->Value(), "type") == 0) && element->ToElement()->GetText());
+		std::string pureType = element->ToElement()->GetText();
+		type = _get_type(pureType);
+
+		element = element->NextSibling();
+		assert(element);
+		if (element->ToText())
+		{
+			std::string value = _trim_end(element->Value());
+			assert((value == "*") || (value == "**") || (value == "* const*"));
+			if (value == "*") {
+				type = _pointer_to(type, constant);
+			}
+			else if (value == "**") {
+				type = _pointer_to(type, constant);
+				type = _pointer_to(type, false);
+			}
+			else {
+				assert(value == "* const*");
+				type = _pointer_to(type, constant);
+				type = _pointer_to(type, true);
+			}
+			element = element->NextSibling();
+		}
+		else {
+			// Should not have const qualifier without pointer
+			assert(!constant);
+		}
+
+		return element;
+	}
+
+	void _read_enums(tinyxml2::XMLElement * element)
+	{
+		if (!element->Attribute("name"))
+		{
+			throw std::runtime_error(std::string("spec error: enums element is missing the name attribute"));
+		}
+
+		std::string name = element->Attribute("name");
+
+		// Represents hardcoded constants.
+		if (name == "API Constants") {
+			_read_api_constants(element);
+			return;
+		}
+
+		if (!element->Attribute("type"))
+		{
+			throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" is missing the type attribute"));
+		}
+
+		std::string type = element->Attribute("type");
+
+		if (type != "bitmask" && type != "enum")
+		{
+			throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" has unknown type " + type));
+		}
+
+		if (type == "bitmask") {
+			Bitmasks* t = _define_bitmasks(name);
+
+			_read_enums_bitmask(element, [t](const std::string& member, const std::string& value, bool isBitpos) {
+				t->add_member(member, value, isBitpos);
+			});
+		}
+		else {
+			Enum* t = _define_enum(name);
+
+			_read_enums_enum(element, [t](const std::string& member, const std::string& value) {
+				t->add_member(member, value);
+			});
+		}
+	}
+
+	void _read_api_constants(tinyxml2::XMLElement* element) {
+		for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			assert(child->Attribute("value") && child->Attribute("name"));
+			std::string value = child->Attribute("value");
+			std::string constant = child->Attribute("name");
+
+			// Most are fine, but some may become troublesome at times depending on
+			// how large an unsigned int will be. Those of U suffix seem to be used
+			// in places of type uint32_t, and ULL is used in places where the type
+			// is VkDeviceSize, which is typedefed to uint64_t.
+
+			std::regex re(R"(^(-)?[0-9]+$)");
+			auto it = std::sregex_iterator(value.begin(), value.end(), re);
+			auto end = std::sregex_iterator();
+
+			// Matched a regular integer
+			if (it != end) {
+				std::smatch match = *it;
+				std::string dataType = match[1].matched ? "i32" : "u32";
+				_api_constants.push_back(std::make_tuple(constant, dataType, value));
+				continue;
+			}
+
+			re = std::regex(R"(^[0-9]+\.[0-9]+f$)");
+			it = std::sregex_iterator(value.begin(), value.end(), re);
+
+			// Matched float
+			if (it != end) {
+				value.pop_back();
+				_api_constants.push_back(std::make_tuple(constant, "f32", value));
+				continue;
+			}
+
+			// The rest
+			if (value == "(~0U)") {
+				_api_constants.push_back(std::make_tuple(constant, "u32", "~0"));
+			}
+			else if (value == "(~0ULL)") {
+				_api_constants.push_back(std::make_tuple(constant, "u64", "~0"));
+			}
+			else {
+				assert(value == "(~0U-1)");
+				_api_constants.push_back(std::make_tuple(constant, "u32", "~0u32 - 1"));
+			}
+		}
+	}
+
+	void _read_enums_bitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make)
+	{
+		// read the names of the enum values
+		tinyxml2::XMLElement * child = element->FirstChildElement();
+		while (child)
+		{
+			if (strcmp(child->Value(), "unused") == 0) {
+				child = child->NextSiblingElement();
+				continue;
+			}
+
+			assert(child->Attribute("name"));
+			std::string name = child->Attribute("name");
+
+			std::string value;
+			bool bitpos;
+			if (child->Attribute("bitpos")) {
+				value = child->Attribute("bitpos");
+				bitpos = true;
+				assert(!child->Attribute("value"));
+			}
+			else {
+				assert(child->Attribute("value"));
+				value = child->Attribute("value"); // Can be arbitrary string but I don't consider that for now
+				bitpos = false;
+			}
+
+			make(name, value, bitpos);
+
+			child = child->NextSiblingElement();
+		}
+	}
+
+	void _read_enums_enum(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make)
+	{
+		// read the names of the enum values
+		tinyxml2::XMLElement * child = element->FirstChildElement();
+		while (child)
+		{
+			if (strcmp(child->Value(), "unused") == 0) {
+				child = child->NextSiblingElement();
+				continue;
+			}
+
+			assert(child->Attribute("name") && child->Attribute("value"));
+			make(child->Attribute("name"), child->Attribute("value")); // Well, apparently values can be arbitrary string. That could be interesting
+			child = child->NextSiblingElement();
+		}
+	}
+
+	void _read_commands(tinyxml2::XMLElement * element)
+	{
+		for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(strcmp(child->Value(), "command") == 0);
+			_read_commands_command(child);
+		}
+	}
+
+	void _read_commands_command(tinyxml2::XMLElement * element)
+	{
+		// Attributes on the command tag concerns documentation. Unless of course one
+		// could restrict possible return values from an enum (or make a completely
+		// new enum type), in which case successcodes and errorcodes could be used.
+
+		tinyxml2::XMLElement * child = element->FirstChildElement();
+		assert(child && (strcmp(child->Value(), "proto") == 0));
+
+		Command* cmd = _read_command_proto(child);
+		_read_command_params(child, cmd);
+	}
+
+	Command* _read_command_proto(tinyxml2::XMLElement * element)
+	{
+		// Defines the return type and name of a command
+
+		// Get type and name tags, making sure there are no text nodes inbetween.
+		tinyxml2::XMLNode* node = element->FirstChild();
+		assert(node && node->ToElement());
+		tinyxml2::XMLElement * typeElement = node->ToElement();
+		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0));
+		node = typeElement->NextSibling();
+		assert(node && node->ToElement());
+		tinyxml2::XMLElement * nameElement = node->ToElement();
+		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0));
+		assert(!nameElement->NextSibling());
+
+		// get return type and name of the command
+		Type* type = _get_type(typeElement->GetText());
+		std::string name = nameElement->GetText();
+
+		return _define_command(name, type);
+	}
+
+	void _read_command_params(tinyxml2::XMLElement* element, Command* cmd)
+	{
+		// iterate over the siblings of the element and read the command parameters
+		assert(element);
+		while (element = element->NextSiblingElement())
+		{
+			std::string value = element->Value();
+			if (value == "param")
+			{
+				_read_command_param(element, cmd);
+			}
+			else
+			{
+				// ignore these values!
+				assert((value == "implicitexternsyncparams") || (value == "validity"));
+			}
+		}
+	}
+
+	void _read_command_param(tinyxml2::XMLElement * element, Command* cmd)
+	{
+		Type* type;
+		tinyxml2::XMLNode * afterType = _read_command_param_type(element->FirstChild(), type);
+
+		assert(afterType->ToElement() && (strcmp(afterType->Value(), "name") == 0) && afterType->ToElement()->GetText());
+		std::string name = afterType->ToElement()->GetText();
+
+		std::string arraySize = _read_array_size(afterType, name);
+		if (arraySize != "") {
+			type = _array_of(type, arraySize);
+		}
+
+		cmd->add_parameter(type, name, arraySize);
+	}
+
+	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, Type*& type)
+	{
+		bool constModifier = false;
+
+		assert(node);
+		if (node->ToText())
+		{
+			// start type with "const" or "struct", if needed
+			std::string value = _trim_end(node->Value());
+			if (value == "const") {
+				constModifier = true;
+			}
+			else {
+				// Struct parameter C syntax. Not needed in Rust
+				assert(value == "struct");
+			}
+			node = node->NextSibling();
+			assert(node);
+		}
+
+		// get the pure type
+		assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
+		// TODO: Removed strip
+		//std::string type = strip(node->ToElement()->GetText(), "Vk");
+		type = _get_type(node->ToElement()->GetText());
+
+		// end with "*", "**", or "* const*", if needed
+		node = node->NextSibling();
+		assert(node); // If not text node, at least the name tag (processed elsewhere)
+		if (node->ToText())
+		{
+			std::string value = _trim_end(node->Value());
+			assert((value == "*") || (value == "**") || (value == "* const*"));
+			if (value == "*") {
+				type = _pointer_to(type, constModifier);
+			}
+			else if (value == "**") {
+				type = _pointer_to(type, constModifier);
+				type = _pointer_to(type, false);
+			}
+			else {
+				assert(value == "* const*");
+				type = _pointer_to(type, constModifier);
+				type = _pointer_to(type, true);
+			}
+			node = node->NextSibling();
+		}
+
+		return node;
+	}
+
+	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name)
+	{
+		std::string arraySize;
+		if (name.back() == ']') // Can happen for example [4] in unions
+		{
+			// if the parameter has '[' and ']' in its name, get the stuff inbetween those as the array size and erase that part from the parameter name
+			assert(!node->NextSibling());
+			size_t pos = name.find('[');
+			assert(pos != std::string::npos);
+			arraySize = name.substr(pos + 1, name.length() - 2 - pos);
+			name.erase(pos);
+		}
+		else
+		{
+			// otherwise look for a sibling of this node
+			node = node->NextSibling();
+			if (node && node->ToText())
+			{
+				std::string value = node->Value();
+				if (value == "[")
+				{
+					// if this node has '[' as its value, the next node holds the array size, and the node after that needs to hold ']', and there should be no more siblings
+					node = node->NextSibling();
+					assert(node && node->ToElement() && (strcmp(node->Value(), "enum") == 0));
+					arraySize = node->ToElement()->GetText();
+					node = node->NextSibling();
+					assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0) && !node->NextSibling());
+				}
+				else
+				{
+					// otherwise, the node holds '[' and ']', so get the stuff in between those as the array size
+					assert((value.front() == '[') && (value.back() == ']'));
+					arraySize = value.substr(1, value.length() - 2);
+					assert(!node->NextSibling());
+				}
+			}
+		}
+		return arraySize;
+	}
+
+	// trim from end
+	std::string _trim_end(std::string const& input)
+	{
+		std::string result = input;
+		result.erase(std::find_if(result.rbegin(), result.rend(), [](char c) { return !std::isspace(c); }).base(), result.end());
+		return result;
+	}
+
+	void _read_extensions(tinyxml2::XMLElement * element)
+	{
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(strcmp(child->Value(), "extension") == 0);
+			_read_extensions_extension(child);
+		}
+	}
+
+	void _read_extensions_extension(tinyxml2::XMLElement * element)
+	{
+		Extension ext;
+
+		assert(element->Attribute("name") && element->Attribute("number"));
+		ext.name = element->Attribute("name");
+		ext.number = element->Attribute("number");
+		ext.tag = _extract_tag(ext.name);
+		assert(_tags.find(ext.tag) != _tags.end());
+
+		if (element->Attribute("type")) {
+			ext.type = element->Attribute("type");
+			assert(ext.type == "instance" || ext.type == "device");
+		}
+
+		// The original code used protect, which is a preprocessor define that must be
+		// present for the definition. This could be for example VK_USE_PLATFORM_WIN32
+		// in order to use Windows surface or external semaphores.
+
+		tinyxml2::XMLElement * child = element->FirstChildElement();
+		assert(child && (strcmp(child->Value(), "require") == 0) && !child->NextSiblingElement());
+
+		if (strcmp(element->Attribute("supported"), "disabled") == 0)
+		{
+			// Types and commands of disabled extensions should not be present in the
+			// final bindings, so mark them as disabled.
+			_read_disabled_extension_require(child);
+		}
+		else
+		{
+			_read_extension_require(child, ext.tag, ext);
+		}
+
+		_extension(std::move(ext));
+	}
+
+	std::string _extract_tag(std::string const& name)
+	{
+		// the name is supposed to look like: VK_<tag>_<other>
+		size_t start = name.find('_');
+		assert((start != std::string::npos) && (name.substr(0, start) == "VK"));
+		size_t end = name.find('_', start + 1);
+		assert(end != std::string::npos);
+		return name.substr(start + 1, end - start - 1);
+	}
+
+	void _read_disabled_extension_require(tinyxml2::XMLElement * element)
+	{
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			std::string value = child->Value();
+
+			if ((value == "command") || (value == "type"))
+			{
+				// disable a command or a type !
+				assert(child->Attribute("name"));
+				std::string name = child->Attribute("name");
+
+				// TODO: Get type from oracle and mark it as disabled
+			}
+			else
+			{
+				// nothing to do for enums, no other values ever encountered
+				assert(value == "enum");
+			}
+		}
+	}
+
+	// Defines what types, enumerants, and commands are used by an extension
+	void _read_extension_require(tinyxml2::XMLElement * element, std::string const& tag, Extension& ext)
+	{
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			std::string value = child->Value();
+
+			if (value == "command")
+			{
+				_read_extension_command(child, ext.commands);
+			}
+			else if (value == "type")
+			{
+				_read_extension_type(child);
+			}
+			else
+			{
+				assert(value == "enum");
+				_read_extension_enum(child, ext.number);
+			}
+		}
+	}
+
+	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<Type*> extensionCommands)
+	{
+		assert(element->Attribute("name"));
+		Type* t = _get_type(element->Attribute("name"));
+		extensionCommands.push_back(t);
+
+		// TODO: Tell command that it belongs to an extension (just boolean to prevent
+		// adding to core dispatch tables)
+	}
+
+	void _read_extension_type(tinyxml2::XMLElement * element)
+	{
+		// TODO: Get type from oracle and mark it as extension-provided.
+	}
+
+	void _define_c_type(std::string const& type) {
 		auto it = _types.find(type);
 		assert(it != _types.end());
 	}
 
-	ScalarTypedef* define_scalar_typedef(std::string const& alias, Type const* actual) {
+	void _read_extension_enum(tinyxml2::XMLElement * element, std::string const& extensionNumber)
+	{
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+
+		if (element->Attribute("extends"))
+		{
+			assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
+			if (element->Attribute("bitpos")) {
+				Bitmasks* t = _get_type(element->Attribute("extends"))->to_bitmasks();
+				assert(t);
+				t->add_member(name, element->Attribute("bitpos"), true);
+			}
+			else if (element->Attribute("offset")) {
+				// The value depends on extension number and offset. See
+				// https://www.khronos.org/registry/vulkan/specs/1.0/styleguide.html#_assigning_extension_token_values
+				// for calculation.
+				int value = 1000000000 + (std::stoi(extensionNumber) - 1) * 1000 + std::stoi(element->Attribute("offset"));
+
+				if (element->Attribute("dir") && strcmp(element->Attribute("dir"), "-") == 0) {
+					value = -value;
+				}
+
+				std::string valueString = std::to_string(value);
+
+				Enum* t = _get_type(element->Attribute("extends"))->to_enum();
+				assert(t);
+				t->add_member(name, valueString);
+			}
+			else {
+				// This is a special case for an enum variant that used to be core.
+				// It uses value instead of offset.
+				Enum* t = _get_type(element->Attribute("extends"))->to_enum();
+				assert(t);
+				t->add_member(name, element->Attribute("value"));
+			}
+		}
+		// Inline definition of extension-specific constant.
+		else if (element->Attribute("value")) {
+			// Unimplemented.
+			// All extensions have a constant for spec version and one for the extension
+			// name as a string literal. Other than that, some have redefines. I guess
+			// I could read the redefines, determine its enum, and mark a variant to
+			// use the new name instead.
+			//std::cout << "Unimplemented: extension enum with inline constants" << std::endl;
+		}
+		// Inline definition of extension-specific bitmask value.
+		else if (element->Attribute("bitpos")) {
+			assert(false); // Not implemented
+		}
+		// Should be a reference enum, which only supports name and comment. These
+		// pull in already existing definitions from other enums blocks. They only
+		// seem to be used for purposes of listing items the extension depends on,
+		// and since they are defined elsewhere I ignore them.
+		else {
+			const tinyxml2::XMLAttribute* att = element->FirstAttribute();
+			assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
+			att = att->Next();
+			if (att) {
+				assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
+				assert(!att->Next());
+			}
+		}
+	}
+
+	ScalarTypedef* _define_scalar_typedef(std::string const& alias, Type const* actual) {
 		ScalarTypedef* t = new ScalarTypedef(alias, actual);
-		define(alias, t);
+		_define(alias, t);
 		_scalar_typedefs.push_back(t);
 		return t;
 	}
 
-	FunctionTypedef* define_function_typedef(std::string const& alias, Type const* return_type) {
+	FunctionTypedef* _define_function_typedef(std::string const& alias, Type const* return_type) {
 		FunctionTypedef* t = new FunctionTypedef(alias, return_type);
-		define(alias, t);
+		_define(alias, t);
 		_function_typedefs.push_back(t);
 		return t;
 	}
 
-	Bitmasks* define_bitmasks(std::string const& name) {
+	Bitmasks* _define_bitmasks(std::string const& name) {
 		Bitmasks* t = new Bitmasks(name);
-		define(name, t);
+		_define(name, t);
 		_bitmasks.push_back(t);
 		return t;
 	}
 
-	BitmaskTypedef* define_bitmask_typedef(std::string const& alias, Type const* bit_definitions) {
+	BitmaskTypedef* _define_bitmask_typedef(std::string const& alias, Type const* bit_definitions) {
 		BitmaskTypedef* t = new BitmaskTypedef(alias, bit_definitions);
-		define(alias, t);
+		_define(alias, t);
 		_bitmask_typedefs.push_back(t);
 		return t;
 	}
 
-	HandleTypedef* define_handle_typedef(std::string const& alias, Type const* actual) {
+	HandleTypedef* _define_handle_typedef(std::string const& alias, Type const* actual) {
 		HandleTypedef* t = new HandleTypedef(alias, actual);
-		define(alias, t);
+		_define(alias, t);
 		_handle_typedefs.push_back(t);
 		return t;
 	}
 
-	Struct* define_struct(std::string const& name, bool is_union) {
+	Struct* _define_struct(std::string const& name, bool is_union) {
 		Struct* t = new Struct(name, is_union);
-		define(name, t);
+		_define(name, t);
 		_structs.push_back(t);
 		return t;
 	}
 
-	Enum* define_enum(std::string const& name) {
+	Enum* _define_enum(std::string const& name) {
 		Enum* t = new Enum(name);
-		define(name, t);
+		_define(name, t);
 		_enums.push_back(t);
 		return t;
 	}
 
-	Type* pointer_to(Type const* type, bool constness) {
+	Type* _pointer_to(Type const* type, bool constness) {
 		// Nothing to define. Just create and store
 		Type* t = new Type();
 		Pointer* p = new Pointer(type, constness);
@@ -620,7 +1585,7 @@ public:
 		return t;
 	}
 
-	Type* array_of(Type const* type, std::string const& array_size) {
+	Type* _array_of(Type const* type, std::string const& array_size) {
 		Type* t = new Type();
 		Array* a = new Array(type, array_size);
 		t->make_concrete(a);
@@ -628,28 +1593,18 @@ public:
 		return t;
 	}
 
-	Command* define_command(std::string const& name, Type const* return_type) {
+	Command* _define_command(std::string const& name, Type const* return_type) {
 		Command* t = new Command(name, return_type);
-		define(name, t);
+		_define(name, t);
 		_commands.push_back(t);
 		return t;
 	}
 
-	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
-		return _scalar_typedefs;
-	}
-
-	void extension(Extension const&& ext) {
+	void _extension(Extension const&& ext) {
 		assert(_extensions.insert(std::make_pair(ext.name, ext)).second == true);
 	}
 
-	void undefinedCheck() {
-		assert(_undefined_types.empty());
-	}
-
-public:
-	// TODO: Make private
-	Type* get_type(const std::string& type) {
+	Type* _get_type(const std::string& type) {
 		assert(type.find_first_of("* ") == std::string::npos);
 		Type* t = nullptr;
 		auto it = _types.find(type);
@@ -665,18 +1620,21 @@ public:
 		return t;
 	}
 
-private:
-	void define(std::string const& name, IType* type) {
+	void _define(std::string const& name, IType* type) {
 		// Type must not already be defined
 		if (_types.find(name) != _types.end()) {
 			assert(_undefined_types.find(name) != _undefined_types.end());
 		}
 
 		// Get existing type, or create one if not present
-		Type* wrap = get_type(name);
+		Type* wrap = _get_type(name);
 		wrap->make_concrete(type);
 
 		_undefined_types.erase(name);
+	}
+
+	void _undefined_check() {
+		assert(_undefined_types.empty());
 	}
 
 private:
@@ -693,6 +1651,10 @@ private:
 	never tells us what it is, thus indicating that it was C all the time.
 	*/
 
+	std::string _version;
+	std::string _license_header;
+	std::vector<std::tuple<std::string, std::string, std::string>> _api_constants;
+	std::set<std::string> _tags;
 	std::map<std::string, Type*> _types; // All types referenced in the registry, undefined or not.
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
 	std::vector<CType*> _c_types;
@@ -708,7 +1670,7 @@ private:
 	std::vector<Command*> _commands;
 	std::map<std::string, Extension> _extensions;
 
-} typeOracle;
+};
 
 const std::string flagsMacro = R"(
 FLAGSMACRO
@@ -811,60 +1773,11 @@ struct DeleterData
   std::string call;
 };
 
-struct VkData
-{
-  std::map<std::string, CommandData>            commands;
-  std::map<std::string, std::set<std::string>>  deleterTypes; // map from parent type to set of child types
-  std::map<std::string, DeleterData>            deleterData;  // map from child types to corresponding deleter data
-  std::map<std::string, EnumData>               enums;
-  std::map<std::string, FlagData>               flags;
-  std::map<std::string, HandleData>             handles;
-  std::map<std::string, ScalarData>             scalars;
-  std::map<std::string, StructData>             structs;
-  std::set<std::string>                         tags;
-  std::string                                   version;
-  std::set<std::string>                         vkTypes;
-  std::string                                   vulkanLicenseHeader;
-  std::vector<std::tuple<std::string, std::string, std::string>> vkApiConstants;
-};
-
-std::string extractTag(std::string const& name);
-std::string readArraySize(tinyxml2::XMLNode * node, std::string& name);
-void readCommandParam( tinyxml2::XMLElement * element, Command* cmd );
-void readCommandParams(tinyxml2::XMLElement* element, Command* cmd);
-tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, Type*& type);
-Command* readCommandProto(tinyxml2::XMLElement * element);
-void readCommands( tinyxml2::XMLElement * element, VkData & vkData );
-void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData);
-void readComment(tinyxml2::XMLElement * element, std::string & header);
-void readEnums( tinyxml2::XMLElement * element, VkData & vkData );
-void readApiConstants(tinyxml2::XMLElement* element, std::vector<std::tuple<std::string, std::string, std::string>>& apiConstants);
-void readEnumsEnum( tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make);
-void readEnumsBitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make);
-void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData);
-void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag, std::string const& extensionNumber);
-void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag, Extension& ext);
-void readExtensions( tinyxml2::XMLElement * element, VkData & vkData );
-void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData);
-void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect);
-void readTypeBasetype( tinyxml2::XMLElement * element );
-void readTypeBitmask( tinyxml2::XMLElement * element, VkData & vkData);
-void readTypeDefine( tinyxml2::XMLElement * element, VkData & vkData );
-void readTypeFuncpointer( tinyxml2::XMLElement * element );
-void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData);
-void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion );
-void readTypeStructMember(Struct* type, tinyxml2::XMLElement * element);
-tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, Type*& type);
-void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags);
-void readTypes(tinyxml2::XMLElement * element, VkData & vkData);
-std::string reduceName(std::string const& name, bool singular = false);
 std::string startLowerCase(std::string const& input);
 std::string startUpperCase(std::string const& input);
 std::string strip(std::string const& value, std::string const& prefix, std::string const& postfix = std::string());
 std::string stripPluralS(std::string const& name);
 std::string toCamelCase(std::string const& value);
-std::string toUpperCase(std::string const& name);
-std::string trimEnd(std::string const& input);
 void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
 std::string generateCall(CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
 void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it);
@@ -873,8 +1786,8 @@ void writeCallVectorParameter(std::ostream & os, CommandData const& commandData,
 void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData);
 void writeDeleterClasses(std::ostream & os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData);
 void writeDeleterForwardDeclarations(std::ostream &os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData);
-void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique);
-void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
+//void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique);
+//void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
 void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
 void writeFunctionBodyEnhancedCallResult(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
 void writeFunctionBodyEnhancedCallTwoStep(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
@@ -882,10 +1795,10 @@ void writeFunctionBodyEnhancedCallTwoStepChecked(std::ostream & os, std::string 
 void writeFunctionBodyEnhancedCallTwoStepIterate(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
 void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData);
 void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData);
-void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData);
-void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
-void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults);
-void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool singular, bool withDefaults);
+//void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData);
+//void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
+//void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults);
+//void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool singular, bool withDefaults);
 void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData);
 void writeFunctionHeaderName(std::ostream & os, std::string const& name, bool singular, bool unique);
 void writeFunctionHeaderReturnType(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool enhanced, bool singular, bool unique);
@@ -893,17 +1806,15 @@ void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentati
 void writeReinterpretCast(std::ostream & os, bool leadingConst, bool vulkanType, std::string const& type, bool trailingPointerToConst);
 void writeStandardOrEnhanced(std::ostream & os, std::string const& standard, std::string const& enhanced);
 void writeStructConstructor( std::ostream & os, std::string const& name, StructData const& structData, std::set<std::string> const& vkTypes, std::map<std::string,std::string> const& defaultValues );
-void writeTypeCommand(std::ostream & os, VkData const& vkData);
-void writeTypeCommand(std::ostream &os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition);
+//void writeTypeCommand(std::ostream & os, VkData const& vkData);
+//void writeTypeCommand(std::ostream &os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition);
 void writeTypeEnum(std::ostream & os, EnumData const& enumData);
-bool isErrorEnum(std::string const& enumName);
-std::string stripErrorEnumPrefix(std::string const& enumName);
 void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData const& flagData, EnumData const& enumData);
-void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& handle);
+//void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& handle);
 void writeTypeScalar( std::ostream & os );
-void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
-void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
-void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues);
+//void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
+//void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
+//void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues);
 void writeVersionCheck(std::ostream & os, std::string const& version);
 
 void EnumData::addEnumMember(std::string const &name, std::string const& tag)
@@ -924,976 +1835,6 @@ void EnumData::addEnumMember(std::string const &name, std::string const& tag)
     nv.name = nv.name.substr(0, nv.name.length() - tag.length()) + tag;
   }
   members.push_back(nv);
-}
-
-std::string extractTag(std::string const& name)
-{
-  // the name is supposed to look like: VK_<tag>_<other>
-  size_t start = name.find('_');
-  assert((start != std::string::npos) && (name.substr(0, start) == "VK"));
-  size_t end = name.find('_', start + 1);
-  assert(end != std::string::npos);
-  return name.substr(start + 1, end - start - 1);
-}
-
-std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
-{
-  std::string arraySize;
-  if (name.back() == ']') // Can happen for example [4] in unions
-  {
-    // if the parameter has '[' and ']' in its name, get the stuff inbetween those as the array size and erase that part from the parameter name
-    assert(!node->NextSibling());
-    size_t pos = name.find('[');
-    assert(pos != std::string::npos);
-    arraySize = name.substr(pos + 1, name.length() - 2 - pos);
-    name.erase(pos);
-  }
-  else
-  {
-    // otherwise look for a sibling of this node
-    node = node->NextSibling();
-    if (node && node->ToText())
-    {
-      std::string value = node->Value();
-      if (value == "[")
-      {
-        // if this node has '[' as its value, the next node holds the array size, and the node after that needs to hold ']', and there should be no more siblings
-        node = node->NextSibling();
-        assert(node && node->ToElement() && (strcmp(node->Value(), "enum") == 0));
-        arraySize = node->ToElement()->GetText();
-        node = node->NextSibling();
-        assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0) && !node->NextSibling());
-      }
-      else
-      {
-        // otherwise, the node holds '[' and ']', so get the stuff in between those as the array size
-        assert((value.front() == '[') && (value.back() == ']'));
-        arraySize = value.substr(1, value.length() - 2);
-        assert(!node->NextSibling());
-      }
-    }
-  }
-  return arraySize;
-}
-
-void readCommandParam( tinyxml2::XMLElement * element, Command* cmd )
-{
-  Type* type;
-  tinyxml2::XMLNode * afterType = readCommandParamType(element->FirstChild(), type);
-  // TODO: Removed dependencies
-  //dependencies.insert(param.pureType);
-
-  assert(afterType->ToElement() && ( strcmp(afterType->Value(), "name" ) == 0 ) && afterType->ToElement()->GetText() );
-  std::string name = afterType->ToElement()->GetText();
-
-  std::string arraySize = readArraySize(afterType, name);
-  if (arraySize != "") {
-	  type = typeOracle.array_of(type, arraySize);
-  }
-
-  cmd->add_parameter(type, name, arraySize);
-}
-
-void readCommandParams(tinyxml2::XMLElement* element, Command* cmd)
-{
-  // iterate over the siblings of the element and read the command parameters
-  assert(element);
-  while (element = element->NextSiblingElement())
-  {
-    std::string value = element->Value();
-    if (value == "param")
-    {
-      readCommandParam(element, cmd);
-    }
-    else
-    {
-      // ignore these values!
-      assert((value == "implicitexternsyncparams") || (value == "validity"));
-    }
-  }
-}
-
-tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, Type*& type)
-{
-	bool constModifier = false;
-
-  assert(node);
-  if (node->ToText())
-  {
-    // start type with "const" or "struct", if needed
-    std::string value = trimEnd(node->Value());
-	if (value == "const") {
-		constModifier = true;
-	}
-	else {
-		// Struct parameter C syntax. Not needed in Rust
-		assert(value == "struct");
-	}
-    node = node->NextSibling();
-    assert(node);
-  }
-
-  // get the pure type
-  assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
-  // TODO: Removed strip
-  //std::string type = strip(node->ToElement()->GetText(), "Vk");
-  type = typeOracle.get_type(node->ToElement()->GetText());
-
-  // end with "*", "**", or "* const*", if needed
-  node = node->NextSibling();
-  assert(node); // If not text node, at least the name tag (processed elsewhere)
-  if (node->ToText())
-  {
-    std::string value = trimEnd(node->Value());
-    assert((value == "*") || (value == "**") || (value == "* const*"));
-	if (value == "*") {
-		type = typeOracle.pointer_to(type, constModifier);
-	}
-	else if (value == "**") {
-		type = typeOracle.pointer_to(type, constModifier);
-		type = typeOracle.pointer_to(type, false);
-	}
-	else {
-		assert(value == "* const*");
-		type = typeOracle.pointer_to(type, constModifier);
-		type = typeOracle.pointer_to(type, true);
-	}
-    node = node->NextSibling();
-  }
-
-  return node;
-}
-
-Command* readCommandProto(tinyxml2::XMLElement * element)
-{
-	// Defines the return type and name of a command
-
-	// Get type and name tags, making sure there are no text nodes inbetween.
-	tinyxml2::XMLNode* node = element->FirstChild();
-	assert(node && node->ToElement());
-	tinyxml2::XMLElement * typeElement = node->ToElement();
-	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0));
-	node = typeElement->NextSibling();
-	assert(node && node->ToElement());
-	tinyxml2::XMLElement * nameElement = node->ToElement();
-	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0));
-	assert(!nameElement->NextSibling());
-
-	// get return type and name of the command
-	// TODO: Removed strip
-	//std::string type = strip(typeElement->GetText(), "Vk");
-	Type* type = typeOracle.get_type(typeElement->GetText());
-	// TODO: Removed strip and startLowerCase (I use whatever case Vulkan uses)
-	//std::string name = startLowerCase(strip(nameElement->GetText(), "vk"));
-	std::string name = nameElement->GetText();
-
-	// TODO: Removed dependencies
-
-	//// add an empty DependencyData to this name
-	//vkData.dependencies.push_back( DependencyData( DependencyData::Category::COMMAND, name ) );
-
-	// insert an empty CommandData into the commands-map, and return the newly created CommandData
-	//assert(vkData.commands.find(name) == vkData.commands.end());
-	//return vkData.commands.insert(std::make_pair(name, CommandData(type, name))).first->second;
-	return typeOracle.define_command(name, type);
-}
-
-void readCommands(tinyxml2::XMLElement * element, VkData & vkData)
-{
-  for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    assert(strcmp(child->Value(), "command") == 0);
-    readCommandsCommand(child, vkData);
-  }
-}
-
-void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	// Attributes on the command tag concerns documentation. Unless of course one
-	// could restrict possible return values from an enum (or make a completely
-	// new enum type), in which case successcodes and errorcodes could be used.
-
-  tinyxml2::XMLElement * child = element->FirstChildElement();
-  assert( child && ( strcmp( child->Value(), "proto" ) == 0 ) );
-
-  Command* cmd = readCommandProto(child);
-  // TODO: Removed dependencies
-  readCommandParams(child, cmd);
-}
-
-void readComment(tinyxml2::XMLElement * element, std::string & header)
-{
-	assert(element->GetText());
-	assert(header.empty());
-	header = element->GetText();
-	assert(header.find("\nCopyright") == 0);
-
-	// erase the part after the Copyright text
-	size_t pos = header.find("\n\n-----");
-	assert(pos != std::string::npos);
-	header.erase(pos);
-
-	// replace any '\n' with "\n// to make comments of the license text"
-	for (size_t pos = header.find('\n'); pos != std::string::npos; pos = header.find('\n', pos + 1))
-	{
-		header.replace(pos, 1, "\n// ");
-	}
-
-	// and add a little message on our own
-	header += "\n\n// This header is generated from the Khronos Vulkan XML API Registry.";
-}
-
-void readEnums(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	// TODO: Remember to add the name to dependencies or types if not done already
-
-	if (!element->Attribute("name"))
-	{
-		throw std::runtime_error(std::string("spec error: enums element is missing the name attribute"));
-	}
-
-	// TODO: Removed strip
-	//std::string name = strip(element->Attribute("name"), "Vk");
-	std::string name = element->Attribute("name");
-
-	// Represents hardcoded constants.
-	if (name == "API Constants") {
-		readApiConstants(element, vkData.vkApiConstants);
-		return;
-	}
-
-	// TODO: Removed dependencies
-  //// add an empty DependencyData on this name into the dependencies list
-  //vkData.dependencies.push_back( DependencyData( DependencyData::Category::ENUM, name ) );
-
-	if (!element->Attribute("type"))
-	{
-		throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" is missing the type attribute"));
-	}
-
-	std::string type = element->Attribute("type");
-
-	if (type != "bitmask" && type != "enum")
-	{
-		throw std::runtime_error(std::string("spec error: enums name=\"" + name + "\" has unknown type " + type));
-	}
-
-	if (type == "bitmask") {
-		Bitmasks* t = typeOracle.define_bitmasks(name);
-
-		readEnumsBitmask(element, [t](const std::string& member, const std::string& value, bool isBitpos) {
-			t->add_member(member, value, isBitpos);
-		});
-	}
-	else {
-		Enum* t = typeOracle.define_enum(name);
-
-		readEnumsEnum(element, [t](const std::string& member, const std::string& value) {
-			t->add_member(member, value);
-		});
-	}
-}
-
-void readApiConstants(tinyxml2::XMLElement* element, std::vector<std::tuple<std::string, std::string, std::string>>& apiConstants) {
-	for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
-		assert(child->Attribute("value") && child->Attribute("name"));
-		std::string value = child->Attribute("value");
-		std::string constant = child->Attribute("name");
-
-		// Most are fine, but some may become troublesome at times depending on
-		// how large an unsigned int will be. Those of U suffix seem to be used
-		// in places of type uint32_t, and ULL is used in places where the type
-		// is VkDeviceSize, which is typedefed to uint64_t.
-
-		std::regex re(R"(^(-)?[0-9]+$)");
-		auto it = std::sregex_iterator(value.begin(), value.end(), re);
-		auto end = std::sregex_iterator();
-
-		// Matched a regular integer
-		if (it != end) {
-			std::smatch match = *it;
-			std::string dataType = match[1].matched ? "i32" : "u32";
-			apiConstants.push_back(std::make_tuple(constant, dataType, value));
-			continue;
-		}
-
-		re = std::regex(R"(^[0-9]+\.[0-9]+f$)");
-		it = std::sregex_iterator(value.begin(), value.end(), re);
-
-		// Matched float
-		if (it != end) {
-			value.pop_back();
-			apiConstants.push_back(std::make_tuple(constant, "f32", value));
-			continue;
-		}
-
-		// The rest
-		if (value == "(~0U)") {
-			apiConstants.push_back(std::make_tuple(constant, "u32", "~0"));
-		}
-		else if (value == "(~0ULL)") {
-			apiConstants.push_back(std::make_tuple(constant, "u64", "~0"));
-		}
-		else {
-			assert(value == "(~0U-1)");
-			apiConstants.push_back(std::make_tuple(constant, "u32", "~0u32 - 1"));
-		}
-	}
-}
-
-void readEnumsEnum(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make)
-{
-	// read the names of the enum values
-	tinyxml2::XMLElement * child = element->FirstChildElement();
-	while (child)
-	{
-		if (strcmp(child->Value(), "unused") == 0) {
-			child = child->NextSiblingElement();
-			continue;
-		}
-
-		assert(child->Attribute("name") && child->Attribute("value"));
-		make(child->Attribute("name"), child->Attribute("value")); // Well, apparently values can be arbitrary string. That could be interesting
-		child = child->NextSiblingElement();
-	}
-}
-
-void readEnumsBitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make)
-{
-	// read the names of the enum values
-	tinyxml2::XMLElement * child = element->FirstChildElement();
-	while (child)
-	{
-		if (strcmp(child->Value(), "unused") == 0) {
-			child = child->NextSiblingElement();
-			continue;
-		}
-
-		assert(child->Attribute("name"));
-		std::string name = child->Attribute("name");
-
-		std::string value;
-		bool bitpos;
-		if (child->Attribute("bitpos")) {
-			value = child->Attribute("bitpos");
-			bitpos = true;
-			assert(!child->Attribute("value"));
-		}
-		else {
-			assert(child->Attribute("value"));
-			value = child->Attribute("value"); // Can be arbitrary string but I don't consider that for now
-			bitpos = false;
-		}
-
-		make(name, value, bitpos);
-
-		child = child->NextSiblingElement();
-	}
-}
-
-void readDisabledExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData)
-{
-  for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    std::string value = child->Value();
-
-    if ((value == "command") || (value == "type"))
-    {
-      // disable a command or a type !
-      assert(child->Attribute("name"));
-	  // TODO: removed strip
-      //std::string name = (value == "command") ? startLowerCase(strip(child->Attribute("name"), "vk")) : strip(child->Attribute("name"), "Vk");
-	  std::string name = child->Attribute("name");
-
-	  // TODO: Get type from oracle and mark it as disabled
-    }
-    else
-    {
-      // nothing to do for enums, no other values ever encountered
-      assert(value == "enum");
-    }
-  }
-}
-
-void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, CommandData> & commands, std::string const& protect, std::vector<Type*> extensionCommands)
-{
-	assert(element->Attribute("name"));
-	// TODO: Removed strip and startLowerCase
-	//std::string name = startLowerCase(strip(element->Attribute("name"), "vk"));
-	Type* t = typeOracle.get_type(element->Attribute("name"));
-	extensionCommands.push_back(t);
-
-	// TODO: Tell command that it belongs to an extension (just boolean to prevent
-	// adding to core dispatch tables)
-}
-
-void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, EnumData> & enums, std::string const& tag, std::string const& extensionNumber)
-{
-	assert(element->Attribute("name"));
-	std::string name = element->Attribute("name");
-	
-  if (element->Attribute("extends"))
-  {
-    assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
-	if (element->Attribute("bitpos")) {
-		Bitmasks* t = typeOracle.get_type(element->Attribute("extends"))->to_bitmasks();
-		assert(t);
-		t->add_member(name, element->Attribute("bitpos"), true);
-	}
-	else if (element->Attribute("offset")) {
-		// The value depends on extension number and offset. See
-		// https://www.khronos.org/registry/vulkan/specs/1.0/styleguide.html#_assigning_extension_token_values
-		// for calculation.
-		int value = 1000000000 + (std::stoi(extensionNumber) - 1) * 1000 + std::stoi(element->Attribute("offset"));
-
-		if (element->Attribute("dir") && strcmp(element->Attribute("dir"), "-") == 0) {
-			value = -value;
-		}
-
-		std::string valueString = std::to_string(value);
-
-		Enum* t = typeOracle.get_type(element->Attribute("extends"))->to_enum();
-		assert(t);
-		t->add_member(name, valueString);
-	}
-	else {
-		// This is a special case for an enum variant that used to be core.
-		// It uses value instead of offset.
-		Enum* t = typeOracle.get_type(element->Attribute("extends"))->to_enum();
-		assert(t);
-		t->add_member(name, element->Attribute("value"));
-	}
-  }
-  // Inline definition of extension-specific constant.
-  else if (element->Attribute("value")) {
-	  // Unimplemented.
-	  // All extensions have a constant for spec version and one for the extension
-	  // name as a string literal. Other than that, some have redefines. I guess
-	  // I could read the redefines, determine its enum, and mark a variant to
-	  // use the new name instead.
-	  //std::cout << "Unimplemented: extension enum with inline constants" << std::endl;
-  }
-  // Inline definition of extension-specific bitmask value.
-  else if (element->Attribute("bitpos")) {
-	  assert(false); // Not implemented
-  }
-  // Should be a reference enum, which only supports name and comment. These
-  // pull in already existing definitions from other enums blocks. They only
-  // seem to be used for purposes of listing items the extension depends on,
-  // and since they are defined elsewhere I ignore them.
-  else {
-	  const tinyxml2::XMLAttribute* att = element->FirstAttribute();
-	  assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
-	  att = att->Next();
-	  if (att) {
-		  assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
-		  assert(!att->Next());
-	  }
-  }
-}
-
-// Defines what types, enumerants, and commands are used by an extension
-void readExtensionRequire(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect, std::string const& tag, Extension& ext)
-{
-  for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    std::string value = child->Value();
-
-    if ( value == "command" )
-    {
-      readExtensionCommand(child, vkData.commands, protect, ext.commands);
-    }
-    else if (value == "type")
-    {
-      readExtensionType(child, vkData, protect);
-    }
-    else
-    {
-	  assert(value == "enum");
-      readExtensionEnum(child, vkData.enums, tag, ext.number);
-    }
-  }
-}
-
-void readExtensions(tinyxml2::XMLElement * element, VkData & vkData)
-{
-  for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-  {
-    assert( strcmp( child->Value(), "extension" ) == 0 );
-    readExtensionsExtension( child, vkData );
-  }
-}
-
-void readExtensionsExtension(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	Extension ext;
-
-  assert( element->Attribute( "name" ) && element->Attribute("number") );
-  ext.name = element->Attribute("name");
-  ext.number = element->Attribute("number");
-  ext.tag = extractTag(ext.name);
-  assert(vkData.tags.find(ext.tag) != vkData.tags.end());
-
-  if (element->Attribute("type")) {
-	  ext.type = element->Attribute("type");
-	  assert(ext.type == "instance" || ext.type == "device");
-  }
-
-  // The original code used protect, which is a preprocessor define that must be
-  // present for the definition. This could be for example VK_USE_PLATFORM_WIN32
-  // in order to use Windows surface or external semaphores.
-
-  tinyxml2::XMLElement * child = element->FirstChildElement();
-  assert(child && (strcmp(child->Value(), "require") == 0) && !child->NextSiblingElement());
-
-  if (strcmp(element->Attribute("supported"), "disabled") == 0)
-  {
-    // Types and commands of disabled extensions should not be present in the
-	// final bindings, so mark them as disabled.
-    readDisabledExtensionRequire(child, vkData);
-  }
-  else
-  {
-    readExtensionRequire(child, vkData, "", ext.tag, ext);
-  }
-
-  typeOracle.extension(std::move(ext));
-}
-
-void readExtensionType(tinyxml2::XMLElement * element, VkData & vkData, std::string const& protect)
-{
-	// TODO: Get type from oracle and mark it as extension-provided.
-}
-
-void readTypeBasetype(tinyxml2::XMLElement * element)
-{
-	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
-	std::string type = typeElement->GetText();
-	assert(type == "uint32_t" || type == "uint64_t");
-
-	Type* underlying = typeOracle.get_type(type);
-
-	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	// TODO: Removed stripping Vk
-	//std::string name = strip(nameElement->GetText(), "Vk");
-	std::string newType = nameElement->GetText();
-
-	typeOracle.define_scalar_typedef(newType, underlying);
-
-	// TODO: Removed dependencies
-
-	//dependencies.push_back(DependencyData(DependencyData::Category::SCALAR, name));
-	//dependencies.back().dependencies.insert(type);
-}
-
-void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	assert(strcmp(element->GetText(), "typedef ") == 0);
-	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText() && (strcmp(typeElement->GetText(), "VkFlags") == 0));
-	std::string type = typeElement->GetText();
-
-	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	// TODO: Removed strip
-	//std::string name = strip(nameElement->GetText(), "Vk");
-	std::string name = nameElement->GetText();
-
-	assert(!nameElement->NextSiblingElement());
-
-	// Requires contains the type that will eventually hold definitions (with
-	// a name containing FlagBits). Oftentimes however, a type containing Flags
-	// is used instead. This separation is done to indicate that several flags
-	// can be used as opposed to just one. For C it's implemented as a regular
-	// typedef, but since some of the Flag types do not have members, they are
-	// not present in the enums tags. The C typedef makes them work anyway, but
-	// in Rust where I gain a little more type safety I at least need to make
-	// the oracle aware that these types are bitmask typedefs so that their
-	// structs will be generated, albeit with no way to create them with flags.
-
-	Type* bit_definitions = nullptr;
-	if (element->Attribute("requires")) {
-		// I don't define bitmasks here, but rather when parsing its members.
-		// Non-existant definitions should not be a requirement, so this turns
-		// into an extra check that the type is not undefined later.
-		bit_definitions = typeOracle.get_type(element->Attribute("requires"));
-	}
-
-	typeOracle.define_bitmask_typedef(name, bit_definitions);
-}
-
-void readTypeDefine(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	tinyxml2::XMLElement * child = element->FirstChildElement();
-	if (child && (strcmp(child->GetText(), "VK_HEADER_VERSION") == 0))
-	{
-		vkData.version = element->LastChild()->ToText()->Value();
-	}
-
-	// ignore all the other defines
-}
-
-void readTypeFuncpointer(tinyxml2::XMLElement * element)
-{
-	// The typedef <ret> text node
-	tinyxml2::XMLNode * node = element->FirstChild();
-	assert(node && node->ToText());
-	std::string text = node->Value();
-
-	// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
-	// group 1.
-	std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
-	auto it = std::sregex_iterator(text.begin(), text.end(), re);
-	auto end = std::sregex_iterator();
-	assert(it != end);
-	std::smatch match = *it;
-	Type* returnType = typeOracle.get_type(match[1].str());
-	if (match[2].matched) {
-		returnType = typeOracle.pointer_to(returnType, false);
-	}
-
-	// name tag containing the type def name
-	node = node->NextSibling();
-	assert(node && node->ToElement());
-	tinyxml2::XMLElement * tag = node->ToElement();
-	assert(tag && strcmp(tag->Value(), "name") == 0 && tag->GetText());
-	std::string name = tag->GetText();
-	assert(!tag->FirstChildElement());
-
-	// Text node after name tag beginning parameter list. Note that for void
-	// functions this is the last node that also ends the function definition.
-	node = node->NextSibling();
-	assert(node && node->ToText());
-	text = node->Value();
-	bool nextParamConst = false;
-	if (text != ")(void);") {
-		// In this case we will begin parameters, so we check if the first has
-		// a const modifier.
-		re = std::regex(R"(\)\(\n[ ]+(const )?)");
-		auto it = std::sregex_iterator(text.begin(), text.end(), re);
-		assert(it != end);
-		match = *it;
-		nextParamConst = match[1].matched;
-	}
-
-	// Storage for parsed parameters (type, name)
-	std::vector<std::pair<Type*, std::string>> params;
-
-	// Start processing parameters.
-	while (node = node->NextSibling()) {
-		bool constModifier = nextParamConst;
-		nextParamConst = false;
-
-		// Type of parameter
-		tag = node->ToElement();
-		assert(tag && strcmp(tag->Value(), "type") == 0 && tag->GetText());
-		std::string paramType = tag->GetText();
-		assert(!tag->FirstChildElement());
-
-		// Text node containing parameter name and at times a pointer modifier.
-		node = node->NextSibling();
-		assert(node && node->ToText());
-		text = node->ToText()->Value();
-
-		// Match optional asterisk (group 1), a bunch of spaces, the parameter
-		// name (group 2), and the rest (group 3). It doesn't seem that newline
-		// is a part of this. It's probably good because then I can easily work
-		// directly with suffix instead of more regex magic.
-		re = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
-		it = std::sregex_iterator(text.begin(), text.end(), re);
-		assert(it != end);
-		match = *it;
-		bool pointer = match[1].matched;
-		std::string paramName = match[2].str();
-		if (match[3].str() == ");") {
-			assert(!node->NextSibling());
-		}
-		else {
-			assert(match[3].str() == ",");
-
-			// Match on the suffix to know if the upcoming parameter is const.
-			std::string suffix = match.suffix().str();
-			re = std::regex(R"(^\n[ ]+(const )?$)");
-			it = std::sregex_iterator(suffix.begin(), suffix.end(), re);
-			assert(it != end);
-			match = *it;
-			nextParamConst = match[1].matched;
-		}
-
-		Type* t = typeOracle.get_type(paramType);
-
-		if (constModifier) {
-			assert(pointer);
-		}
-
-		if (pointer) {
-			t = typeOracle.pointer_to(t, constModifier);
-		}
-
-		params.push_back({
-			t,
-			paramName,
-		});
-	}
-
-	FunctionTypedef* t = typeOracle.define_function_typedef(name, returnType);
-	for (auto p : params) {
-		Parameter param;
-		param.type = p.first;
-		param.name = p.second;
-		param.array_size = ""; // Not used here. I have an assertion so it should catch in case things change
-		t->add_parameter(param);
-	}
-
-	// TODO: Removed dependencies
-
-	//dependencies.push_back(DependencyData(DependencyData::Category::FUNC_POINTER, child->GetText()));
-}
-
-void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
-	std::string type = typeElement->GetText();
-	Type* underlying = nullptr;
-	if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
-		underlying = typeOracle.get_type("size_t");
-	}
-	else {
-		assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
-		underlying = typeOracle.get_type("uint64_t");
-	}
-
-	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	// TODO: Removed strip
-	//std::string name = strip(nameElement->GetText(), "Vk");
-	std::string name = nameElement->GetText();
-
-	typeOracle.define_handle_typedef(name, underlying);
-
-	// TODO: Removed dependencies
-	//vkData.dependencies.push_back(DependencyData(DependencyData::Category::HANDLE, name));
-	//assert(vkData.vkTypes.find(name) == vkData.vkTypes.end());
-	//vkData.vkTypes.insert(name);
-	//assert(vkData.handles.find(name) == vkData.handles.end());
-	//vkData.handles[name];
-}
-
-void readTypeStruct(tinyxml2::XMLElement * element, VkData & vkData, bool isUnion)
-{
-	assert(!element->Attribute("returnedonly") || (strcmp(element->Attribute("returnedonly"), "true") == 0));
-
-	assert(element->Attribute("name"));
-	// TODO: Removed strip
-	//std::string name = strip(element->Attribute("name"), "Vk");
-	std::string name = element->Attribute("name");
-
-	// TODO: Removed dependencies
-	//vkData.dependencies.push_back( DependencyData( isUnion ? DependencyData::Category::UNION : DependencyData::Category::STRUCT, name ) );
-
-	// element->Attribute("returnedonly") is also applicable for structs and unions
-	Struct* t = typeOracle.define_struct(name, isUnion);
-
-	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-	{
-		assert(child->Value() && strcmp(child->Value(), "member") == 0);
-		// TODO: Removed dependencies
-		//readTypeStructMember( child, it->second.members, vkData.dependencies.back().dependencies );
-
-		readTypeStructMember(t, child);
-	}
-}
-
-// Read a member tag of a struct, adding members to the provided struct.
-void readTypeStructMember(Struct* theStruct, tinyxml2::XMLElement * element) {
-	// The attributes of member tags seem to mostly concern documentation
-	// generation, so they are not of interest for the bindings.
-
-	// Read the type, parsing modifiers to get a string of the type.
-	Type* type;
-	tinyxml2::XMLNode* child = readTypeStructMemberType(element->FirstChild(), type);
-
-	// After we have parsed the type we expect to find the name of the member
-	assert(child->ToElement() && strcmp(child->Value(), "name") == 0 && child->ToElement()->GetText());
-	std::string memberName = child->ToElement()->GetText();
-
-	// Some members have more information about array size
-	std::string arraySize = readArraySize(child, memberName);
-
-	// Add member to struct
-	theStruct->add_member(type, memberName, arraySize);
-}
-
-// Reads the type tag of a member tag, including potential text nodes around
-// the type tag to get qualifiers. We pass the first node that could potentially
-// be a text node.
-tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, Type*& type)
-{
-	assert(element);
-
-	bool constant = false;
-	if (element->ToText())
-	{
-		std::string value = trimEnd(element->Value());
-		if (value == "const") {
-			constant = true;
-		}
-		else {
-			// struct can happen as in VkWaylandSurfaceCreateInfoKHR. I just
-			// ignore them because I don't need them in Rust.
-			assert(value == "struct");
-		}
-		element = element->NextSibling();
-		assert(element);
-	}
-
-	assert(element->ToElement());
-	assert((strcmp(element->Value(), "type") == 0) && element->ToElement()->GetText());
-	// TODO: Removed strip
-	//pureType = strip(element->ToElement()->GetText(), "Vk");
-	//type += pureType;
-	std::string pureType = element->ToElement()->GetText();
-	type = typeOracle.get_type(pureType);
-
-	element = element->NextSibling();
-	assert(element);
-	if (element->ToText())
-	{
-		std::string value = trimEnd(element->Value());
-		assert((value == "*") || (value == "**") || (value == "* const*"));
-		if (value == "*") {
-			type = typeOracle.pointer_to(type, constant);
-		}
-		else if (value == "**") {
-			type = typeOracle.pointer_to(type, constant);
-			type = typeOracle.pointer_to(type, false);
-		}
-		else {
-			assert(value == "* const*");
-			type = typeOracle.pointer_to(type, constant);
-			type = typeOracle.pointer_to(type, true);
-		}
-		element = element->NextSibling();
-	}
-	else {
-		// Should not have const qualifier without pointer
-		assert(!constant);
-	}
-
-	return element;
-}
-
-void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags)
-{
-	tags.insert("EXT");
-	tags.insert("KHR");
-	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-	{
-		assert(child->Attribute("name"));
-		tags.insert(child->Attribute("name"));
-	}
-}
-
-void readTypes(tinyxml2::XMLElement * element, VkData & vkData)
-{
-	// The types tag consists of individual type tags that each describe types used in the API.
-	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-	{
-		assert(strcmp(child->Value(), "type") == 0);
-		std::string type = child->Value();
-		assert(type == "type");
-
-		// A present category indicates a type has a more complex definition.
-		// I.e, it's not just a basic C type.
-		if (child->Attribute("category"))
-		{
-			std::string category = child->Attribute("category");
-
-			if (category == "basetype")
-			{
-				// C code for scalar typedefs.
-				// TODO: Removed dependencies
-				//readTypeBasetype(child, vkData.dependencies);
-				readTypeBasetype(child);
-			}
-			else if (category == "bitmask")
-			{
-				// C typedefs for enums that are bitmasks.
-				// TODO: Could probably be ignored (else clause)
-				readTypeBitmask(child, vkData);
-			}
-			else if (category == "define")
-			{
-				// C code for #define directives. Generally not interested in
-				// defines, but we can get Vulkan header version here.
-				readTypeDefine(child, vkData);
-			}
-			else if (category == "funcpointer")
-			{
-				// C typedefs for function pointers.
-				// TODO: Removed dependencies
-				readTypeFuncpointer(child);
-			}
-			else if (category == "handle")
-			{
-				// C macros that define handle types such as VkInstance
-				readTypeHandle(child, vkData);
-			}
-			else if (category == "struct")
-			{
-				readTypeStruct(child, vkData, false);
-			}
-			else if (category == "union")
-			{
-				readTypeStruct(child, vkData, true);
-			}
-			else
-			{
-				// enum: These are covered later in 'registry > enums' tags so I ignore them here.
-				// include: C code for #include directives
-				assert((category == "enum") || (category == "include"));
-			}
-		}
-		// Unspecified category: non-structured definition. These should be some
-		// C type.
-		else
-		{
-			assert(child->FirstChildElement() == nullptr);
-			assert(child->Attribute("name"));
-
-			std::string name = child->Attribute("name");
-
-			typeOracle.define_c_type(name);
-
-			// TODO: Removed dependencies
-			//vkData.dependencies.push_back(DependencyData(DependencyData::Category::REQUIRED, child->Attribute("name")));
-		}
-	}
-}
-
-std::string reduceName(std::string const& name, bool singular)
-{
-  std::string reducedName;
-  if ((name[0] == 'p') && (1 < name.length()) && (isupper(name[1]) || name[1] == 'p'))
-  {
-    reducedName = strip(name, "p");
-    reducedName[0] = tolower(reducedName[0]);
-  }
-  else
-  {
-    reducedName = name;
-  }
-  if (singular)
-  {
-    size_t pos = reducedName.rfind('s');
-    assert(pos != std::string::npos);
-    reducedName.erase(pos, 1);
-  }
-
-  return reducedName;
 }
 
 //void registerDeleter(VkData & vkData, CommandData const& commandData)
@@ -1982,30 +1923,6 @@ std::string toCamelCase(std::string const& value)
       }
     }
   }
-  return result;
-}
-
-std::string toUpperCase(std::string const& name)
-{
-  assert(isupper(name.front()));
-  std::string convertedName;
-
-  for (size_t i = 0; i<name.length(); i++)
-  {
-    if (isupper(name[i]) && ((i == 0) || islower(name[i - 1]) || isdigit(name[i-1])))
-    {
-      convertedName.push_back('_');
-    }
-    convertedName.push_back(toupper(name[i]));
-  }
-  return convertedName;
-}
-
-// trim from end
-std::string trimEnd(std::string const& input)
-{
-  std::string result = input;
-  result.erase(std::find_if(result.rbegin(), result.rend(), [](char c) { return !std::isspace(c); }).base(), result.end());
   return result;
 }
 
@@ -2224,106 +2141,106 @@ void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData)
   //}
 }
 
-void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique)
-{
-  if (enhanced && !singular)
-  {
-    writeFunctionHeaderTemplate(os, indentation, commandData, !definition);
-  }
-  os << indentation << (definition ? "VULKAN_HPP_INLINE " : "");
-  writeFunctionHeaderReturnType(os, indentation, commandData, enhanced, singular, unique);
-  if (definition && !commandData.className.empty())
-  {
-    os << commandData.className << "::";
-  }
-  writeFunctionHeaderName(os, commandData.reducedName, singular, unique);
-  writeFunctionHeaderArguments(os, vkData, commandData, enhanced, singular, !definition);
-  os << (definition ? "" : ";") << std::endl;
+//void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique)
+//{
+//  if (enhanced && !singular)
+//  {
+//    writeFunctionHeaderTemplate(os, indentation, commandData, !definition);
+//  }
+//  os << indentation << (definition ? "VULKAN_HPP_INLINE " : "");
+//  writeFunctionHeaderReturnType(os, indentation, commandData, enhanced, singular, unique);
+//  if (definition && !commandData.className.empty())
+//  {
+//    os << commandData.className << "::";
+//  }
+//  writeFunctionHeaderName(os, commandData.reducedName, singular, unique);
+//  writeFunctionHeaderArguments(os, vkData, commandData, enhanced, singular, !definition);
+//  os << (definition ? "" : ";") << std::endl;
+//
+//  if (definition)
+//  {
+//    // write the function body
+//    os << indentation << "{" << std::endl;
+//    if (enhanced)
+//    {
+//      if (unique)
+//      {
+//        writeFunctionBodyUnique(os, indentation, vkData, commandData, singular);
+//      }
+//      else
+//      {
+//        writeFunctionBodyEnhanced(os, indentation, vkData, commandData, singular);
+//      }
+//    }
+//    else
+//    {
+//      writeFunctionBodyStandard(os, indentation, vkData, commandData);
+//    }
+//    os << indentation << "}" << std::endl;
+//  }
+//}
 
-  if (definition)
-  {
-    // write the function body
-    os << indentation << "{" << std::endl;
-    if (enhanced)
-    {
-      if (unique)
-      {
-        writeFunctionBodyUnique(os, indentation, vkData, commandData, singular);
-      }
-      else
-      {
-        writeFunctionBodyEnhanced(os, indentation, vkData, commandData, singular);
-      }
-    }
-    else
-    {
-      writeFunctionBodyStandard(os, indentation, vkData, commandData);
-    }
-    os << indentation << "}" << std::endl;
-  }
-}
-
-void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular)
-{
-  //if (1 < commandData.vectorParams.size())
-  //{
-  //  writeFunctionBodyEnhancedMultiVectorSizeCheck(os, indentation, commandData);
-  //}
-
-  //std::string returnName;
-  //if (commandData.returnParam != ~0)
-  //{
-  //  returnName = writeFunctionBodyEnhancedLocalReturnVariable(os, indentation, commandData, singular);
-  //}
-
-  //if (commandData.twoStep)
-  //{
-  //  assert(!singular);
-  //  writeFunctionBodyEnhancedLocalCountVariable(os, indentation, commandData);
-
-  //  // we now might have to check the result, resize the returned vector accordingly, and call the function again
-  //  std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
-  //  assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
-  //  std::string sizeName = startLowerCase(strip(commandData.params[returnit->second].name, "p"));
-
-  //  if (commandData.returnType == "Result")
-  //  {
-  //    if (1 < commandData.successCodes.size())
-  //    {
-  //      writeFunctionBodyEnhancedCallTwoStepIterate(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
-  //    }
-  //    else
-  //    {
-  //      writeFunctionBodyEnhancedCallTwoStepChecked(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
-  //    }
-  //  }
-  //  else
-  //  {
-  //    writeFunctionBodyEnhancedCallTwoStep(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
-  //  }
-  //}
-  //else
-  //{
-  //  if (commandData.returnType == "Result")
-  //  {
-  //    writeFunctionBodyEnhancedCallResult(os, indentation, vkData.vkTypes, commandData, singular);
-  //  }
-  //  else
-  //  {
-  //    writeFunctionBodyEnhancedCall(os, indentation, vkData.vkTypes, commandData, singular);
-  //  }
-  //}
-
-  //if ((commandData.returnType == "Result") || !commandData.successCodes.empty())
-  //{
-  //  writeFunctionBodyEnhancedReturnResultValue(os, indentation, returnName, commandData, singular);
-  //}
-  //else if ((commandData.returnParam != ~0) && (commandData.returnType != commandData.enhancedReturnType))
-  //{
-  //  // for the other returning cases, when the return type is somhow enhanced, just return the local returnVariable
-  //  os << indentation << "  return " << returnName << ";" << std::endl;
-  //}
-}
+//void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular)
+//{
+//  if (1 < commandData.vectorParams.size())
+//  {
+//    writeFunctionBodyEnhancedMultiVectorSizeCheck(os, indentation, commandData);
+//  }
+//
+//  std::string returnName;
+//  if (commandData.returnParam != ~0)
+//  {
+//    returnName = writeFunctionBodyEnhancedLocalReturnVariable(os, indentation, commandData, singular);
+//  }
+//
+//  if (commandData.twoStep)
+//  {
+//    assert(!singular);
+//    writeFunctionBodyEnhancedLocalCountVariable(os, indentation, commandData);
+//
+//    // we now might have to check the result, resize the returned vector accordingly, and call the function again
+//    std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
+//    assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
+//    std::string sizeName = startLowerCase(strip(commandData.params[returnit->second].name, "p"));
+//
+//    if (commandData.returnType == "Result")
+//    {
+//      if (1 < commandData.successCodes.size())
+//      {
+//        writeFunctionBodyEnhancedCallTwoStepIterate(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
+//      }
+//      else
+//      {
+//        writeFunctionBodyEnhancedCallTwoStepChecked(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
+//      }
+//    }
+//    else
+//    {
+//      writeFunctionBodyEnhancedCallTwoStep(os, indentation, vkData.vkTypes, returnName, sizeName, commandData);
+//    }
+//  }
+//  else
+//  {
+//    if (commandData.returnType == "Result")
+//    {
+//      writeFunctionBodyEnhancedCallResult(os, indentation, vkData.vkTypes, commandData, singular);
+//    }
+//    else
+//    {
+//      writeFunctionBodyEnhancedCall(os, indentation, vkData.vkTypes, commandData, singular);
+//    }
+//  }
+//
+//  if ((commandData.returnType == "Result") || !commandData.successCodes.empty())
+//  {
+//    writeFunctionBodyEnhancedReturnResultValue(os, indentation, returnName, commandData, singular);
+//  }
+//  else if ((commandData.returnParam != ~0) && (commandData.returnType != commandData.enhancedReturnType))
+//  {
+//    // for the other returning cases, when the return type is somhow enhanced, just return the local returnVariable
+//    os << indentation << "  return " << returnName << ";" << std::endl;
+//  }
+//}
 
 void writeFunctionBodyEnhanced(std::ostream &os, std::string const& templateString, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
 {
@@ -2542,73 +2459,73 @@ ${i}  }
 //  os << " );" << std::endl;
 //}
 
-void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData)
-{
-  //os << indentation << "  ";
-  //bool castReturn = false;
-  //if (commandData.returnType != "void")
-  //{
-  //  // there's something to return...
-  //  os << "return ";
+//void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData)
+//{
+//  os << indentation << "  ";
+//  bool castReturn = false;
+//  if (commandData.returnType != "void")
+//  {
+//    // there's something to return...
+//    os << "return ";
+//
+//    castReturn = (vkData.vkTypes.find(commandData.returnType) != vkData.vkTypes.end());
+//    if (castReturn)
+//    {
+//      // the return-type is a vulkan type -> need to cast to vk::-type
+//      os << "static_cast<" << commandData.returnType << ">( ";
+//    }
+//  }
+//
+//  // call the original function
+//  os << "vk" << startUpperCase(commandData.fullName) << "( ";
+//
+//  if (!commandData.className.empty())
+//  {
+//    // the command is part of a class -> the first argument is the member variable, starting with "m_"
+//    os << "m_" << commandData.params[0].name;
+//  }
+//
+//  // list all the arguments
+//  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+//  {
+//    if (0 < i)
+//    {
+//      os << ", ";
+//    }
+//
+//    if (vkData.vkTypes.find(commandData.params[i].pureType) != vkData.vkTypes.end())
+//    {
+//      // the parameter is a vulkan type
+//      if (commandData.params[i].type.back() == '*')
+//      {
+//        // it's a pointer -> need to reinterpret_cast it
+//        writeReinterpretCast(os, commandData.params[i].type.find("const") == 0, true, commandData.params[i].pureType, commandData.params[i].type.find("* const") != std::string::npos);
+//      }
+//      else
+//      {
+//        // it's a value -> need to static_cast ist
+//        os << "static_cast<Vk" << commandData.params[i].pureType << ">";
+//      }
+//      os << "( " << commandData.params[i].name << " )";
+//    }
+//    else
+//    {
+//      // it's a non-vulkan type -> just use it
+//      os << commandData.params[i].name;
+//    }
+//  }
+//  os << " )";
+//
+//  if (castReturn)
+//  {
+//    // if we cast the return -> close the static_cast
+//    os << " )";
+//  }
+//  os << ";" << std::endl;
+//}
 
-  //  castReturn = (vkData.vkTypes.find(commandData.returnType) != vkData.vkTypes.end());
-  //  if (castReturn)
-  //  {
-  //    // the return-type is a vulkan type -> need to cast to vk::-type
-  //    os << "static_cast<" << commandData.returnType << ">( ";
-  //  }
-  //}
-
-  //// call the original function
-  //os << "vk" << startUpperCase(commandData.fullName) << "( ";
-
-  //if (!commandData.className.empty())
-  //{
-  //  // the command is part of a class -> the first argument is the member variable, starting with "m_"
-  //  os << "m_" << commandData.params[0].name;
-  //}
-
-  //// list all the arguments
-  //for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  //{
-  //  if (0 < i)
-  //  {
-  //    os << ", ";
-  //  }
-
-  //  if (vkData.vkTypes.find(commandData.params[i].pureType) != vkData.vkTypes.end())
-  //  {
-  //    // the parameter is a vulkan type
-  //    if (commandData.params[i].type.back() == '*')
-  //    {
-  //      // it's a pointer -> need to reinterpret_cast it
-  //      writeReinterpretCast(os, commandData.params[i].type.find("const") == 0, true, commandData.params[i].pureType, commandData.params[i].type.find("* const") != std::string::npos);
-  //    }
-  //    else
-  //    {
-  //      // it's a value -> need to static_cast ist
-  //      os << "static_cast<Vk" << commandData.params[i].pureType << ">";
-  //    }
-  //    os << "( " << commandData.params[i].name << " )";
-  //  }
-  //  else
-  //  {
-  //    // it's a non-vulkan type -> just use it
-  //    os << commandData.params[i].name;
-  //  }
-  //}
-  //os << " )";
-
-  //if (castReturn)
-  //{
-  //  // if we cast the return -> close the static_cast
-  //  os << " )";
-  //}
-  //os << ";" << std::endl;
-}
-
-void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular)
-{
+//void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular)
+//{
 //  // the unique version needs a Deleter object for destruction of the newly created stuff
 //  std::string type = commandData.params[commandData.returnParam].pureType;
 //  std::string typeValue = startLowerCase(type);
@@ -2692,164 +2609,164 @@ void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, 
 //    // for non-vector returns, just add the deleter (local variable) to the Unique-stuff constructor
 //    os << ", deleter );" << std::endl;
 //  }
-}
+//}
 
-void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults)
-{
-  os << "(";
-  if (enhanced)
-  {
-    writeFunctionHeaderArgumentsEnhanced(os, vkData, commandData, singular, withDefaults);
-  }
-  else
-  {
-    writeFunctionHeaderArgumentsStandard(os, commandData);
-  }
-  os << ")";
-  if (!commandData.className.empty())
-  {
-    os << " const";
-  }
-}
+//void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults)
+//{
+//  os << "(";
+//  if (enhanced)
+//  {
+//    writeFunctionHeaderArgumentsEnhanced(os, vkData, commandData, singular, withDefaults);
+//  }
+//  else
+//  {
+//    writeFunctionHeaderArgumentsStandard(os, commandData);
+//  }
+//  os << ")";
+//  if (!commandData.className.empty())
+//  {
+//    os << " const";
+//  }
+//}
 
-void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool singular, bool withDefaults)
-{
-  //// check if there's at least one argument left to put in here
-  //if (commandData.skippedParams.size() + (commandData.className.empty() ? 0 : 1) < commandData.params.size())
-  //{
-  //  // determine the last argument, where we might provide some default for
-  //  size_t lastArgument = ~0;
-  //  for (size_t i = commandData.params.size() - 1; i < commandData.params.size(); i--)
-  //  {
-  //    if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
-  //    {
-  //      lastArgument = i;
-  //      break;
-  //    }
-  //  }
-
-  //  os << " ";
-  //  bool argEncountered = false;
-  //  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  //  {
-  //    if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
-  //    {
-  //      if (argEncountered)
-  //      {
-  //        os << ", ";
-  //      }
-  //      std::string strippedParameterName = startLowerCase(strip(commandData.params[i].name, "p"));
-
-  //      std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.find(i);
-  //      size_t rightStarPos = commandData.params[i].type.rfind('*');
-  //      if (it == commandData.vectorParams.end())
-  //      {
-  //        // the argument ist not a vector
-  //        if (rightStarPos == std::string::npos)
-  //        {
-  //          // and its not a pointer -> just use its type and name here
-  //          os << commandData.params[i].type << " " << commandData.params[i].name;
-  //          if (!commandData.params[i].arraySize.empty())
-  //          {
-  //            os << "[" << commandData.params[i].arraySize << "]";
-  //          }
-
-  //          if (withDefaults && (lastArgument == i))
-  //          {
-  //            // check if the very last argument is a flag without any bits -> provide some empty default for it
-  //            std::map<std::string, FlagData>::const_iterator flagIt = vkData.flags.find(commandData.params[i].pureType);
-  //            if (flagIt != vkData.flags.end())
-  //            {
-		//		  // TODO: Removed dependencies
-
-  //              //// get the enum corresponding to this flag, to check if it's empty
-  //              //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&flagIt](DependencyData const& dd) { return(dd.name == flagIt->first); });
-  //              //assert((depIt != vkData.dependencies.end()) && (depIt->dependencies.size() == 1));
-  //              //std::map<std::string, EnumData>::const_iterator enumIt = vkData.enums.find(*depIt->dependencies.begin());
-  //              ///assert(enumIt != vkData.enums.end());
-  //              //if (enumIt->second.members.empty())
-  //              //{
-  //              //  // there are no bits in this flag -> provide the default
-  //              //  os << " = " << commandData.params[i].pureType << "()";
-  //              //}
-  //            }
-  //          }
-  //        }
-  //        else
-  //        {
-  //          // the argument is not a vector, but a pointer
-  //          assert(commandData.params[i].type[rightStarPos] == '*');
-  //          if (commandData.params[i].optional)
-  //          {
-  //            // for an optional argument, trim the trailing '*' from the type, and the leading 'p' from the name
-  //            os << "Optional<" << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << "> " << strippedParameterName;
-  //            if (withDefaults)
-  //            {
-  //              os << " = nullptr";
-  //            }
-  //          }
-  //          else if (commandData.params[i].pureType == "void")
-  //          {
-  //            // for void-pointer, just use type and name
-  //            os << commandData.params[i].type << " " << commandData.params[i].name;
-  //          }
-  //          else if (commandData.params[i].pureType != "char")
-  //          {
-  //            // for non-char-pointer, change to reference
-  //            os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << strippedParameterName;
-  //          }
-  //          else
-  //          {
-  //            // for char-pointer, change to const reference to std::string
-  //            os << "const std::string & " << strippedParameterName;
-  //          }
-  //        }
-  //      }
-  //      else
-  //      {
-  //        // the argument is a vector
-  //        // it's optional, if it's marked as optional and there's no size specified
-  //        bool optional = commandData.params[i].optional && (it->second == ~0);
-  //        assert((rightStarPos != std::string::npos) && (commandData.params[i].type[rightStarPos] == '*'));
-  //        if (commandData.params[i].type.find("char") != std::string::npos)
-  //        {
-  //          // it's a char-vector -> use a std::string (either optional or a const-reference
-  //          if (optional)
-  //          {
-  //            os << "Optional<const std::string> " << strippedParameterName;
-  //            if (withDefaults)
-  //            {
-  //              os << " = nullptr";
-  //            }
-  //          }
-  //          else
-  //          {
-  //            os << "const std::string & " << strippedParameterName;
-  //          }
-  //        }
-  //        else
-  //        {
-  //          // it's a non-char vector (they are never optional)
-  //          assert(!optional);
-  //          if (singular)
-  //          {
-  //            // in singular case, change from pointer to reference
-  //            os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << stripPluralS(strippedParameterName);
-  //          }
-  //          else
-  //          {
-  //            // otherwise, use our ArrayProxy
-  //            bool isConst = (commandData.params[i].type.find("const") != std::string::npos);
-  //            os << "ArrayProxy<" << ((commandData.templateParam == i) ? (isConst ? "const T" : "T") : trimEnd(commandData.params[i].type.substr(0, rightStarPos))) << "> " << strippedParameterName;
-  //          }
-  //        }
-  //      }
-  //      argEncountered = true;
-  //    }
-  //  }
-  //  os << " ";
-  //}
-}
+//void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool singular, bool withDefaults)
+//{
+//  // check if there's at least one argument left to put in here
+//  if (commandData.skippedParams.size() + (commandData.className.empty() ? 0 : 1) < commandData.params.size())
+//  {
+//    // determine the last argument, where we might provide some default for
+//    size_t lastArgument = ~0;
+//    for (size_t i = commandData.params.size() - 1; i < commandData.params.size(); i--)
+//    {
+//      if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
+//      {
+//        lastArgument = i;
+//        break;
+//      }
+//    }
+//
+//    os << " ";
+//    bool argEncountered = false;
+//    for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+//    {
+//      if (commandData.skippedParams.find(i) == commandData.skippedParams.end())
+//      {
+//        if (argEncountered)
+//        {
+//          os << ", ";
+//        }
+//        std::string strippedParameterName = startLowerCase(strip(commandData.params[i].name, "p"));
+//
+//        std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.find(i);
+//        size_t rightStarPos = commandData.params[i].type.rfind('*');
+//        if (it == commandData.vectorParams.end())
+//        {
+//          // the argument ist not a vector
+//          if (rightStarPos == std::string::npos)
+//          {
+//            // and its not a pointer -> just use its type and name here
+//            os << commandData.params[i].type << " " << commandData.params[i].name;
+//            if (!commandData.params[i].arraySize.empty())
+//            {
+//              os << "[" << commandData.params[i].arraySize << "]";
+//            }
+//
+//            if (withDefaults && (lastArgument == i))
+//            {
+//              // check if the very last argument is a flag without any bits -> provide some empty default for it
+//              std::map<std::string, FlagData>::const_iterator flagIt = vkData.flags.find(commandData.params[i].pureType);
+//              if (flagIt != vkData.flags.end())
+//              {
+//				  // TODO: Removed dependencies
+//
+//                //// get the enum corresponding to this flag, to check if it's empty
+//                //std::list<DependencyData>::const_iterator depIt = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [&flagIt](DependencyData const& dd) { return(dd.name == flagIt->first); });
+//                //assert((depIt != vkData.dependencies.end()) && (depIt->dependencies.size() == 1));
+//                //std::map<std::string, EnumData>::const_iterator enumIt = vkData.enums.find(*depIt->dependencies.begin());
+//                ///assert(enumIt != vkData.enums.end());
+//                //if (enumIt->second.members.empty())
+//                //{
+//                //  // there are no bits in this flag -> provide the default
+//                //  os << " = " << commandData.params[i].pureType << "()";
+//                //}
+//              }
+//            }
+//          }
+//          else
+//          {
+//            // the argument is not a vector, but a pointer
+//            assert(commandData.params[i].type[rightStarPos] == '*');
+//            if (commandData.params[i].optional)
+//            {
+//              // for an optional argument, trim the trailing '*' from the type, and the leading 'p' from the name
+//              os << "Optional<" << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << "> " << strippedParameterName;
+//              if (withDefaults)
+//              {
+//                os << " = nullptr";
+//              }
+//            }
+//            else if (commandData.params[i].pureType == "void")
+//            {
+//              // for void-pointer, just use type and name
+//              os << commandData.params[i].type << " " << commandData.params[i].name;
+//            }
+//            else if (commandData.params[i].pureType != "char")
+//            {
+//              // for non-char-pointer, change to reference
+//              os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << strippedParameterName;
+//            }
+//            else
+//            {
+//              // for char-pointer, change to const reference to std::string
+//              os << "const std::string & " << strippedParameterName;
+//            }
+//          }
+//        }
+//        else
+//        {
+//          // the argument is a vector
+//          // it's optional, if it's marked as optional and there's no size specified
+//          bool optional = commandData.params[i].optional && (it->second == ~0);
+//          assert((rightStarPos != std::string::npos) && (commandData.params[i].type[rightStarPos] == '*'));
+//          if (commandData.params[i].type.find("char") != std::string::npos)
+//          {
+//            // it's a char-vector -> use a std::string (either optional or a const-reference
+//            if (optional)
+//            {
+//              os << "Optional<const std::string> " << strippedParameterName;
+//              if (withDefaults)
+//              {
+//                os << " = nullptr";
+//              }
+//            }
+//            else
+//            {
+//              os << "const std::string & " << strippedParameterName;
+//            }
+//          }
+//          else
+//          {
+//            // it's a non-char vector (they are never optional)
+//            assert(!optional);
+//            if (singular)
+//            {
+//              // in singular case, change from pointer to reference
+//              os << trimEnd(commandData.params[i].type.substr(0, rightStarPos)) << " & " << stripPluralS(strippedParameterName);
+//            }
+//            else
+//            {
+//              // otherwise, use our ArrayProxy
+//              bool isConst = (commandData.params[i].type.find("const") != std::string::npos);
+//              os << "ArrayProxy<" << ((commandData.templateParam == i) ? (isConst ? "const T" : "T") : trimEnd(commandData.params[i].type.substr(0, rightStarPos))) << "> " << strippedParameterName;
+//            }
+//          }
+//        }
+//        argEncountered = true;
+//      }
+//    }
+//    os << " ";
+//  }
+//}
 
 void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData)
 {
@@ -3148,74 +3065,72 @@ void writeStructSetter( std::ostream & os, std::string const& structureName, Mem
   }
 }
 
-void writeTypeCommand(std::ostream & os, VkData const& vkData)
-{
-	// TODO: Removed dependencies
+//void writeTypeCommand(std::ostream & os, VkData const& vkData)
+//{
+//  assert(vkData.commands.find(dependencyData.name) != vkData.commands.end());
+//  CommandData const& commandData = vkData.commands.find(dependencyData.name)->second;
+//  if (commandData.className.empty())
+//  {
+//    if (commandData.fullName == "createInstance")
+//    {
+//      // special handling for createInstance, as we need to explicitly place the forward declarations and the deleter classes here
+//      auto deleterTypesIt = vkData.deleterTypes.find("");
+//      assert((deleterTypesIt != vkData.deleterTypes.end()) && (deleterTypesIt->second.size() == 1));
+//
+//      writeDeleterForwardDeclarations(os, *deleterTypesIt, vkData.deleterData);
+//      writeTypeCommand(os, "  ", vkData, commandData, false);
+//      writeDeleterClasses(os, *deleterTypesIt, vkData.deleterData);
+//    }
+//    else
+//    {
+//      writeTypeCommand(os, "  ", vkData, commandData, false);
+//    }
+//    writeTypeCommand(os, "  ", vkData, commandData, true);
+//    os << std::endl;
+//  }
+//}
 
-  //assert(vkData.commands.find(dependencyData.name) != vkData.commands.end());
-  //CommandData const& commandData = vkData.commands.find(dependencyData.name)->second;
-  //if (commandData.className.empty())
-  //{
-  //  if (commandData.fullName == "createInstance")
-  //  {
-  //    // special handling for createInstance, as we need to explicitly place the forward declarations and the deleter classes here
-  //    auto deleterTypesIt = vkData.deleterTypes.find("");
-  //    assert((deleterTypesIt != vkData.deleterTypes.end()) && (deleterTypesIt->second.size() == 1));
-
-  //    writeDeleterForwardDeclarations(os, *deleterTypesIt, vkData.deleterData);
-  //    writeTypeCommand(os, "  ", vkData, commandData, false);
-  //    writeDeleterClasses(os, *deleterTypesIt, vkData.deleterData);
-  //  }
-  //  else
-  //  {
-  //    writeTypeCommand(os, "  ", vkData, commandData, false);
-  //  }
-  //  writeTypeCommand(os, "  ", vkData, commandData, true);
-  //  os << std::endl;
-  //}
-}
-
-void writeTypeCommand(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition)
-{
-  //enterProtect(os, commandData.protect);
-
-  // first create the standard version of the function
-  std::ostringstream standard;
-  writeFunction(standard, indentation, vkData, commandData, definition, false, false, false);
-
-  // then the enhanced version, composed by up to four parts
-  std::ostringstream enhanced;
-  writeFunction(enhanced, indentation, vkData, commandData, definition, true, false, false);
-
-  // then a singular version, if a sized vector would be returned
-  std::map<size_t, size_t>::const_iterator returnVector = commandData.vectorParams.find(commandData.returnParam);
-  bool singular = (returnVector != commandData.vectorParams.end()) && (returnVector->second != ~0) /*&& (commandData.params[returnVector->second].type.back() != '*')*/;
-  if (singular)
-  {
-    writeFunction(enhanced, indentation, vkData, commandData, definition, true, true, false);
-  }
-
-  // special handling for createDevice and createInstance !
-  bool specialWriteUnique = (commandData.reducedName == "createDevice") || (commandData.reducedName == "createInstance");
-
-  // and then the same for the Unique* versions (a Deleter is available for the commandData's class, and the function starts with 'allocate' or 'create')
-  if (((vkData.deleterData.find(commandData.className) != vkData.deleterData.end()) || specialWriteUnique) && ((commandData.reducedName.substr(0, 8) == "allocate") || (commandData.reducedName.substr(0, 6) == "create")))
-  {
-    enhanced << "#ifndef VULKAN_HPP_NO_SMART_HANDLE" << std::endl;
-    writeFunction(enhanced, indentation, vkData, commandData, definition, true, false, true);
-
-    if (singular)
-    {
-      writeFunction(enhanced, indentation, vkData, commandData, definition, true, true, true);
-    }
-    enhanced << "#endif /*VULKAN_HPP_NO_SMART_HANDLE*/" << std::endl;
-  }
-
-  // and write one or both of them
-  writeStandardOrEnhanced(os, standard.str(), enhanced.str());
-  //leaveProtect(os, commandData.protect);
-  os << std::endl;
-}
+//void writeTypeCommand(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition)
+//{
+//  //enterProtect(os, commandData.protect);
+//
+//  // first create the standard version of the function
+//  std::ostringstream standard;
+//  writeFunction(standard, indentation, vkData, commandData, definition, false, false, false);
+//
+//  // then the enhanced version, composed by up to four parts
+//  std::ostringstream enhanced;
+//  writeFunction(enhanced, indentation, vkData, commandData, definition, true, false, false);
+//
+//  // then a singular version, if a sized vector would be returned
+//  std::map<size_t, size_t>::const_iterator returnVector = commandData.vectorParams.find(commandData.returnParam);
+//  bool singular = (returnVector != commandData.vectorParams.end()) && (returnVector->second != ~0) /*&& (commandData.params[returnVector->second].type.back() != '*')*/;
+//  if (singular)
+//  {
+//    writeFunction(enhanced, indentation, vkData, commandData, definition, true, true, false);
+//  }
+//
+//  // special handling for createDevice and createInstance !
+//  bool specialWriteUnique = (commandData.reducedName == "createDevice") || (commandData.reducedName == "createInstance");
+//
+//  // and then the same for the Unique* versions (a Deleter is available for the commandData's class, and the function starts with 'allocate' or 'create')
+//  if (((vkData.deleterData.find(commandData.className) != vkData.deleterData.end()) || specialWriteUnique) && ((commandData.reducedName.substr(0, 8) == "allocate") || (commandData.reducedName.substr(0, 6) == "create")))
+//  {
+//    enhanced << "#ifndef VULKAN_HPP_NO_SMART_HANDLE" << std::endl;
+//    writeFunction(enhanced, indentation, vkData, commandData, definition, true, false, true);
+//
+//    if (singular)
+//    {
+//      writeFunction(enhanced, indentation, vkData, commandData, definition, true, true, true);
+//    }
+//    enhanced << "#endif /*VULKAN_HPP_NO_SMART_HANDLE*/" << std::endl;
+//  }
+//
+//  // and write one or both of them
+//  writeStandardOrEnhanced(os, standard.str(), enhanced.str());
+//  //leaveProtect(os, commandData.protect);
+//  os << std::endl;
+//}
 
 void writeTypeEnum( std::ostream & os, EnumData const& enumData )
 {
@@ -3235,17 +3150,6 @@ void writeTypeEnum( std::ostream & os, EnumData const& enumData )
   os << "  };" << std::endl;
   //leaveProtect(os, enumData.protect);
   os << std::endl;
-}
-
-bool isErrorEnum(std::string const& enumName)
-{
-  return (enumName.substr(0, 6) == "eError");
-}
-
-std::string stripErrorEnumPrefix(std::string const& enumName)
-{
-  assert(isErrorEnum(enumName));
-  return strip(enumName, "eError");
 }
 
 void writeDeleterClasses(std::ostream & os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData)
@@ -3440,10 +3344,8 @@ void writeTypeFlags(std::ostream & os, std::string const& flagsName, FlagData co
   os << std::endl;
 }
 
-void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& handleData)
-{
-	// TODO: Removed dependencies
-
+//void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& handleData)
+//{
 //  enterProtect(os, handleData.protect);
 //
 //  // check if there are any forward dependenices for this handle -> list them first
@@ -3571,12 +3473,10 @@ void writeTypeHandle(std::ostream & os, VkData const& vkData, HandleData const& 
 //  }
 //
 //  leaveProtect(os, handleData.protect);
-}
+//}
 
 void writeTypeScalar( std::ostream & os )
 {
-	// TODO: Removed dependencies
-
   //assert( dependencyData.dependencies.size() == 1 );
   //os << "  using " << dependencyData.name << " = " << *dependencyData.dependencies.begin() << ";" << std::endl
   //    << std::endl;
@@ -3598,255 +3498,249 @@ bool containsUnion(std::string const& type, std::map<std::string, StructData> co
   return found;
 }
 
-void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues )
-{
-	// TODO: Removed dependencies
+//void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues )
+//{
+//  std::map<std::string,StructData>::const_iterator it = vkData.structs.find( dependencyData.name );
+//  assert( it != vkData.structs.end() );
+//
+//  enterProtect(os, it->second.protect);
+//  os << "  struct " << dependencyData.name << std::endl
+//      << "  {" << std::endl;
+//
+//  // only structs that are not returnedOnly get a constructor!
+//  if ( !it->second.returnedOnly )
+//  {
+//    writeStructConstructor( os, dependencyData.name, it->second, vkData.vkTypes, defaultValues );
+//  }
+//
+//  // create the setters
+//  if (!it->second.returnedOnly)
+//  {
+//    for (size_t i = 0; i<it->second.members.size(); i++)
+//    {
+//      writeStructSetter( os, dependencyData.name, it->second.members[i], vkData.vkTypes );
+//    }
+//  }
+//
+//  // the cast-operator to the wrapped struct
+//  os << "    operator const Vk" << dependencyData.name << "&() const" << std::endl
+//      << "    {" << std::endl
+//      << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
+//      << "    }" << std::endl
+//      << std::endl;
+//
+//  // operator==() and operator!=()
+//  // only structs without a union as a member can have a meaningfull == and != operation; we filter them out
+//  if (!containsUnion(dependencyData.name, vkData.structs))
+//  {
+//    // two structs are compared by comparing each of the elements
+//    os << "    bool operator==( " << dependencyData.name << " const& rhs ) const" << std::endl
+//        << "    {" << std::endl
+//        << "      return ";
+//    for (size_t i = 0; i < it->second.members.size(); i++)
+//    {
+//      if (i != 0)
+//      {
+//        os << std::endl << "          && ";
+//      }
+//      if (!it->second.members[i].arraySize.empty())
+//      {
+//        os << "( memcmp( " << it->second.members[i].name << ", rhs." << it->second.members[i].name << ", " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) ) == 0 )";
+//      }
+//      else
+//      {
+//        os << "( " << it->second.members[i].name << " == rhs." << it->second.members[i].name << " )";
+//      }
+//    }
+//    os << ";" << std::endl
+//        << "    }" << std::endl
+//        << std::endl
+//        << "    bool operator!=( " << dependencyData.name << " const& rhs ) const" << std::endl
+//        << "    {" << std::endl
+//        << "      return !operator==( rhs );" << std::endl
+//        << "    }" << std::endl
+//        << std::endl;
+//  }
+//
+//  // the member variables
+//  for (size_t i = 0; i < it->second.members.size(); i++)
+//  {
+//    if (it->second.members[i].type == "StructureType")
+//    {
+//      assert((i == 0) && (it->second.members[i].name == "sType"));
+//      os << "  private:" << std::endl
+//          << "    StructureType sType;" << std::endl
+//          << std::endl
+//          << "  public:" << std::endl;
+//    }
+//    else
+//    {
+//      os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
+//      if (!it->second.members[i].arraySize.empty())
+//      {
+//        os << "[" << it->second.members[i].arraySize << "]";
+//      }
+//      os << ";" << std::endl;
+//    }
+//  }
+//  os << "  };" << std::endl
+//      << "  static_assert( sizeof( " << dependencyData.name << " ) == sizeof( Vk" << dependencyData.name << " ), \"struct and wrapper have different size!\" );" << std::endl;
+//
+//  leaveProtect(os, it->second.protect);
+//  os << std::endl;
+//}
 
-  //std::map<std::string,StructData>::const_iterator it = vkData.structs.find( dependencyData.name );
-  //assert( it != vkData.structs.end() );
+//void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues )
+//{
+//  std::map<std::string, StructData>::const_iterator it = vkData.structs.find(dependencyData.name);
+//  assert(it != vkData.structs.end());
+//
+//  std::ostringstream oss;
+//  os << "  union " << dependencyData.name << std::endl
+//      << "  {" << std::endl;
+//
+//  for ( size_t i=0 ; i<it->second.members.size() ; i++ )
+//  {
+//    // one constructor per union element
+//    os << "    " << dependencyData.name << "( ";
+//    if ( it->second.members[i].arraySize.empty() )
+//    {
+//      os << it->second.members[i].type << " ";
+//    }
+//    else
+//    {
+//      os << "const std::array<" << it->second.members[i].type << "," << it->second.members[i].arraySize << ">& ";
+//    }
+//    os << it->second.members[i].name << "_";
+//
+//    // just the very first constructor gets default arguments
+//    if ( i == 0 )
+//    {
+//      std::map<std::string,std::string>::const_iterator defaultIt = defaultValues.find( it->second.members[i].pureType );
+//      assert(defaultIt != defaultValues.end() );
+//      if ( it->second.members[i].arraySize.empty() )
+//      {
+//        os << " = " << defaultIt->second;
+//      }
+//      else
+//      {
+//        os << " = { {" << defaultIt->second << "} }";
+//      }
+//    }
+//    os << " )" << std::endl
+//        << "    {" << std::endl
+//        << "      ";
+//    if ( it->second.members[i].arraySize.empty() )
+//    {
+//      os << it->second.members[i].name << " = " << it->second.members[i].name << "_";
+//    }
+//    else
+//    {
+//      os << "memcpy( &" << it->second.members[i].name << ", " << it->second.members[i].name << "_.data(), " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) )";
+//    }
+//    os << ";" << std::endl
+//        << "    }" << std::endl
+//        << std::endl;
+//    }
+//
+//  for (size_t i = 0; i<it->second.members.size(); i++)
+//  {
+//    // one setter per union element
+//    assert(!it->second.returnedOnly);
+//    writeStructSetter(os, dependencyData.name, it->second.members[i], vkData.vkTypes);
+//  }
+//
+//  // the implicit cast operator to the native type
+//  os << "    operator Vk" << dependencyData.name << " const& () const" << std::endl
+//      << "    {" << std::endl
+//      << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
+//      << "    }" << std::endl
+//      << std::endl;
+//
+//  // the union member variables
+//  // if there's at least one Vk... type in this union, check for unrestricted unions support
+//  bool needsUnrestrictedUnions = false;
+//  for (size_t i = 0; i < it->second.members.size() && !needsUnrestrictedUnions; i++)
+//  {
+//    needsUnrestrictedUnions = (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end());
+//  }
+//  if (needsUnrestrictedUnions)
+//  {
+//    os << "#ifdef VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
+//    for (size_t i = 0; i < it->second.members.size(); i++)
+//    {
+//      os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
+//      if (!it->second.members[i].arraySize.empty())
+//      {
+//        os << "[" << it->second.members[i].arraySize << "]";
+//      }
+//      os << ";" << std::endl;
+//    }
+//    os << "#else" << std::endl;
+//  }
+//  for (size_t i = 0; i < it->second.members.size(); i++)
+//  {
+//    os << "    ";
+//    if (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end())
+//    {
+//      os << "Vk";
+//    }
+//    os << it->second.members[i].type << " " << it->second.members[i].name;
+//    if (!it->second.members[i].arraySize.empty())
+//    {
+//      os << "[" << it->second.members[i].arraySize << "]";
+//    }
+//    os << ";" << std::endl;
+//  }
+//  if (needsUnrestrictedUnions)
+//  {
+//    os << "#endif  // VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
+//  }
+//  os << "  };" << std::endl
+//      << std::endl;
+//}
 
-  //enterProtect(os, it->second.protect);
-  //os << "  struct " << dependencyData.name << std::endl
-  //    << "  {" << std::endl;
-
-  //// only structs that are not returnedOnly get a constructor!
-  //if ( !it->second.returnedOnly )
-  //{
-  //  writeStructConstructor( os, dependencyData.name, it->second, vkData.vkTypes, defaultValues );
-  //}
-
-  //// create the setters
-  //if (!it->second.returnedOnly)
-  //{
-  //  for (size_t i = 0; i<it->second.members.size(); i++)
-  //  {
-  //    writeStructSetter( os, dependencyData.name, it->second.members[i], vkData.vkTypes );
-  //  }
-  //}
-
-  //// the cast-operator to the wrapped struct
-  //os << "    operator const Vk" << dependencyData.name << "&() const" << std::endl
-  //    << "    {" << std::endl
-  //    << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
-  //    << "    }" << std::endl
-  //    << std::endl;
-
-  //// operator==() and operator!=()
-  //// only structs without a union as a member can have a meaningfull == and != operation; we filter them out
-  //if (!containsUnion(dependencyData.name, vkData.structs))
-  //{
-  //  // two structs are compared by comparing each of the elements
-  //  os << "    bool operator==( " << dependencyData.name << " const& rhs ) const" << std::endl
-  //      << "    {" << std::endl
-  //      << "      return ";
-  //  for (size_t i = 0; i < it->second.members.size(); i++)
-  //  {
-  //    if (i != 0)
-  //    {
-  //      os << std::endl << "          && ";
-  //    }
-  //    if (!it->second.members[i].arraySize.empty())
-  //    {
-  //      os << "( memcmp( " << it->second.members[i].name << ", rhs." << it->second.members[i].name << ", " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) ) == 0 )";
-  //    }
-  //    else
-  //    {
-  //      os << "( " << it->second.members[i].name << " == rhs." << it->second.members[i].name << " )";
-  //    }
-  //  }
-  //  os << ";" << std::endl
-  //      << "    }" << std::endl
-  //      << std::endl
-  //      << "    bool operator!=( " << dependencyData.name << " const& rhs ) const" << std::endl
-  //      << "    {" << std::endl
-  //      << "      return !operator==( rhs );" << std::endl
-  //      << "    }" << std::endl
-  //      << std::endl;
-  //}
-
-  //// the member variables
-  //for (size_t i = 0; i < it->second.members.size(); i++)
-  //{
-  //  if (it->second.members[i].type == "StructureType")
-  //  {
-  //    assert((i == 0) && (it->second.members[i].name == "sType"));
-  //    os << "  private:" << std::endl
-  //        << "    StructureType sType;" << std::endl
-  //        << std::endl
-  //        << "  public:" << std::endl;
-  //  }
-  //  else
-  //  {
-  //    os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
-  //    if (!it->second.members[i].arraySize.empty())
-  //    {
-  //      os << "[" << it->second.members[i].arraySize << "]";
-  //    }
-  //    os << ";" << std::endl;
-  //  }
-  //}
-  //os << "  };" << std::endl
-  //    << "  static_assert( sizeof( " << dependencyData.name << " ) == sizeof( Vk" << dependencyData.name << " ), \"struct and wrapper have different size!\" );" << std::endl;
-
-  //leaveProtect(os, it->second.protect);
-  //os << std::endl;
-}
-
-void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues )
-{
-	// TODO: Removed dependencies
-
-  //std::map<std::string, StructData>::const_iterator it = vkData.structs.find(dependencyData.name);
-  //assert(it != vkData.structs.end());
-
-  //std::ostringstream oss;
-  //os << "  union " << dependencyData.name << std::endl
-  //    << "  {" << std::endl;
-
-  //for ( size_t i=0 ; i<it->second.members.size() ; i++ )
-  //{
-  //  // one constructor per union element
-  //  os << "    " << dependencyData.name << "( ";
-  //  if ( it->second.members[i].arraySize.empty() )
-  //  {
-  //    os << it->second.members[i].type << " ";
-  //  }
-  //  else
-  //  {
-  //    os << "const std::array<" << it->second.members[i].type << "," << it->second.members[i].arraySize << ">& ";
-  //  }
-  //  os << it->second.members[i].name << "_";
-
-  //  // just the very first constructor gets default arguments
-  //  if ( i == 0 )
-  //  {
-  //    std::map<std::string,std::string>::const_iterator defaultIt = defaultValues.find( it->second.members[i].pureType );
-  //    assert(defaultIt != defaultValues.end() );
-  //    if ( it->second.members[i].arraySize.empty() )
-  //    {
-  //      os << " = " << defaultIt->second;
-  //    }
-  //    else
-  //    {
-  //      os << " = { {" << defaultIt->second << "} }";
-  //    }
-  //  }
-  //  os << " )" << std::endl
-  //      << "    {" << std::endl
-  //      << "      ";
-  //  if ( it->second.members[i].arraySize.empty() )
-  //  {
-  //    os << it->second.members[i].name << " = " << it->second.members[i].name << "_";
-  //  }
-  //  else
-  //  {
-  //    os << "memcpy( &" << it->second.members[i].name << ", " << it->second.members[i].name << "_.data(), " << it->second.members[i].arraySize << " * sizeof( " << it->second.members[i].type << " ) )";
-  //  }
-  //  os << ";" << std::endl
-  //      << "    }" << std::endl
-  //      << std::endl;
-  //  }
-
-  //for (size_t i = 0; i<it->second.members.size(); i++)
-  //{
-  //  // one setter per union element
-  //  assert(!it->second.returnedOnly);
-  //  writeStructSetter(os, dependencyData.name, it->second.members[i], vkData.vkTypes);
-  //}
-
-  //// the implicit cast operator to the native type
-  //os << "    operator Vk" << dependencyData.name << " const& () const" << std::endl
-  //    << "    {" << std::endl
-  //    << "      return *reinterpret_cast<const Vk" << dependencyData.name << "*>(this);" << std::endl
-  //    << "    }" << std::endl
-  //    << std::endl;
-
-  //// the union member variables
-  //// if there's at least one Vk... type in this union, check for unrestricted unions support
-  //bool needsUnrestrictedUnions = false;
-  //for (size_t i = 0; i < it->second.members.size() && !needsUnrestrictedUnions; i++)
-  //{
-  //  needsUnrestrictedUnions = (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end());
-  //}
-  //if (needsUnrestrictedUnions)
-  //{
-  //  os << "#ifdef VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
-  //  for (size_t i = 0; i < it->second.members.size(); i++)
-  //  {
-  //    os << "    " << it->second.members[i].type << " " << it->second.members[i].name;
-  //    if (!it->second.members[i].arraySize.empty())
-  //    {
-  //      os << "[" << it->second.members[i].arraySize << "]";
-  //    }
-  //    os << ";" << std::endl;
-  //  }
-  //  os << "#else" << std::endl;
-  //}
-  //for (size_t i = 0; i < it->second.members.size(); i++)
-  //{
-  //  os << "    ";
-  //  if (vkData.vkTypes.find(it->second.members[i].type) != vkData.vkTypes.end())
-  //  {
-  //    os << "Vk";
-  //  }
-  //  os << it->second.members[i].type << " " << it->second.members[i].name;
-  //  if (!it->second.members[i].arraySize.empty())
-  //  {
-  //    os << "[" << it->second.members[i].arraySize << "]";
-  //  }
-  //  os << ";" << std::endl;
-  //}
-  //if (needsUnrestrictedUnions)
-  //{
-  //  os << "#endif  // VULKAN_HPP_HAS_UNRESTRICTED_UNIONS" << std::endl;
-  //}
-  //os << "  };" << std::endl
-  //    << std::endl;
-}
-
-void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues)
-{
-	// TODO: Removed dependencies
-
-  //for ( std::list<DependencyData>::const_iterator it = vkData.dependencies.begin() ; it != vkData.dependencies.end() ; ++it )
-  //{
-  //  switch( it->category )
-  //  {
-  //    case DependencyData::Category::COMMAND :
-  //      writeTypeCommand( os, vkData, *it );
-  //      break;
-  //    case DependencyData::Category::ENUM :
-  //      assert( vkData.enums.find( it->name ) != vkData.enums.end() );
-  //      writeTypeEnum( os, vkData.enums.find( it->name )->second );
-  //      break;
-  //    case DependencyData::Category::FLAGS :
-  //      assert(vkData.flags.find(it->name) != vkData.flags.end());
-  //      writeTypeFlags( os, it->name, vkData.flags.find( it->name)->second, vkData.enums.find(generateEnumNameForFlags(it->name))->second );
-  //      break;
-  //    case DependencyData::Category::FUNC_POINTER :
-  //    case DependencyData::Category::REQUIRED :
-  //      // skip FUNC_POINTER and REQUIRED, they just needed to be in the dependencies list to resolve dependencies
-  //      break;
-  //    case DependencyData::Category::HANDLE :
-  //      assert(vkData.handles.find(it->name) != vkData.handles.end());
-  //      writeTypeHandle(os, vkData, *it, vkData.handles.find(it->name)->second, vkData.dependencies);
-  //      break;
-  //    case DependencyData::Category::SCALAR :
-  //      writeTypeScalar( os, *it );
-  //      break;
-  //    case DependencyData::Category::STRUCT :
-  //      writeTypeStruct( os, vkData, *it, defaultValues );
-  //      break;
-  //    case DependencyData::Category::UNION :
-  //      assert( vkData.structs.find( it->name ) != vkData.structs.end() );
-  //      writeTypeUnion( os, vkData, *it, defaultValues );
-  //      break;
-  //    default :
-  //      assert( false );
-  //      break;
-  //  }
-  //}
-}
+//void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues)
+//{
+//  for ( std::list<DependencyData>::const_iterator it = vkData.dependencies.begin() ; it != vkData.dependencies.end() ; ++it )
+//  {
+//    switch( it->category )
+//    {
+//      case DependencyData::Category::COMMAND :
+//        writeTypeCommand( os, vkData, *it );
+//        break;
+//      case DependencyData::Category::ENUM :
+//        assert( vkData.enums.find( it->name ) != vkData.enums.end() );
+//        writeTypeEnum( os, vkData.enums.find( it->name )->second );
+//        break;
+//      case DependencyData::Category::FLAGS :
+//        assert(vkData.flags.find(it->name) != vkData.flags.end());
+//        writeTypeFlags( os, it->name, vkData.flags.find( it->name)->second, vkData.enums.find(generateEnumNameForFlags(it->name))->second );
+//        break;
+//      case DependencyData::Category::FUNC_POINTER :
+//      case DependencyData::Category::REQUIRED :
+//        // skip FUNC_POINTER and REQUIRED, they just needed to be in the dependencies list to resolve dependencies
+//        break;
+//      case DependencyData::Category::HANDLE :
+//        assert(vkData.handles.find(it->name) != vkData.handles.end());
+//        writeTypeHandle(os, vkData, *it, vkData.handles.find(it->name)->second, vkData.dependencies);
+//        break;
+//      case DependencyData::Category::SCALAR :
+//        writeTypeScalar( os, *it );
+//        break;
+//      case DependencyData::Category::STRUCT :
+//        writeTypeStruct( os, vkData, *it, defaultValues );
+//        break;
+//      case DependencyData::Category::UNION :
+//        assert( vkData.structs.find( it->name ) != vkData.structs.end() );
+//        writeTypeUnion( os, vkData, *it, defaultValues );
+//        break;
+//      default :
+//        assert( false );
+//        break;
+//    }
+//  }
+//}
 
 void writeVersionCheck(std::ostream & os, std::string const& version)
 {
@@ -3860,87 +3754,14 @@ void writeVersionCheck(std::ostream & os, std::string const& version)
 int main(int argc, char **argv)
 {
 	try {
-		tinyxml2::XMLDocument doc;
-
 		std::string filename = (argc == 1) ? VK_SPEC : argv[1];
-		std::cout << "Loading vk.xml from " << filename << std::endl;
+		Registry reg;
+		reg.parse(filename);
+
 		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
 
-		tinyxml2::XMLError error = doc.LoadFile(filename.c_str());
-		if (error != tinyxml2::XML_SUCCESS)
-		{
-			std::cout << "VkGenerate: failed to load file " << filename << ". Error code: " << error << std::endl;
-			return -1;
-		}
-
-		// The very first element is expected to be a registry, and it should
-		// be the only root element.
-		tinyxml2::XMLElement * registryElement = doc.FirstChildElement();
-		assert(strcmp(registryElement->Value(), "registry") == 0);
-		assert(!registryElement->NextSiblingElement());
-
-		VkData vkData;
-		vkData.handles[""];         // insert the default "handle" without class (for createInstance, and such)
-		vkData.tags.insert("KHX");  // insert a non-listed tag
-
-		// The root tag contains zero or more of the following tags. Order may change.
-		for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
-		{
-			assert(child->Value());
-			const std::string value = child->Value();
-
-			if (value == "comment")
-			{
-				// Get the vulkan license header and skip any leading spaces
-				readComment(child, vkData.vulkanLicenseHeader);
-				vkData.vulkanLicenseHeader.erase(vkData.vulkanLicenseHeader.begin(), std::find_if(vkData.vulkanLicenseHeader.begin(), vkData.vulkanLicenseHeader.end(), [](char c) { return !std::isspace(c); }));
-			}
-			else if (value == "tags")
-			{
-				// Author IDs for extensions and layers
-				readTags(child, vkData.tags);
-			}
-			else if (value == "types")
-			{
-				// Defines API types
-				readTypes(child, vkData);
-			}
-			else if (value == "enums")
-			{
-				// Enum definitions
-				readEnums(child, vkData);
-			}
-			else if (value == "commands")
-			{
-				// Function definitions
-				readCommands(child, vkData);
-			}
-			else if (value == "extensions")
-			{
-				// Extension interfaces
-				readExtensions(child, vkData);
-			}
-			else
-			{
-				assert((value == "feature") || (value == "vendorids"));
-			}
-		}
-
-		// Finished parsing the spec.
-
-		// TODO: Don't have this as a method, but rather do the check after having parsed
-		// the spec when it's put into a method of its own.
-		typeOracle.undefinedCheck();
-
-		// TODO: Removed dependencies
-
-		//sortDependencies(vkData.dependencies);
-
-		std::map<std::string, std::string> defaultValues;
-		//createDefaults(vkData, defaultValues);
-
 		std::ofstream ofs(VULKAN_HPP);
-		ofs << vkData.vulkanLicenseHeader << std::endl
+		ofs << reg.license() << std::endl
 			<< R"(
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
@@ -3956,11 +3777,11 @@ pub mod core {
 
 		indent = new IndentingOStreambuf(ofs);
 
-		writeVersionCheck(ofs, vkData.version);
+		writeVersionCheck(ofs, reg.version());
 
 		ofs << std::endl;
 
-		for (auto tdef : typeOracle.get_scalar_typedefs()) {
+		for (auto tdef : reg.get_scalar_typedefs()) {
 			ofs << "type " << tdef->actual()->type_name() << " = " << tdef->type_name() << ";" << std::endl;
 		}
 
