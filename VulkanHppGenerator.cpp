@@ -360,6 +360,27 @@ private:
 	std::string _constness;
 };
 
+class Array : public IType {
+	friend class Registry;
+
+public:
+	virtual std::string const& type_name(void) const override final {
+		// Not implemented. For members, arrays would look like '[type; array_size]',
+		// but when used as parameter to function, we pass '&[type; array_size]'.
+		assert(false);
+		return "";
+	}
+
+private:
+	Array(Type const* inner, std::string const& array_size) : _inner(inner), _array_size(array_size) {}
+	Array(Array const&) = delete;
+	void operator=(Array const&) = delete;
+
+private:
+	Type const* _inner;
+	std::string _array_size;
+};
+
 // Not technically a type, but integrates with my existing checks for definitions and stuff.
 // Come to think of it, types should really be items or something.
 class Command : public IType {
@@ -435,6 +456,10 @@ public:
 
 	Pointer* to_pointer(void) {
 		return dynamic_cast<Pointer*>(_type);
+	}
+
+	Array* to_array(void) {
+		return dynamic_cast<Array*>(_type);
 	}
 
 	Command* to_command(void) {
@@ -593,158 +618,19 @@ public:
 		return t;
 	}
 
+	Type* array_of(Type const* type, std::string const& array_size) {
+		Type* t = new Type();
+		Array* a = new Array(type, array_size);
+		t->make_concrete(a);
+		_arrays.push_back(std::make_pair(t, a));
+		return t;
+	}
+
 	Command* define_command(std::string const& name, Type const* return_type) {
 		Command* t = new Command(name, return_type);
 		define(name, t);
 		_commands.push_back(t);
 		return t;
-	}
-
-	// The purpose of this function is to return an object that represents some
-	// type used in the API. A complete type (including pointers and const mod-
-	// ifiers) is accepted, which is then disected into parts. This way, when
-	// parsing we can just ask for the type and let somebody else deal with the
-	// administration of properly pointing to some base type. The base types
-	// themselves are only stored once and then their pointers are reused.
-	// This allows declaring Vulkan types before they are defined by returning
-	// a type that is VulkanUndefined for the time being but later updated when
-	// parsing its definition. Another benefit of this is that we can define the
-	// limited set of C types manually up front instead of trying to deduce it
-	// from the spec. They need some form of translation into Rust, which is why
-	// we want to know which types are C and which ones are Vulkan. Thus, if a
-	// type does not already exist, we assume that it's Vulkan. If it turns out
-	// that it's not, then it will remain as undefined because the spec never
-	// tells us what it is, thus indicating that it was C all the time.
-	
-	// TODO: It would probably be better to just have this method return a pure
-	// type without bothering parsing pointers. The original code contains good
-	// functions that find modifiers and stuff. Using those I know what kind of
-	// pointers I want and use methods such as mutPointerTo(type), arrayOf(type)
-	// to create wrapping types (in parameters, arrays would become a pointer to
-	// array, sometimes using const!)
-	Type* getType(const std::string& name, const std::string& arraySize = "") {
-		std::string text = name;
-
-		// TODO: Stupid workaround that just makes arrays into pointers. See
-		// comment on how pointers and arrays could be handled.
-		if (arraySize != "") {
-			text += "*";
-		}
-		
-		// Split type so we can work with parts
-		std::vector<std::string> parts;
-		size_t prev_pos = 0;
-		size_t this_pos = 0;
-		while ((this_pos = text.find_first_of("* ", prev_pos)) != std::string::npos) {
-			size_t len = this_pos - prev_pos;
-			if (len != 0) {
-				parts.push_back(text.substr(prev_pos, len));
-			}
-
-			if (text[this_pos] == '*') {
-				parts.push_back("*");
-			}
-
-			prev_pos = this_pos + 1;
-		}
-
-		if (prev_pos < text.length()) {
-			parts.push_back(text.substr(prev_pos));
-		}
-
-		assert(parts.size());
-
-		// Expected patterns:
-		// type
-		// type*
-		// type**
-		// const type*
-		// const type* const*
-		
-		// If we begin with a const, we swap the first two elements as it's
-		// semantically equivalent and eases the upcoming processing a bit.
-		if (parts.front() == "const") {
-			assert(parts.size() > 1);
-			std::swap(*parts.begin(), *(parts.begin() + 1));
-		}
-
-		// I don't check if the first part is something proper now. If it's not
-		// a valid type, it will never be defined (as that would imply the API
-		// being broken) as is thus captured as an undefined type. I do however
-		// check that all upcoming parts are either 'const' or '*'.
-		for (auto it = parts.cbegin() + 1; it != parts.end(); ++it) {
-			assert(*it == "*" || *it == "const");
-		}
-
-		std::string baseType = parts.front();
-
-		// Now the base type is always the first element, so work it.
-		Type* type = nullptr;
-
-		// Attempt to acquire the type first from C types.
-		auto type_it = _types.find(baseType);
-		if (type_it != _types.end()) {
-			type = type_it->second;
-		}
-
-		// If neither C nor Vulkan types worked, it's a new type that we create
-		// as an undefined type for now.
-		if (!type) {
-			type = new Type();
-			_types.insert(std::make_pair(baseType, type));
-			_undefined_types.insert(baseType);
-		}
-
-		// Now that we have the base type, we can work from the back to generate
-		// wrapping pointers if present.
-
-		Type* outer = nullptr;
-		Type* inner = nullptr;
-
-		auto hookupPtr = [&outer, &inner](Type* ptr) {
-			if (!outer) {
-				outer = ptr;
-			}
-			else if (!inner) {
-				assert(outer->to_pointer());
-				outer->to_pointer()->set_inner(ptr);
-				inner = ptr;
-			}
-			else {
-				assert(inner->to_pointer());
-				inner->to_pointer()->set_inner(ptr);
-				inner = ptr;
-			}
-		};
-
-		parts.erase(parts.begin()); // No longer need this
-
-		//auto walker = parts.crbegin();
-		//while (walker != parts.crend()) {
-		//	assert(*walker == "*");
-		//	walker++;
-		//	// No more => mutable pointer. Another pointer immediately => mutable
-		//	if (walker == parts.crend() || *walker == "*") {
-		//		Type* t = new Type();
-		//		t->makePointer("mut");
-		//		hookupPtr(t);
-		//	}
-		//	// Something more and it's not a pointer
-		//	else {
-		//		assert(*walker == "const");
-		//		walker++; // For next inner pointer
-		//		Type* t = new Type();
-		//		t->makePointer("const");
-		//		hookupPtr(t);
-		//	}
-		//}
-
-		// Insert the base type
-		hookupPtr(type);
-
-		// Finally we should have a base type potentially wrapped by pointer
-		// types.
-		return outer;
 	}
 
 	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
@@ -759,8 +645,10 @@ public:
 		assert(_undefined_types.empty());
 	}
 
-private:
+public:
+	// TODO: Make private
 	Type* get_type(const std::string& type) {
+		assert(type.find_first_of("* ") == std::string::npos);
 		Type* t = nullptr;
 		auto it = _types.find(type);
 		if (it != _types.end()) {
@@ -775,6 +663,7 @@ private:
 		return t;
 	}
 
+private:
 	void define(std::string const& name, IType* type) {
 		// Type must not already be defined
 		if (_types.find(name) != _types.end()) {
@@ -789,6 +678,19 @@ private:
 	}
 
 private:
+	/*
+	The base types themselves are only stored once and then their pointers are
+	reused. This allows declaring Vulkan types before they are defined by
+	returning a type that is VulkanUndefined for the time being but later
+	updated when parsing its definition. Another benefit of this is that we can
+	define the limited set of C types manually up front instead of trying to
+	deduce it from the spec. They need some form of translation into Rust,
+	which is why we want to know which types are C and which ones are Vulkan.
+	Thus, if a type does not already exist, we assume that it's Vulkan. If it
+	turns out that it's not, then it will remain as undefined because the spec
+	never tells us what it is, thus indicating that it was C all the time.
+	*/
+
 	std::map<std::string, Type*> _types; // All types referenced in the registry, undefined or not.
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
 	std::vector<CType*> _c_types;
@@ -800,6 +702,7 @@ private:
 	std::vector<Struct*> _structs;
 	std::vector<Enum*> _enums;
 	std::vector<std::pair<Type*, Pointer*>> _pointers;
+	std::vector<std::pair<Type*, Array*>> _arrays;
 	std::vector<Command*> _commands;
 	std::map<std::string, Extension> _extensions;
 
@@ -927,7 +830,7 @@ std::string extractTag(std::string const& name);
 std::string readArraySize(tinyxml2::XMLNode * node, std::string& name);
 void readCommandParam( tinyxml2::XMLElement * element, Command* cmd );
 void readCommandParams(tinyxml2::XMLElement* element, Command* cmd);
-tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& typeString);
+tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, Type*& type);
 Command* readCommandProto(tinyxml2::XMLElement * element);
 void readCommands( tinyxml2::XMLElement * element, VkData & vkData );
 void readCommandsCommand(tinyxml2::XMLElement * element, VkData & vkData);
@@ -949,7 +852,7 @@ void readTypeFuncpointer( tinyxml2::XMLElement * element );
 void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData);
 void readTypeStruct( tinyxml2::XMLElement * element, VkData & vkData, bool isUnion );
 void readTypeStructMember(Struct* type, tinyxml2::XMLElement * element);
-tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::string& type);
+tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, Type*& type);
 void readTags(tinyxml2::XMLElement * element, std::set<std::string> & tags);
 void readTypes(tinyxml2::XMLElement * element, VkData & vkData);
 std::string reduceName(std::string const& name, bool singular = false);
@@ -1073,8 +976,8 @@ std::string readArraySize(tinyxml2::XMLNode * node, std::string& name)
 
 void readCommandParam( tinyxml2::XMLElement * element, Command* cmd )
 {
-  std::string typeString;
-  tinyxml2::XMLNode * afterType = readCommandParamType(element->FirstChild(), typeString);
+  Type* type;
+  tinyxml2::XMLNode * afterType = readCommandParamType(element->FirstChild(), type);
   // TODO: Removed dependencies
   //dependencies.insert(param.pureType);
 
@@ -1082,8 +985,9 @@ void readCommandParam( tinyxml2::XMLElement * element, Command* cmd )
   std::string name = afterType->ToElement()->GetText();
 
   std::string arraySize = readArraySize(afterType, name);
-
-  Type const* type = typeOracle.getType(typeString, arraySize);
+  if (arraySize != "") {
+	  type = typeOracle.array_of(type, arraySize);
+  }
 
   cmd->add_parameter(type, name, arraySize);
 }
@@ -1107,15 +1011,17 @@ void readCommandParams(tinyxml2::XMLElement* element, Command* cmd)
   }
 }
 
-tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& typeString)
+tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, Type*& type)
 {
+	bool constModifier = false;
+
   assert(node);
   if (node->ToText())
   {
     // start type with "const" or "struct", if needed
     std::string value = trimEnd(node->Value());
 	if (value == "const") {
-		typeString = value + " ";
+		constModifier = true;
 	}
 	else {
 		// Struct parameter C syntax. Not needed in Rust
@@ -1129,7 +1035,7 @@ tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& ty
   assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
   // TODO: Removed strip
   //std::string type = strip(node->ToElement()->GetText(), "Vk");
-  typeString += node->ToElement()->GetText();
+  type = typeOracle.get_type(node->ToElement()->GetText());
 
   // end with "*", "**", or "* const*", if needed
   node = node->NextSibling();
@@ -1138,7 +1044,18 @@ tinyxml2::XMLNode* readCommandParamType(tinyxml2::XMLNode* node, std::string& ty
   {
     std::string value = trimEnd(node->Value());
     assert((value == "*") || (value == "**") || (value == "* const*"));
-    typeString += value;
+	if (value == "*") {
+		type = typeOracle.pointer_to(type, constModifier);
+	}
+	else if (value == "**") {
+		type = typeOracle.pointer_to(type, constModifier);
+		type = typeOracle.pointer_to(type, false);
+	}
+	else {
+		assert(value == "* const*");
+		type = typeOracle.pointer_to(type, constModifier);
+		type = typeOracle.pointer_to(type, true);
+	}
     node = node->NextSibling();
   }
 
@@ -1163,7 +1080,7 @@ Command* readCommandProto(tinyxml2::XMLElement * element)
 	// get return type and name of the command
 	// TODO: Removed strip
 	//std::string type = strip(typeElement->GetText(), "Vk");
-	Type* type = typeOracle.getType(typeElement->GetText());
+	Type* type = typeOracle.get_type(typeElement->GetText());
 	// TODO: Removed strip and startLowerCase (I use whatever case Vulkan uses)
 	//std::string name = startLowerCase(strip(nameElement->GetText(), "vk"));
 	std::string name = nameElement->GetText();
@@ -1401,7 +1318,7 @@ void readExtensionCommand(tinyxml2::XMLElement * element, std::map<std::string, 
 	assert(element->Attribute("name"));
 	// TODO: Removed strip and startLowerCase
 	//std::string name = startLowerCase(strip(element->Attribute("name"), "vk"));
-	Type* t = typeOracle.getType(element->Attribute("name"));
+	Type* t = typeOracle.get_type(element->Attribute("name"));
 	extensionCommands.push_back(t);
 
 	// TODO: Tell command that it belongs to an extension (just boolean to prevent
@@ -1417,7 +1334,7 @@ void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, Enu
   {
     assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
 	if (element->Attribute("bitpos")) {
-		Bitmasks* t = typeOracle.getType(element->Attribute("extends"))->to_bitmasks();
+		Bitmasks* t = typeOracle.get_type(element->Attribute("extends"))->to_bitmasks();
 		assert(t);
 		t->add_member(name, element->Attribute("bitpos"), true);
 	}
@@ -1433,14 +1350,14 @@ void readExtensionEnum(tinyxml2::XMLElement * element, std::map<std::string, Enu
 
 		std::string valueString = std::to_string(value);
 
-		Enum* t = typeOracle.getType(element->Attribute("extends"))->to_enum();
+		Enum* t = typeOracle.get_type(element->Attribute("extends"))->to_enum();
 		assert(t);
 		t->add_member(name, valueString);
 	}
 	else {
 		// This is a special case for an enum variant that used to be core.
 		// It uses value instead of offset.
-		Enum* t = typeOracle.getType(element->Attribute("extends"))->to_enum();
+		Enum* t = typeOracle.get_type(element->Attribute("extends"))->to_enum();
 		assert(t);
 		t->add_member(name, element->Attribute("value"));
 	}
@@ -1553,7 +1470,7 @@ void readTypeBasetype(tinyxml2::XMLElement * element)
 	std::string type = typeElement->GetText();
 	assert(type == "uint32_t" || type == "uint64_t");
 
-	Type* underlying = typeOracle.getType(type);
+	Type* underlying = typeOracle.get_type(type);
 
 	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
@@ -1599,7 +1516,7 @@ void readTypeBitmask(tinyxml2::XMLElement * element, VkData & vkData)
 		// I don't define bitmasks here, but rather when parsing its members.
 		// Non-existant definitions should not be a requirement, so this turns
 		// into an extra check that the type is not undefined later.
-		bit_definitions = typeOracle.getType(element->Attribute("requires"));
+		bit_definitions = typeOracle.get_type(element->Attribute("requires"));
 	}
 
 	typeOracle.define_bitmask_typedef(name, bit_definitions);
@@ -1625,12 +1542,15 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 
 	// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
 	// group 1.
-	std::regex re(R"(^typedef ([^ ]+) \(VKAPI_PTR \*$)");
+	std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
 	auto it = std::sregex_iterator(text.begin(), text.end(), re);
 	auto end = std::sregex_iterator();
 	assert(it != end);
 	std::smatch match = *it;
-	std::string returnType = match[1].str();
+	Type* returnType = typeOracle.get_type(match[1].str());
+	if (match[2].matched) {
+		returnType = typeOracle.pointer_to(returnType, false);
+	}
 
 	// name tag containing the type def name
 	node = node->NextSibling();
@@ -1700,13 +1620,23 @@ void readTypeFuncpointer(tinyxml2::XMLElement * element)
 			nextParamConst = match[1].matched;
 		}
 
+		Type* t = typeOracle.get_type(paramType);
+
+		if (constModifier) {
+			assert(pointer);
+		}
+
+		if (pointer) {
+			t = typeOracle.pointer_to(t, constModifier);
+		}
+
 		params.push_back({
-			typeOracle.getType((constModifier ? "const " : "") + paramType + (pointer ? "*" : "")),
+			t,
 			paramName,
 		});
 	}
 
-	FunctionTypedef* t = typeOracle.define_function_typedef(name, typeOracle.getType(returnType));
+	FunctionTypedef* t = typeOracle.define_function_typedef(name, returnType);
 	for (auto p : params) {
 		Parameter param;
 		param.type = p.first;
@@ -1727,11 +1657,11 @@ void readTypeHandle(tinyxml2::XMLElement * element, VkData & vkData)
 	std::string type = typeElement->GetText();
 	Type* underlying = nullptr;
 	if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
-		underlying = typeOracle.getType("size_t");
+		underlying = typeOracle.get_type("size_t");
 	}
 	else {
 		assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
-		underlying = typeOracle.getType("uint64_t");
+		underlying = typeOracle.get_type("uint64_t");
 	}
 
 	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
@@ -1781,9 +1711,8 @@ void readTypeStructMember(Struct* theStruct, tinyxml2::XMLElement * element) {
 	// generation, so they are not of interest for the bindings.
 
 	// Read the type, parsing modifiers to get a string of the type.
-	std::string typeString("");
-	tinyxml2::XMLNode* child = readTypeStructMemberType(element->FirstChild(), typeString);
-	Type* type = typeOracle.getType(typeString);
+	Type* type;
+	tinyxml2::XMLNode* child = readTypeStructMemberType(element->FirstChild(), type);
 
 	// After we have parsed the type we expect to find the name of the member
 	assert(child->ToElement() && strcmp(child->Value(), "name") == 0 && child->ToElement()->GetText());
@@ -1799,15 +1728,16 @@ void readTypeStructMember(Struct* theStruct, tinyxml2::XMLElement * element) {
 // Reads the type tag of a member tag, including potential text nodes around
 // the type tag to get qualifiers. We pass the first node that could potentially
 // be a text node.
-tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::string& type)
+tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, Type*& type)
 {
 	assert(element);
 
+	bool constant = false;
 	if (element->ToText())
 	{
 		std::string value = trimEnd(element->Value());
 		if (value == "const") {
-			type = value + " ";
+			constant = true;
 		}
 		else {
 			// struct can happen as in VkWaylandSurfaceCreateInfoKHR. I just
@@ -1824,7 +1754,7 @@ tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::str
 	//pureType = strip(element->ToElement()->GetText(), "Vk");
 	//type += pureType;
 	std::string pureType = element->ToElement()->GetText();
-	type += pureType;
+	type = typeOracle.get_type(pureType);
 
 	element = element->NextSibling();
 	assert(element);
@@ -1832,8 +1762,23 @@ tinyxml2::XMLNode* readTypeStructMemberType(tinyxml2::XMLNode* element, std::str
 	{
 		std::string value = trimEnd(element->Value());
 		assert((value == "*") || (value == "**") || (value == "* const*"));
-		type += value;
+		if (value == "*") {
+			type = typeOracle.pointer_to(type, constant);
+		}
+		else if (value == "**") {
+			type = typeOracle.pointer_to(type, constant);
+			type = typeOracle.pointer_to(type, false);
+		}
+		else {
+			assert(value == "* const*");
+			type = typeOracle.pointer_to(type, constant);
+			type = typeOracle.pointer_to(type, true);
+		}
 		element = element->NextSibling();
+	}
+	else {
+		// Should not have const qualifier without pointer
+		assert(!constant);
 	}
 
 	return element;
