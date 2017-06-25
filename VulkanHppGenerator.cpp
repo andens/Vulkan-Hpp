@@ -25,13 +25,17 @@ class IndentingOStreambuf : public std::streambuf
 {
 	std::streambuf*     myDest;
 	bool                myIsAtStartOfLine;
-	std::string         myIndent;
+	//std::string         myIndent;
+	int                 myIndent;
 	std::ostream*       myOwner;
 protected:
 	virtual int         overflow(int ch)
 	{
 		if (myIsAtStartOfLine && ch != '\n') {
-			myDest->sputn(myIndent.data(), myIndent.size());
+			//myDest->sputn(myIndent.data(), myIndent.size());
+			for (int i = 0; i < myIndent; ++i) {
+				myDest->sputc(' ');
+			}
 		}
 		myIsAtStartOfLine = ch == '\n';
 		return myDest->sputc(ch);
@@ -41,7 +45,8 @@ public:
 		std::streambuf* dest, int indent = 4)
 		: myDest(dest)
 		, myIsAtStartOfLine(true)
-		, myIndent(indent, ' ')
+		//, myIndent(indent, ' ')
+		, myIndent(indent)
 		, myOwner(NULL)
 	{
 	}
@@ -49,7 +54,8 @@ public:
 		std::ostream& dest, int indent = 4)
 		: myDest(dest.rdbuf())
 		, myIsAtStartOfLine(true)
-		, myIndent(indent, ' ')
+		//, myIndent(indent, ' ')
+		, myIndent(indent)
 		, myOwner(&dest)
 	{
 		myOwner->rdbuf(this);
@@ -58,6 +64,15 @@ public:
 	{
 		if (myOwner != NULL) {
 			myOwner->rdbuf(myDest);
+		}
+	}
+	void increase(int indent = 4) {
+		myIndent += indent;
+	}
+	void decrease(int indent = 4) {
+		myIndent -= indent;
+		if (myIndent < 0) {
+			myIndent = 0;
 		}
 	}
 } *indent;
@@ -2238,17 +2253,23 @@ pub mod core {
 		writeVersionCheck(ofs, reg.version());
 
 		ofs << std::endl;
-
 		for (auto tdef : reg.get_scalar_typedefs()) {
 			ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
 		}
 
 		ofs << std::endl;
-		ofs << "OPAQUE TYPES HERE?" << std::endl;
-		ofs << "SOME CONSTANTS HERE?" << std::endl;
+		for (auto handle : reg.get_handle_typedefs()) {
+			if (!handle->extension) {
+				ofs << "type " << handle->actual << " = " << handle->alias << ";" << std::endl;
+			}
+		}
 
 		ofs << std::endl;
+		for (auto c : reg.get_api_constants()) {
+			ofs << "const " << std::get<0>(c) << ": " << std::get<1>(c) << " = " << std::get<2>(c) << ";" << std::endl;
+		}
 
+		ofs << std::endl;
 		ofs << flagsMacro;
 
 		ofs << std::endl;
@@ -2269,6 +2290,8 @@ pub mod core {
 
 		//assert(vkData.deleterTypes.find("") != vkData.deleterTypes.end());
 		//writeTypes(ofs, vkData, defaultValues);
+
+		indent->decrease();
 
 		ofs << "} // mod core" << std::endl;
 	}
