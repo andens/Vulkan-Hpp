@@ -3430,19 +3430,26 @@ void writeVersionCheck(std::ostream & os, std::string const& version)
 
 class RustTranslator : public ITranslator {
 	virtual std::string pointer_to(std::string const& type, PointerType pointer_type) override final {
+		// void as in no parameters or return value is not the same as void
+		// pointer and have different syntax in Rust
+		std::string t = type;
+		if (t == "()") {
+			t = "c_void";
+		}
+
 		switch (pointer_type) {
 		case PointerType::CONST_T_P:
-			return "*const " + type;
+			return "*const " + t;
 		case PointerType::CONST_T_PP:
-			return "*mut *const " + type;
+			return "*mut *const " + t;
 		case PointerType::CONST_T_P_CONST_P:
-			return "*const *const " + type;
+			return "*const *const " + t;
 		case PointerType::T_P:
-			return "*mut " + type;
+			return "*mut " + t;
 		case PointerType::T_PP:
-			return "*mut *mut " + type;
+			return "*mut *mut " + t;
 		case PointerType::T_P_CONST_P:
-			return "*const *mut " + type;
+			return "*const *mut " + t;
 		default:
 			assert(false);
 			return "";
