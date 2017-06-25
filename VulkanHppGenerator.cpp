@@ -278,8 +278,44 @@ public:
 		return _version;
 	}
 
+	std::vector<std::tuple<std::string, std::string, std::string>> const& get_api_constants(void) const {
+		return _api_constants;
+	}
+
 	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
 		return _scalar_typedefs;
+	}
+
+	std::vector<FunctionTypedef*> const& get_function_typedefs(void) const {
+		return _function_typedefs;
+	}
+
+	std::vector<Bitmasks*> const& get_bitmasks(void) const {
+		return _bitmasks;
+	}
+
+	std::vector<BitmaskTypedef*> const& get_bitmask_typedefs(void) const {
+		return _bitmask_typedefs;
+	}
+
+	std::vector<HandleTypedef*> const& get_handle_typedefs(void) const {
+		return _handle_typedefs;
+	}
+
+	std::vector<Struct*> const& get_structs(void) const {
+		return _structs;
+	}
+
+	std::vector<Enum*> const& get_enums(void) const {
+		return _enums;
+	}
+
+	std::vector<Command*> const& get_commands(void) const {
+		return _commands;
+	}
+
+	std::map<std::string, Extension> const& get_extensions(void) const {
+		return _extensions;
 	}
 
 private:
