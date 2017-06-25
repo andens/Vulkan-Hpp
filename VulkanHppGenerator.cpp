@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <fstream>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <iterator>
 #include <list>
@@ -90,398 +91,72 @@ public:
 	}
 } *indent;
 
-class Type;
-
-struct ParamData
-{
-	Type* type;
-	std::string name;
-	std::string arraySize;
+struct ScalarTypedef {
+	std::string alias;
+	std::string actual;
 };
 
-struct CommandData
-{
-	CommandData(Type* returnType, std::string const& fn)
-		: returnType(returnType)
-		, fullName(fn)
-		, returnParam(~0)
-		, templateParam(~0)
-		, twoStep(false)
-	{}
-
-	std::string               className;
-	std::string               enhancedReturnType;
-	std::string               fullName;
-	std::vector<ParamData>    params;
-	std::string               protect;
-	std::string               reducedName;
-	size_t                    returnParam;
-	Type*                     returnType;
-	std::set<size_t>          skippedParams;
-	size_t                    templateParam;
-	bool                      twoStep;
-	std::map<size_t, size_t>  vectorParams;
-};
-
-class IType {
-public:
-	// Returns type name as used in bindings. For most types, this would be the
-	// same name as defined in the registry. For C types, the translated type is
-	// returned instead.
-	virtual std::string const& type_name(void) const = 0;
-};
-
-class CType : public IType {
-	friend class Registry;
-
-public:
-	// TODO: Private?
-	enum class Kind {
-		Intrinsic,
-		X11,
-		Android,
-		Mir,
-		Wayland,
-		Windows,
-		Xcb,
-	};
-
-	virtual std::string const& type_name(void) const override final {
-		return _translation;
-	}
-
-private:
-	CType(std::string const& c_type, std::string const& translation, Kind kind) : _c_type(c_type), _translation(translation), _kind(kind) {}
-	CType(CType const&) = delete;
-	void operator=(CType const&) = delete;
-
-private:
-	std::string _c_type;
-	std::string _translation;
-	Kind _kind;
-};
-
-class ScalarTypedef : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _alias;
-	}
-
-	Type const* actual(void) const {
-		return _actual;
-	}
-
-private:
-	ScalarTypedef(std::string const& alias, Type const* actual) : _alias(alias), _actual(actual) {}
-	ScalarTypedef(ScalarTypedef const&) = delete;
-	void operator=(ScalarTypedef const&) = delete;
-
-private:
-	std::string _alias;
-	Type const* _actual;
-};
-
-struct Parameter {
-	Type const* type;
-	std::string name;
-	std::string array_size;
-};
-
-class FunctionTypedef : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _alias;
-	}
-
-	// TODO: Make private when parsing is part of Registry
-	void add_parameter(Parameter const& param) {
-		_params.push_back(param);
-	}
-
-private:
-	FunctionTypedef(std::string const& alias, Type const* return_type) : _alias(alias), _return_type(return_type) {}
-	FunctionTypedef(FunctionTypedef const&) = delete;
-	void operator=(FunctionTypedef const&) = delete;
-
-private:
-	std::string _alias;
-	Type const* _return_type;
-	std::vector<Parameter> _params;
-};
-
-class Bitmasks : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _name;
-	}
-
-	// TODO: make private
-	void add_member(std::string const& name, std::string const& value, bool bitpos) {
-		// TODO: If bitpos is true, convert value to int to generate actual value
-		_members.push_back(make_pair(name, value));
-	}
-
-private:
-	Bitmasks(std::string const& name) : _name(name) {}
-	Bitmasks(Bitmasks const&) = delete;
-	void operator=(Bitmasks const&) = delete;
-
-private:
-	std::string _name;
-	std::vector<std::pair<std::string, std::string>> _members;
-};
-
-class BitmaskTypedef : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _alias;
-	}
-
-private:
-	BitmaskTypedef(std::string const& alias, Type const* bit_definitions) : _alias(alias), _bit_definitions(bit_definitions) {}
-	BitmaskTypedef(BitmaskTypedef const&) = delete;
-	void operator=(BitmaskTypedef const&) = delete;
-
-private:
-	std::string _alias;
-	Type const* _bit_definitions;
-};
-
-class HandleTypedef : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _alias;
-	}
-
-private:
-	HandleTypedef(std::string const& alias, Type const* actual) : _alias(alias), _actual(actual) {}
-	HandleTypedef(HandleTypedef const&) = delete;
-	void operator=(HandleTypedef const&) = delete;
-
-private:
-	std::string _alias;
-	Type const* _actual;
-};
-
-class Struct : public IType {
-	friend class Registry;
-
-public:
-	struct StructMember {
-		Type const* type;
+struct FunctionTypedef {
+	struct Parameter {
+		std::string type;
 		std::string name;
-		std::string array_size;
 	};
 
-	virtual std::string const& type_name(void) const override final {
-		return _name;
-	}
-
-	// TODO: make private
-	void add_member(Type const* type, std::string const& name, std::string const& array_size) {
-		StructMember member;
-		member.type = type;
-		member.name = name;
-		member.array_size = array_size;
-		_members.push_back(member);
-	}
-
-private:
-	Struct(std::string const& name, bool is_union) : _name(name), _is_union(is_union) {}
-	Struct(Struct const&) = delete;
-	void operator=(Struct const&) = delete;
-
-private:
-	std::string _name;
-	std::vector<StructMember> _members;
-	bool _is_union;
+	std::string alias;
+	std::string return_type;
+	std::vector<Parameter> params;
 };
 
-class Enum : public IType {
-	friend class Registry;
+struct Bitmasks {
+	struct Member {
+		std::string name;
+		std::string value;
+	};
 
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _name;
-	}
-
-	// TODO: make private
-	void add_member(std::string const& name, std::string const& value) {
-		_members.push_back(std::make_pair(name, value));
-	}
-
-private:
-	Enum(std::string const& name) : _name(name) {}
-	Enum(Enum const&) = delete;
-	void operator=(Enum const&) = delete;
-
-private:
-	std::string _name;
-	std::vector<std::pair<std::string, std::string>> _members;
+	std::string name;
+	std::vector<Member> members;
 };
 
-class Pointer : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		return "*" + _constness + " " + ((IType*)_inner)->type_name();
-	}
-
-	// TODO: make private
-	void set_inner(Type const* inner) {
-		_inner = inner;
-	}
-
-private:
-	Pointer(Type const* inner, bool constness) : _inner(inner) {
-		if (constness) {
-			_constness = "const";
-		}
-		else {
-			_constness = "mut";
-		}
-	}
-	Pointer(Pointer const&) = delete;
-	void operator=(Pointer const&) = delete;
-
-private:
-	Type const* _inner;
-	std::string _constness;
+struct BitmaskTypedef {
+	std::string alias;
+	std::string bit_definitions; // The actual bitmask containing values
 };
 
-class Array : public IType {
-	friend class Registry;
-
-public:
-	virtual std::string const& type_name(void) const override final {
-		// Not implemented. For members, arrays would look like '[type; array_size]',
-		// but when used as parameter to function, we pass '&[type; array_size]'.
-		assert(false);
-		return "";
-	}
-
-private:
-	Array(Type const* inner, std::string const& array_size) : _inner(inner), _array_size(array_size) {}
-	Array(Array const&) = delete;
-	void operator=(Array const&) = delete;
-
-private:
-	Type const* _inner;
-	std::string _array_size;
+struct HandleTypedef {
+	std::string alias;
+	std::string actual;
 };
 
-// Not technically a type, but integrates with my existing checks for definitions and stuff.
-// Come to think of it, types should really be items or something.
-class Command : public IType {
-	friend class Registry;
+struct Struct {
+	struct Member {
+		std::string type;
+		std::string name;
+	};
 
-public:
-	virtual std::string const& type_name(void) const override final {
-		return _name;
-	}
-
-	// TODO: make private
-	void add_parameter(Type const* type, std::string const& name, std::string const& array_size) {
-		Parameter param;
-		param.type = type;
-		param.name = name;
-		param.array_size = array_size;
-		_params.push_back(param);
-	}
-
-private:
-	Command(std::string const& name, Type const* return_type) : _name(name), _return_type(return_type) {}
-	Command(Command const&) = delete;
-	void operator=(Command const&) = delete;
-
-private:
-	Type const* _return_type;
-	std::string _name;
-	std::vector<Parameter> _params;
+	std::string name;
+	std::vector<Member> members;
+	bool is_union;
 };
 
-// Container for some type used by Vulkan. Undefined types are marked by the
-// wrapped pointer being null.
-class Type : public IType {
-	friend class Registry;
+struct Enum {
+	struct Member {
+		std::string name;
+		std::string value;
+	};
 
-public:
-	virtual std::string const& type_name(void) const override final {
-		assert(_type);
-		return _type->type_name();
-	}
+	std::string name;
+	std::vector<Member> members;
+};
 
-	CType* to_c_type(void) {
-		return dynamic_cast<CType*>(_type);
-	}
+struct Command {
+	struct Parameter {
+		std::string type;
+		std::string name;
+	};
 
-	ScalarTypedef* to_scalar_typedef(void) {
-		return dynamic_cast<ScalarTypedef*>(_type);
-	}
-
-	FunctionTypedef* to_function_typedef(void) {
-		return dynamic_cast<FunctionTypedef*>(_type);
-	}
-
-	Bitmasks* to_bitmasks(void) {
-		return dynamic_cast<Bitmasks*>(_type);
-	}
-
-	BitmaskTypedef* to_bitmask_typedef(void) {
-		return dynamic_cast<BitmaskTypedef*>(_type);
-	}
-
-	HandleTypedef* to_handle_typedef(void) {
-		return dynamic_cast<HandleTypedef*>(_type);
-	}
-
-	Struct* to_struct(void) {
-		return dynamic_cast<Struct*>(_type);
-	}
-
-	Enum* to_enum(void) {
-		return dynamic_cast<Enum*>(_type);
-	}
-
-	Pointer* to_pointer(void) {
-		return dynamic_cast<Pointer*>(_type);
-	}
-
-	Array* to_array(void) {
-		return dynamic_cast<Array*>(_type);
-	}
-
-	Command* to_command(void) {
-		return dynamic_cast<Command*>(_type);
-	}
-
-	bool undefined() {
-		return !!_type;
-	}
-
-private:
-	Type() : _type(nullptr) {}
-	Type(Type const&) = delete;
-	Type& operator=(Type const&) = delete;
-
-	void make_concrete(IType* type) {
-		assert(!_type);
-		_type = type;
-	}
-
-private:
-	IType* _type = nullptr;
+	std::string return_type;
+	std::string name;
+	std::vector<Parameter> params;
 };
 
 struct Extension {
@@ -489,7 +164,23 @@ struct Extension {
 	std::string number;
 	std::string tag;
 	std::string type; // instance or device if not empty string
-	std::vector<Type*> commands; // TODO: Should be Command*
+	std::vector<std::string> commands;
+};
+
+enum class PointerType {
+	T_P,
+	T_PP,
+	T_P_CONST_P,
+	CONST_T_P,
+	CONST_T_PP,
+	CONST_T_P_CONST_P,
+};
+
+class ITranslator {
+public:
+	virtual std::string pointer_to(std::string const& type_name, PointerType pointer_type) = 0;
+	virtual std::string array_member(std::string const& type_name, std::string const& array_size) = 0;
+	virtual std::string array_param(std::string const& type_name, std::string const& array_size) = 0;
 };
 
 // TODO: To make things a bit cleaner, I could probably just have the typeOracle
@@ -502,59 +193,18 @@ struct Extension {
 // class into a VulkanOracle, responsible for tracking Vulkan items.
 class Registry {
 public:
-	Registry()
-	{
-		auto insert_c_type = [this](std::string const& c_type, std::string const& rust_type, CType::Kind kind) {
-			// Define the C type used in the API
-			CType* t = new CType(c_type, rust_type, kind);
-			_define(c_type, t);
-			_c_types.push_back(t);
+	Registry(ITranslator* translator) : _translator(translator) {}
 
-			// Add a phantom type to prevent the translated types from accidentally
-			// being defined somewhere.
-			if (_types.find(rust_type) == _types.end()) {
-				_types.insert(std::make_pair(rust_type, nullptr));
-			}
-		};
-		// I'm working under the assumption that the C and OS types used will
-		// be a comparatively small set so that I can deal with those manually.
-		// This way I can assume that types not existing at the time I need them
-		// are Vulkan types that will be defined later. In other words, I can
-		// defer definitions of Vulkan types in particular and have a separate
-		// API for them.
-		insert_c_type("void", "()", CType::Kind::Intrinsic);
-		insert_c_type("char", "c_char", CType::Kind::Intrinsic);
-		insert_c_type("float", "f32", CType::Kind::Intrinsic);
-		insert_c_type("uint8_t", "u8", CType::Kind::Intrinsic);
-		insert_c_type("uint32_t", "u32", CType::Kind::Intrinsic);
-		insert_c_type("uint64_t", "u64", CType::Kind::Intrinsic);
-		insert_c_type("int32_t", "i32", CType::Kind::Intrinsic);
-		insert_c_type("size_t", "usize", CType::Kind::Intrinsic); // unsigned according to reference
-		insert_c_type("int", "c_int", CType::Kind::Intrinsic);
-
-		insert_c_type("Display", "Display", CType::Kind::X11);
-		insert_c_type("VisualID", "VisualID", CType::Kind::X11);
-		insert_c_type("Window", "Window", CType::Kind::X11);
-		insert_c_type("RROutput", "RROutput", CType::Kind::X11);
-
-		insert_c_type("ANativeWindow", "ANativeWindow", CType::Kind::Android);
-
-		insert_c_type("MirConnection", "MirConnection", CType::Kind::Mir);
-		insert_c_type("MirSurface", "MirSurface", CType::Kind::Mir);
-
-		insert_c_type("wl_display", "wl_display", CType::Kind::Wayland);
-		insert_c_type("wl_surface", "wl_surface", CType::Kind::Wayland);
-
-		insert_c_type("HINSTANCE", "HINSTANCE", CType::Kind::Windows);
-		insert_c_type("HWND", "HWND", CType::Kind::Windows);
-		insert_c_type("HANDLE", "HANDLE", CType::Kind::Windows);
-		insert_c_type("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES", CType::Kind::Windows);
-		insert_c_type("DWORD", "DWORD", CType::Kind::Windows);
-		insert_c_type("LPCWSTR", "LPCWSTR", CType::Kind::Windows);
-
-		insert_c_type("xcb_connection_t", "xcb_connection_t", CType::Kind::Xcb);
-		insert_c_type("xcb_visualid_t", "xcb_visualid_t", CType::Kind::Xcb);
-		insert_c_type("xcb_window_t", "xcb_window_t", CType::Kind::Xcb);
+	// I'm working under the assumption that the C and OS types used will
+	// be a comparatively small set so that I can deal with those manually.
+	// This way I can assume that types not existing at the time I need them
+	// are Vulkan types that don't need a specific translation, thus avoiding
+	// the need to analyze them at runtime. Where I expect to read a C type,
+	// this map will be checked, resulting in a runtime error if a type is not
+	// present. Thus the user will have to provide translations for C types
+	// before parsing the spec.
+	void add_c_type(std::string const& c, std::string const& translation) {
+		_c_types[c] = translation;
 	}
 
 	void parse(std::string const& spec) {
@@ -617,6 +267,8 @@ public:
 		}
 
 		_undefined_check();
+
+		_mark_extension_items();
 	}
 
 	std::string const& license(void) const {
@@ -731,7 +383,9 @@ private:
 
 				std::string name = child->Attribute("name");
 
-				_define_c_type(name);
+				if (_c_types.find(name) == _c_types.end()) {
+					throw std::runtime_error("Translation for C type '" + name + "' not provided.");
+				}
 			}
 		}
 	}
@@ -743,7 +397,7 @@ private:
 		std::string type = typeElement->GetText();
 		assert(type == "uint32_t" || type == "uint64_t");
 
-		Type* underlying = _get_type(type);
+		std::string const& underlying = _type_reference(type);
 
 		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
@@ -775,12 +429,12 @@ private:
 		// the oracle aware that these types are bitmask typedefs so that their
 		// structs will be generated, albeit with no way to create them with flags.
 
-		Type* bit_definitions = nullptr;
+		std::string bit_definitions = "";
 		if (element->Attribute("requires")) {
 			// I don't define bitmasks here, but rather when parsing its members.
 			// Non-existant definitions should not be a requirement, so this turns
 			// into an extra check that the type is not undefined later.
-			bit_definitions = _get_type(element->Attribute("requires"));
+			bit_definitions = _type_reference(element->Attribute("requires"));
 		}
 
 		_define_bitmask_typedef(name, bit_definitions);
@@ -811,9 +465,9 @@ private:
 		auto end = std::sregex_iterator();
 		assert(it != end);
 		std::smatch match = *it;
-		Type* returnType = _get_type(match[1].str());
+		std::string returnType = _type_reference(match[1].str());
 		if (match[2].matched) {
-			returnType = _pointer_to(returnType, false);
+			returnType = _translator->pointer_to(returnType, PointerType::T_P);
 		}
 
 		// name tag containing the type def name
@@ -841,7 +495,7 @@ private:
 		}
 
 		// Storage for parsed parameters (type, name)
-		std::vector<std::pair<Type*, std::string>> params;
+		std::vector<FunctionTypedef::Parameter> params;
 
 		// Start processing parameters.
 		while (node = node->NextSibling()) {
@@ -884,14 +538,14 @@ private:
 				nextParamConst = match[1].matched;
 			}
 
-			Type* t = _get_type(paramType);
+			std::string t = _type_reference(paramType);
 
 			if (constModifier) {
 				assert(pointer);
 			}
 
 			if (pointer) {
-				t = _pointer_to(t, constModifier);
+				t = _translator->pointer_to(t, constModifier ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 
 			params.push_back({
@@ -902,11 +556,7 @@ private:
 
 		FunctionTypedef* t = _define_function_typedef(name, returnType);
 		for (auto p : params) {
-			Parameter param;
-			param.type = p.first;
-			param.name = p.second;
-			param.array_size = ""; // Not used here. I have an assertion so it should catch in case things change
-			t->add_parameter(param);
+			t->params.push_back(p);
 		}
 	}
 
@@ -915,13 +565,13 @@ private:
 		tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
 		std::string type = typeElement->GetText();
-		Type* underlying = nullptr;
+		std::string underlying = "";
 		if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
-			underlying = _get_type("size_t");
+			underlying = _type_reference("size_t");
 		}
 		else {
 			assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
-			underlying = _get_type("uint64_t");
+			underlying = _type_reference("uint64_t");
 		}
 
 		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
@@ -954,7 +604,7 @@ private:
 		// generation, so they are not of interest for the bindings.
 
 		// Read the type, parsing modifiers to get a string of the type.
-		Type* type;
+		std::string type;
 		tinyxml2::XMLNode* child = _read_type_struct_member_type(element->FirstChild(), type);
 
 		// After we have parsed the type we expect to find the name of the member
@@ -963,15 +613,21 @@ private:
 
 		// Some members have more information about array size
 		std::string arraySize = _read_array_size(child, memberName);
+		if (arraySize != "") {
+			type = _translator->array_member(type, arraySize);
+		}
 
 		// Add member to struct
-		theStruct->add_member(type, memberName, arraySize);
+		Struct::Member m;
+		m.type = type;
+		m.name = memberName;
+		theStruct->members.push_back(m);
 	}
 
 	// Reads the type tag of a member tag, including potential text nodes around
 	// the type tag to get qualifiers. We pass the first node that could potentially
 	// be a text node.
-	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, Type*& type)
+	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& type)
 	{
 		assert(element);
 
@@ -993,8 +649,7 @@ private:
 
 		assert(element->ToElement());
 		assert((strcmp(element->Value(), "type") == 0) && element->ToElement()->GetText());
-		std::string pureType = element->ToElement()->GetText();
-		type = _get_type(pureType);
+		type = _type_reference(element->ToElement()->GetText());
 
 		element = element->NextSibling();
 		assert(element);
@@ -1003,16 +658,14 @@ private:
 			std::string value = _trim_end(element->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				type = _pointer_to(type, constant);
+				type = _translator->pointer_to(type, constant ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				type = _pointer_to(type, constant);
-				type = _pointer_to(type, false);
+				type = _translator->pointer_to(type, constant ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				type = _pointer_to(type, constant);
-				type = _pointer_to(type, true);
+				type = _translator->pointer_to(type, constant ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			element = element->NextSibling();
 		}
@@ -1054,15 +707,21 @@ private:
 		if (type == "bitmask") {
 			Bitmasks* t = _define_bitmasks(name);
 
-			_read_enums_bitmask(element, [t](const std::string& member, const std::string& value, bool isBitpos) {
-				t->add_member(member, value, isBitpos);
+			_read_enums_bitmask(element, [t, this](std::string const& member, std::string const& value, bool isBitpos) {
+				Bitmasks::Member m;
+				m.name = member;
+				m.value = isBitpos ? _bitpos_to_value(value) : value;
+				t->members.push_back(m);
 			});
 		}
 		else {
 			Enum* t = _define_enum(name);
 
-			_read_enums_enum(element, [t](const std::string& member, const std::string& value) {
-				t->add_member(member, value);
+			_read_enums_enum(element, [t](std::string const& member, std::string const& value) {
+				Enum::Member m;
+				m.name = member;
+				m.value = value;
+				t->members.push_back(m);
 			});
 		}
 	}
@@ -1202,7 +861,7 @@ private:
 		assert(!nameElement->NextSibling());
 
 		// get return type and name of the command
-		Type* type = _get_type(typeElement->GetText());
+		std::string type = _type_reference(typeElement->GetText());
 		std::string name = nameElement->GetText();
 
 		return _define_command(name, type);
@@ -1229,7 +888,7 @@ private:
 
 	void _read_command_param(tinyxml2::XMLElement * element, Command* cmd)
 	{
-		Type* type;
+		std::string type;
 		tinyxml2::XMLNode * afterType = _read_command_param_type(element->FirstChild(), type);
 
 		assert(afterType->ToElement() && (strcmp(afterType->Value(), "name") == 0) && afterType->ToElement()->GetText());
@@ -1237,13 +896,16 @@ private:
 
 		std::string arraySize = _read_array_size(afterType, name);
 		if (arraySize != "") {
-			type = _array_of(type, arraySize);
+			type = _translator->array_param(type, arraySize);
 		}
 
-		cmd->add_parameter(type, name, arraySize);
+		Command::Parameter p;
+		p.type = type;
+		p.name = name;
+		cmd->params.push_back(p);
 	}
 
-	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, Type*& type)
+	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& type)
 	{
 		bool constModifier = false;
 
@@ -1265,9 +927,7 @@ private:
 
 		// get the pure type
 		assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
-		// TODO: Removed strip
-		//std::string type = strip(node->ToElement()->GetText(), "Vk");
-		type = _get_type(node->ToElement()->GetText());
+		type = _type_reference(node->ToElement()->GetText());
 
 		// end with "*", "**", or "* const*", if needed
 		node = node->NextSibling();
@@ -1277,16 +937,14 @@ private:
 			std::string value = _trim_end(node->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				type = _pointer_to(type, constModifier);
+				type = _translator->pointer_to(type, constModifier ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				type = _pointer_to(type, constModifier);
-				type = _pointer_to(type, false);
+				type = _translator->pointer_to(type, constModifier ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				type = _pointer_to(type, constModifier);
-				type = _pointer_to(type, true);
+				type = _translator->pointer_to(type, constModifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			node = node->NextSibling();
 		}
@@ -1442,24 +1100,18 @@ private:
 		}
 	}
 
-	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<Type*> extensionCommands)
+	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string> extensionCommands)
 	{
 		assert(element->Attribute("name"));
-		Type* t = _get_type(element->Attribute("name"));
+		std::string t = _type_reference(element->Attribute("name"));
 		extensionCommands.push_back(t);
 
-		// TODO: Tell command that it belongs to an extension (just boolean to prevent
-		// adding to core dispatch tables)
+		// Command is marked as belonging to an extension after parsing is done
 	}
 
 	void _read_extension_type(tinyxml2::XMLElement * element)
 	{
 		// TODO: Get type from oracle and mark it as extension-provided.
-	}
-
-	void _define_c_type(std::string const& type) {
-		auto it = _types.find(type);
-		assert(it != _types.end());
 	}
 
 	void _read_extension_enum(tinyxml2::XMLElement * element, std::string const& extensionNumber)
@@ -1471,9 +1123,20 @@ private:
 		{
 			assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
 			if (element->Attribute("bitpos")) {
-				Bitmasks* t = _get_type(element->Attribute("extends"))->to_bitmasks();
-				assert(t);
-				t->add_member(name, element->Attribute("bitpos"), true);
+				// Find the extended enum so we can add the member to it. It
+				// should exist, but if it does not, a solution is to simply save
+				// the enum data and extend the enum in the post-parse cleanup
+				// pass where we mark commands as extension commands.
+				std::string extends = element->Attribute("extends");
+				_type_reference(extends);
+				auto it = std::find_if(_bitmasks.begin(), _bitmasks.end(), [&extends](Bitmasks* bitmask) -> bool {
+					return bitmask->name == extends;
+				});
+				assert(it != _bitmasks.end());
+				Bitmasks::Member m;
+				m.name = name;
+				m.value = _bitpos_to_value(element->Attribute("bitpos"));
+				(*it)->members.push_back(m);
 			}
 			else if (element->Attribute("offset")) {
 				// The value depends on extension number and offset. See
@@ -1487,16 +1150,31 @@ private:
 
 				std::string valueString = std::to_string(value);
 
-				Enum* t = _get_type(element->Attribute("extends"))->to_enum();
-				assert(t);
-				t->add_member(name, valueString);
+				// If type does not exist, same goes as above
+				std::string extends = element->Attribute("extends");
+				_type_reference(extends);
+				auto it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
+					return e->name == extends;
+				});
+				assert(it != _enums.end());
+				Enum::Member m;
+				m.name = name;
+				m.value = valueString;
+				(*it)->members.push_back(m);
 			}
 			else {
 				// This is a special case for an enum variant that used to be core.
 				// It uses value instead of offset.
-				Enum* t = _get_type(element->Attribute("extends"))->to_enum();
-				assert(t);
-				t->add_member(name, element->Attribute("value"));
+				std::string extends = element->Attribute("extends");
+				_type_reference(extends);
+				auto it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
+					return e->name == extends;
+				});
+				assert(it != _enums.end());
+				Enum::Member m;
+				m.name = name;
+				m.value = element->Attribute("value");
+				(*it)->members.push_back(m);
 			}
 		}
 		// Inline definition of extension-specific constant.
@@ -1527,75 +1205,72 @@ private:
 		}
 	}
 
-	ScalarTypedef* _define_scalar_typedef(std::string const& alias, Type const* actual) {
-		ScalarTypedef* t = new ScalarTypedef(alias, actual);
-		_define(alias, t);
+	ScalarTypedef* _define_scalar_typedef(std::string const& alias, std::string const& actual) {
+		_define(alias);
+		ScalarTypedef* t = new ScalarTypedef;
+		t->alias = alias;
+		t->actual = actual;
 		_scalar_typedefs.push_back(t);
 		return t;
 	}
 
-	FunctionTypedef* _define_function_typedef(std::string const& alias, Type const* return_type) {
-		FunctionTypedef* t = new FunctionTypedef(alias, return_type);
-		_define(alias, t);
+	FunctionTypedef* _define_function_typedef(std::string const& alias, std::string const& return_type) {
+		_define(alias);
+		FunctionTypedef* t = new FunctionTypedef;
+		t->alias = alias;
+		t->return_type = return_type;
 		_function_typedefs.push_back(t);
 		return t;
 	}
 
 	Bitmasks* _define_bitmasks(std::string const& name) {
-		Bitmasks* t = new Bitmasks(name);
-		_define(name, t);
+		_define(name);
+		Bitmasks* t = new Bitmasks;
+		t->name = name;
 		_bitmasks.push_back(t);
 		return t;
 	}
 
-	BitmaskTypedef* _define_bitmask_typedef(std::string const& alias, Type const* bit_definitions) {
-		BitmaskTypedef* t = new BitmaskTypedef(alias, bit_definitions);
-		_define(alias, t);
+	BitmaskTypedef* _define_bitmask_typedef(std::string const& alias, std::string const& bit_definitions) {
+		_define(alias);
+		BitmaskTypedef* t = new BitmaskTypedef;
+		t->alias = alias;
+		t->bit_definitions = bit_definitions;
 		_bitmask_typedefs.push_back(t);
 		return t;
 	}
 
-	HandleTypedef* _define_handle_typedef(std::string const& alias, Type const* actual) {
-		HandleTypedef* t = new HandleTypedef(alias, actual);
-		_define(alias, t);
+	HandleTypedef* _define_handle_typedef(std::string const& alias, std::string const& actual) {
+		_define(alias);
+		HandleTypedef* t = new HandleTypedef;
+		t->alias = alias;
+		t->actual = actual;
 		_handle_typedefs.push_back(t);
 		return t;
 	}
 
 	Struct* _define_struct(std::string const& name, bool is_union) {
-		Struct* t = new Struct(name, is_union);
-		_define(name, t);
+		_define(name);
+		Struct* t = new Struct;
+		t->name = name;
+		t->is_union = is_union;
 		_structs.push_back(t);
 		return t;
 	}
 
 	Enum* _define_enum(std::string const& name) {
-		Enum* t = new Enum(name);
-		_define(name, t);
+		_define(name);
+		Enum* t = new Enum;
+		t->name = name;
 		_enums.push_back(t);
 		return t;
 	}
 
-	Type* _pointer_to(Type const* type, bool constness) {
-		// Nothing to define. Just create and store
-		Type* t = new Type();
-		Pointer* p = new Pointer(type, constness);
-		t->make_concrete(p);
-		_pointers.push_back(std::make_pair(t, p));
-		return t;
-	}
-
-	Type* _array_of(Type const* type, std::string const& array_size) {
-		Type* t = new Type();
-		Array* a = new Array(type, array_size);
-		t->make_concrete(a);
-		_arrays.push_back(std::make_pair(t, a));
-		return t;
-	}
-
-	Command* _define_command(std::string const& name, Type const* return_type) {
-		Command* t = new Command(name, return_type);
-		_define(name, t);
+	Command* _define_command(std::string const& name, std::string const& return_type) {
+		_define(name);
+		Command* t = new Command;
+		t->name = name;
+		t->return_type = return_type;
 		_commands.push_back(t);
 		return t;
 	}
@@ -1604,37 +1279,41 @@ private:
 		assert(_extensions.insert(std::make_pair(ext.name, ext)).second == true);
 	}
 
-	Type* _get_type(const std::string& type) {
+	std::string const& _type_reference(const std::string& type) {
 		assert(type.find_first_of("* ") == std::string::npos);
-		Type* t = nullptr;
-		auto it = _types.find(type);
-		if (it != _types.end()) {
-			t = it->second;
+
+		auto c = _c_types.find(type);
+		if (c != _c_types.end()) {
+			return c->second; // translation
 		}
-		else {
-			t = new Type();
-			_types.insert(std::make_pair(type, t));
+
+		if (_defined_types.find(type) == _defined_types.end()) {
 			_undefined_types.insert(type);
 		}
 
-		return t;
+		return type;
 	}
 
-	void _define(std::string const& name, IType* type) {
-		// Type must not already be defined
-		if (_types.find(name) != _types.end()) {
-			assert(_undefined_types.find(name) != _undefined_types.end());
-		}
-
-		// Get existing type, or create one if not present
-		Type* wrap = _get_type(name);
-		wrap->make_concrete(type);
-
+	void _define(std::string const& name) {
+		assert(_defined_types.find(name) == _defined_types.end());
+		_defined_types.insert(name);
 		_undefined_types.erase(name);
 	}
 
 	void _undefined_check() {
 		assert(_undefined_types.empty());
+	}
+
+	void _mark_extension_items() {
+
+	}
+
+	std::string _bitpos_to_value(std::string const& bitpos) {
+		int pos = std::stoi(bitpos);
+		uint32_t flag = 1 << pos;
+		std::stringstream s;
+		s << "0x" << std::setfill('0') << std::setw(sizeof(uint32_t) * 2) << std::hex << flag;
+		return s.str();
 	}
 
 private:
@@ -1651,13 +1330,14 @@ private:
 	never tells us what it is, thus indicating that it was C all the time.
 	*/
 
+	ITranslator* _translator;
 	std::string _version;
 	std::string _license_header;
 	std::vector<std::tuple<std::string, std::string, std::string>> _api_constants;
 	std::set<std::string> _tags;
-	std::map<std::string, Type*> _types; // All types referenced in the registry, undefined or not.
+	std::set<std::string> _defined_types; // All types defined in the registry
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
-	std::vector<CType*> _c_types;
+	std::map<std::string, std::string> _c_types;
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
@@ -1665,11 +1345,8 @@ private:
 	std::vector<HandleTypedef*> _handle_typedefs;
 	std::vector<Struct*> _structs;
 	std::vector<Enum*> _enums;
-	std::vector<std::pair<Type*, Pointer*>> _pointers;
-	std::vector<std::pair<Type*, Array*>> _arrays;
 	std::vector<Command*> _commands;
 	std::map<std::string, Extension> _extensions;
-
 };
 
 const std::string flagsMacro = R"(
@@ -1778,31 +1455,31 @@ std::string startUpperCase(std::string const& input);
 std::string strip(std::string const& value, std::string const& prefix, std::string const& postfix = std::string());
 std::string stripPluralS(std::string const& name);
 std::string toCamelCase(std::string const& value);
-void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
-std::string generateCall(CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
-void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it);
-void writeCallPlainTypeParameter(std::ostream & os, ParamData const& paramData);
-void writeCallVectorParameter(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular, std::map<size_t, size_t>::const_iterator it);
-void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData);
+//void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
+//std::string generateCall(CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular);
+//void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it);
+//void writeCallPlainTypeParameter(std::ostream & os, ParamData const& paramData);
+//void writeCallVectorParameter(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular, std::map<size_t, size_t>::const_iterator it);
+//void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData);
 void writeDeleterClasses(std::ostream & os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData);
 void writeDeleterForwardDeclarations(std::ostream &os, std::pair<std::string, std::set<std::string>> const& deleterTypes, std::map<std::string, DeleterData> const& deleterData);
 //void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique);
 //void writeFunctionBodyEnhanced(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
-void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
-void writeFunctionBodyEnhancedCallResult(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
-void writeFunctionBodyEnhancedCallTwoStep(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
-void writeFunctionBodyEnhancedCallTwoStepChecked(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
-void writeFunctionBodyEnhancedCallTwoStepIterate(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
-void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData);
-void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData);
+//void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
+//void writeFunctionBodyEnhancedCallResult(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular);
+//void writeFunctionBodyEnhancedCallTwoStep(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
+//void writeFunctionBodyEnhancedCallTwoStepChecked(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
+//void writeFunctionBodyEnhancedCallTwoStepIterate(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData);
+//void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData);
+//void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData);
 //void writeFunctionBodyStandard(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData);
 //void writeFunctionBodyUnique(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool singular);
 //void writeFunctionHeaderArguments(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool enhanced, bool singular, bool withDefaults);
 //void writeFunctionHeaderArgumentsEnhanced(std::ostream & os, VkData const& vkData, CommandData const& commandData, bool singular, bool withDefaults);
-void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData);
+//void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData);
 void writeFunctionHeaderName(std::ostream & os, std::string const& name, bool singular, bool unique);
-void writeFunctionHeaderReturnType(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool enhanced, bool singular, bool unique);
-void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool withDefault);
+//void writeFunctionHeaderReturnType(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool enhanced, bool singular, bool unique);
+//void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool withDefault);
 void writeReinterpretCast(std::ostream & os, bool leadingConst, bool vulkanType, std::string const& type, bool trailingPointerToConst);
 void writeStandardOrEnhanced(std::ostream & os, std::string const& standard, std::string const& enhanced);
 void writeStructConstructor( std::ostream & os, std::string const& name, StructData const& structData, std::set<std::string> const& vkTypes, std::map<std::string,std::string> const& defaultValues );
@@ -1815,7 +1492,7 @@ void writeTypeScalar( std::ostream & os );
 //void writeTypeStruct( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
 //void writeTypeUnion( std::ostream & os, VkData const& vkData, std::map<std::string,std::string> const& defaultValues );
 //void writeTypes(std::ostream & os, VkData const& vkData, std::map<std::string, std::string> const& defaultValues);
-void writeVersionCheck(std::ostream & os, std::string const& version);
+//void writeVersionCheck(std::ostream & os, std::string const& version);
 
 void EnumData::addEnumMember(std::string const &name, std::string const& tag)
 {
@@ -1926,220 +1603,220 @@ std::string toCamelCase(std::string const& value)
   return result;
 }
 
-std::string generateCall(CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular)
-{
-  std::ostringstream call;
-  writeCall(call, commandData, vkTypes, firstCall, singular);
-  return call.str();
-}
+//std::string generateCall(CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular)
+//{
+//  std::ostringstream call;
+//  writeCall(call, commandData, vkTypes, firstCall, singular);
+//  return call.str();
+//}
 
-void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular)
-{
-  //// get the parameter indices of the counter for vector parameters
-  //std::map<size_t,size_t> countIndices;
-  //for (std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.begin(); it != commandData.vectorParams.end(); ++it)
-  //{
-  //  countIndices.insert(std::make_pair(it->second, it->first));
-  //}
+//void writeCall(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular)
+//{
+//  // get the parameter indices of the counter for vector parameters
+//  std::map<size_t,size_t> countIndices;
+//  for (std::map<size_t, size_t>::const_iterator it = commandData.vectorParams.begin(); it != commandData.vectorParams.end(); ++it)
+//  {
+//    countIndices.insert(std::make_pair(it->second, it->first));
+//  }
+//
+//  // the original function call
+//  os << "vk" << startUpperCase(commandData.fullName) << "( ";
+//
+//  if (!commandData.className.empty())
+//  {
+//    // if it's member of a class -> add the first parameter with "m_" as prefix
+//    os << "m_" << commandData.params[0].name;
+//  }
+//
+//  for (size_t i=commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+//  {
+//    if (0 < i)
+//    {
+//      os << ", ";
+//    }
+//
+//    std::map<size_t, size_t>::const_iterator it = countIndices.find(i);
+//    if (it != countIndices.end())
+//    {
+//      writeCallCountParameter(os, commandData, singular, it);
+//    }
+//    else if ((it = commandData.vectorParams.find(i)) != commandData.vectorParams.end())
+//    {
+//      writeCallVectorParameter(os, commandData, vkTypes, firstCall, singular, it);
+//    }
+//    else
+//    {
+//      if (vkTypes.find(commandData.params[i].pureType) != vkTypes.end())
+//      {
+//        writeCallVulkanTypeParameter(os, commandData.params[i]);
+//      }
+//      else
+//      {
+//        writeCallPlainTypeParameter(os, commandData.params[i]);
+//      }
+//    }
+//  }
+//  os << " )";
+//}
 
-  //// the original function call
-  //os << "vk" << startUpperCase(commandData.fullName) << "( ";
+//void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it)
+//{
+//  // this parameter is a count parameter for a vector parameter
+//  if ((commandData.returnParam == it->second) && commandData.twoStep)
+//  {
+//    // the corresponding vector parameter is the return parameter and it's a two-step algorithm
+//    // -> use the pointer to a local variable named like the counter parameter without leading 'p'
+//    os << "&" << startLowerCase(strip(commandData.params[it->first].name, "p"));
+//  }
+//  else
+//  {
+//    // the corresponding vector parameter is not the return parameter, or it's not a two-step algorithm
+//    if (singular)
+//    {
+//      // for the singular version, the count is just 1.
+//      os << "1 ";
+//    }
+//    else
+//    {
+//      // for the non-singular version, the count is the size of the vector parameter
+//      // -> use the vector parameter name without leading 'p' to get the size (in number of elements, not in bytes)
+//      os << startLowerCase(strip(commandData.params[it->second].name, "p")) << ".size() ";
+//    }
+//    if (commandData.templateParam == it->second)
+//    {
+//      // if the vector parameter is templatized -> multiply by the size of that type to get the size in bytes
+//      os << "* sizeof( T ) ";
+//    }
+//  }
+//}
 
-  //if (!commandData.className.empty())
-  //{
-  //  // if it's member of a class -> add the first parameter with "m_" as prefix
-  //  os << "m_" << commandData.params[0].name;
-  //}
+//void writeCallPlainTypeParameter(std::ostream & os, ParamData const& paramData)
+//{
+//  // this parameter is just a plain type
+//  if (paramData.type.back() == '*')
+//  {
+//    // it's a pointer
+//    std::string parameterName = startLowerCase(strip(paramData.name, "p"));
+//    if (paramData.type.find("const") != std::string::npos)
+//    {
+//      // it's a const pointer
+//      if (paramData.pureType == "char")
+//      {
+//        // it's a const pointer to char -> it's a string -> get the data via c_str()
+//        os << parameterName;
+//        if (paramData.optional)
+//        {
+//          // it's optional -> might use nullptr
+//          os << " ? " << parameterName << "->c_str() : nullptr";
+//        }
+//        else
+//        {
+//          os << ".c_str()";
+//        }
+//      }
+//      else
+//      {
+//        // it's const pointer to void (only other type that occurs) -> just use the name
+//        assert((paramData.pureType == "void") && !paramData.optional);
+//        os << paramData.name;
+//      }
+//    }
+//    else
+//    {
+//      // it's a non-const pointer, and char is the only type that occurs -> use the address of the parameter
+//      assert(paramData.type.find("char") == std::string::npos);
+//      os << "&" << parameterName;
+//    }
+//  }
+//  else
+//  {
+//    // it's a plain parameter -> just use its name
+//    os << paramData.name;
+//  }
+//}
 
-  //for (size_t i=commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  //{
-  //  if (0 < i)
-  //  {
-  //    os << ", ";
-  //  }
+//void writeCallVectorParameter(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular, std::map<size_t, size_t>::const_iterator it)
+//{
+//  // this parameter is a vector parameter
+//  assert(commandData.params[it->first].type.back() == '*');
+//  if ((commandData.returnParam == it->first) && commandData.twoStep && firstCall)
+//  {
+//    // this parameter is the return parameter, and it's the first call of a two-step algorithm -> just just nullptr
+//    os << "nullptr";
+//  }
+//  else
+//  {
+//    std::string parameterName = startLowerCase(strip(commandData.params[it->first].name, "p"));
+//    std::set<std::string>::const_iterator vkit = vkTypes.find(commandData.params[it->first].pureType);
+//    if ((vkit != vkTypes.end()) || (it->first == commandData.templateParam))
+//    {
+//      // CHECK for !commandData.params[it->first].optional
+//
+//      // this parameter is a vulkan type or a templated type -> need to reinterpret cast
+//      writeReinterpretCast(os, commandData.params[it->first].type.find("const") == 0, vkit != vkTypes.end(), commandData.params[it->first].pureType,
+//        commandData.params[it->first].type.rfind("* const") != std::string::npos);
+//      os << "( ";
+//      if (singular)
+//      {
+//        // in singular case, strip the plural-S from the name, and use the pointer to that thing
+//        os << "&" << stripPluralS(parameterName);
+//      }
+//      else
+//      {
+//        // in plural case, get the pointer to the data
+//        os << parameterName << ".data()";
+//      }
+//      os << " )";
+//    }
+//    else if (commandData.params[it->first].pureType == "char")
+//    {
+//      // the parameter is a vector to char -> it might be optional
+//      // besides that, the parameter now is a std::string -> get the pointer via c_str()
+//      os << parameterName;
+//      if (commandData.params[it->first].optional)
+//      {
+//        os << " ? " << parameterName << "->c_str() : nullptr";
+//      }
+//      else
+//      {
+//        os << ".c_str()";
+//      }
+//    }
+//    else
+//    {
+//      // this parameter is just a vetor -> get the pointer to its data
+//      os << parameterName << ".data()";
+//    }
+//  }
+//}
 
-  //  std::map<size_t, size_t>::const_iterator it = countIndices.find(i);
-  //  if (it != countIndices.end())
-  //  {
-  //    writeCallCountParameter(os, commandData, singular, it);
-  //  }
-  //  else if ((it = commandData.vectorParams.find(i)) != commandData.vectorParams.end())
-  //  {
-  //    writeCallVectorParameter(os, commandData, vkTypes, firstCall, singular, it);
-  //  }
-  //  else
-  //  {
-  //    if (vkTypes.find(commandData.params[i].pureType) != vkTypes.end())
-  //    {
-  //      writeCallVulkanTypeParameter(os, commandData.params[i]);
-  //    }
-  //    else
-  //    {
-  //      writeCallPlainTypeParameter(os, commandData.params[i]);
-  //    }
-  //  }
-  //}
-  //os << " )";
-}
-
-void writeCallCountParameter(std::ostream & os, CommandData const& commandData, bool singular, std::map<size_t, size_t>::const_iterator it)
-{
-  // this parameter is a count parameter for a vector parameter
-  if ((commandData.returnParam == it->second) && commandData.twoStep)
-  {
-    // the corresponding vector parameter is the return parameter and it's a two-step algorithm
-    // -> use the pointer to a local variable named like the counter parameter without leading 'p'
-    os << "&" << startLowerCase(strip(commandData.params[it->first].name, "p"));
-  }
-  else
-  {
-    // the corresponding vector parameter is not the return parameter, or it's not a two-step algorithm
-    if (singular)
-    {
-      // for the singular version, the count is just 1.
-      os << "1 ";
-    }
-    else
-    {
-      // for the non-singular version, the count is the size of the vector parameter
-      // -> use the vector parameter name without leading 'p' to get the size (in number of elements, not in bytes)
-      os << startLowerCase(strip(commandData.params[it->second].name, "p")) << ".size() ";
-    }
-    if (commandData.templateParam == it->second)
-    {
-      // if the vector parameter is templatized -> multiply by the size of that type to get the size in bytes
-      os << "* sizeof( T ) ";
-    }
-  }
-}
-
-void writeCallPlainTypeParameter(std::ostream & os, ParamData const& paramData)
-{
-  //// this parameter is just a plain type
-  //if (paramData.type.back() == '*')
-  //{
-  //  // it's a pointer
-  //  std::string parameterName = startLowerCase(strip(paramData.name, "p"));
-  //  if (paramData.type.find("const") != std::string::npos)
-  //  {
-  //    // it's a const pointer
-  //    if (paramData.pureType == "char")
-  //    {
-  //      // it's a const pointer to char -> it's a string -> get the data via c_str()
-  //      os << parameterName;
-  //      if (paramData.optional)
-  //      {
-  //        // it's optional -> might use nullptr
-  //        os << " ? " << parameterName << "->c_str() : nullptr";
-  //      }
-  //      else
-  //      {
-  //        os << ".c_str()";
-  //      }
-  //    }
-  //    else
-  //    {
-  //      // it's const pointer to void (only other type that occurs) -> just use the name
-  //      assert((paramData.pureType == "void") && !paramData.optional);
-  //      os << paramData.name;
-  //    }
-  //  }
-  //  else
-  //  {
-  //    // it's a non-const pointer, and char is the only type that occurs -> use the address of the parameter
-  //    assert(paramData.type.find("char") == std::string::npos);
-  //    os << "&" << parameterName;
-  //  }
-  //}
-  //else
-  //{
-  //  // it's a plain parameter -> just use its name
-  //  os << paramData.name;
-  //}
-}
-
-void writeCallVectorParameter(std::ostream & os, CommandData const& commandData, std::set<std::string> const& vkTypes, bool firstCall, bool singular, std::map<size_t, size_t>::const_iterator it)
-{
-  //// this parameter is a vector parameter
-  //assert(commandData.params[it->first].type.back() == '*');
-  //if ((commandData.returnParam == it->first) && commandData.twoStep && firstCall)
-  //{
-  //  // this parameter is the return parameter, and it's the first call of a two-step algorithm -> just just nullptr
-  //  os << "nullptr";
-  //}
-  //else
-  //{
-  //  std::string parameterName = startLowerCase(strip(commandData.params[it->first].name, "p"));
-  //  std::set<std::string>::const_iterator vkit = vkTypes.find(commandData.params[it->first].pureType);
-  //  if ((vkit != vkTypes.end()) || (it->first == commandData.templateParam))
-  //  {
-  //    // CHECK for !commandData.params[it->first].optional
-
-  //    // this parameter is a vulkan type or a templated type -> need to reinterpret cast
-  //    writeReinterpretCast(os, commandData.params[it->first].type.find("const") == 0, vkit != vkTypes.end(), commandData.params[it->first].pureType,
-  //      commandData.params[it->first].type.rfind("* const") != std::string::npos);
-  //    os << "( ";
-  //    if (singular)
-  //    {
-  //      // in singular case, strip the plural-S from the name, and use the pointer to that thing
-  //      os << "&" << stripPluralS(parameterName);
-  //    }
-  //    else
-  //    {
-  //      // in plural case, get the pointer to the data
-  //      os << parameterName << ".data()";
-  //    }
-  //    os << " )";
-  //  }
-  //  else if (commandData.params[it->first].pureType == "char")
-  //  {
-  //    // the parameter is a vector to char -> it might be optional
-  //    // besides that, the parameter now is a std::string -> get the pointer via c_str()
-  //    os << parameterName;
-  //    if (commandData.params[it->first].optional)
-  //    {
-  //      os << " ? " << parameterName << "->c_str() : nullptr";
-  //    }
-  //    else
-  //    {
-  //      os << ".c_str()";
-  //    }
-  //  }
-  //  else
-  //  {
-  //    // this parameter is just a vetor -> get the pointer to its data
-  //    os << parameterName << ".data()";
-  //  }
-  //}
-}
-
-void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData)
-{
-  //// this parameter is a vulkan type
-  //if (paramData.type.back() == '*')
-  //{
-  //  // it's a pointer -> needs a reinterpret cast to the vulkan type
-  //  std::string parameterName = startLowerCase(strip(paramData.name, "p"));
-  //  writeReinterpretCast(os, paramData.type.find("const") != std::string::npos, true, paramData.pureType, false);
-  //  os << "( ";
-  //  if (paramData.optional)
-  //  {
-  //    // for an optional parameter, we need also a static_cast from optional type to const-pointer to pure type
-  //    os << "static_cast<const " << paramData.pureType << "*>( " << parameterName << " )";
-  //  }
-  //  else
-  //  {
-  //    // other parameters can just use the pointer
-  //    os << "&" << parameterName;
-  //  }
-  //  os << " )";
-  //}
-  //else
-  //{
-  //  // a non-pointer parameter needs a static_cast from vk::-type to vulkan type
-  //  os << "static_cast<Vk" << paramData.pureType << ">( " << paramData.name << " )";
-  //}
-}
+//void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData)
+//{
+//  // this parameter is a vulkan type
+//  if (paramData.type.back() == '*')
+//  {
+//    // it's a pointer -> needs a reinterpret cast to the vulkan type
+//    std::string parameterName = startLowerCase(strip(paramData.name, "p"));
+//    writeReinterpretCast(os, paramData.type.find("const") != std::string::npos, true, paramData.pureType, false);
+//    os << "( ";
+//    if (paramData.optional)
+//    {
+//      // for an optional parameter, we need also a static_cast from optional type to const-pointer to pure type
+//      os << "static_cast<const " << paramData.pureType << "*>( " << parameterName << " )";
+//    }
+//    else
+//    {
+//      // other parameters can just use the pointer
+//      os << "&" << parameterName;
+//    }
+//    os << " )";
+//  }
+//  else
+//  {
+//    // a non-pointer parameter needs a static_cast from vk::-type to vulkan type
+//    os << "static_cast<Vk" << paramData.pureType << ">( " << paramData.name << " )";
+//  }
+//}
 
 //void writeFunction(std::ostream & os, std::string const& indentation, VkData const& vkData, CommandData const& commandData, bool definition, bool enhanced, bool singular, bool unique)
 //{
@@ -2242,95 +1919,95 @@ void writeCallVulkanTypeParameter(std::ostream & os, ParamData const& paramData)
 //  }
 //}
 
-void writeFunctionBodyEnhanced(std::ostream &os, std::string const& templateString, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
-{
-  os << replaceWithMap(templateString, {
-    { "call", generateCall(commandData, vkTypes, true, singular) },
-    { "i", indentation }
-  });
+//void writeFunctionBodyEnhanced(std::ostream &os, std::string const& templateString, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
+//{
+//  os << replaceWithMap(templateString, {
+//    { "call", generateCall(commandData, vkTypes, true, singular) },
+//    { "i", indentation }
+//  });
+//
+//}
 
-}
+//void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
+//{
+//  std::string const templateString = "${i}  return ${call};\n";
+//  std::string const templateStringVoid = "${i}  ${call};\n";
+//  //writeFunctionBodyEnhanced(os, commandData.returnType == "void" ? templateStringVoid : templateString, indentation, vkTypes, commandData, singular);
+//}
 
-void writeFunctionBodyEnhancedCall(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
-{
-  std::string const templateString = "${i}  return ${call};\n";
-  std::string const templateStringVoid = "${i}  ${call};\n";
-  //writeFunctionBodyEnhanced(os, commandData.returnType == "void" ? templateStringVoid : templateString, indentation, vkTypes, commandData, singular);
-}
+//void writeFunctionBodyEnhancedCallResult(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
+//{
+//  std::string const templateString = "${i}  Result result = static_cast<Result>( ${call} );\n";
+//  writeFunctionBodyEnhanced(os, templateString, indentation, vkTypes, commandData, singular);
+//}
 
-void writeFunctionBodyEnhancedCallResult(std::ostream &os, std::string const& indentation, std::set<std::string> const& vkTypes, CommandData const& commandData, bool singular)
-{
-  std::string const templateString = "${i}  Result result = static_cast<Result>( ${call} );\n";
-  writeFunctionBodyEnhanced(os, templateString, indentation, vkTypes, commandData, singular);
-}
+//void writeFunctionBodyTwoStep(std::ostream & os, std::string const &templateString, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
+//{
+//  std::map<std::string, std::string> replacements = {
+//    { "sizeName", sizeName },
+//    { "returnName", returnName },
+//    { "call1", generateCall(commandData, vkTypes, true, false) },
+//    { "call2", generateCall(commandData, vkTypes, false, false) },
+//    { "i", indentation }
+//  };
+//
+//  os << replaceWithMap(templateString, replacements);
+//}
 
-void writeFunctionBodyTwoStep(std::ostream & os, std::string const &templateString, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
-{
-  std::map<std::string, std::string> replacements = {
-    { "sizeName", sizeName },
-    { "returnName", returnName },
-    { "call1", generateCall(commandData, vkTypes, true, false) },
-    { "call2", generateCall(commandData, vkTypes, false, false) },
-    { "i", indentation }
-  };
+//void writeFunctionBodyEnhancedCallTwoStep(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
+//{
+//  std::string const templateString = 
+//R"(${i}  ${call1};
+//${i}  ${returnName}.resize( ${sizeName} );
+//${i}  ${call2};
+//)";
+//  writeFunctionBodyTwoStep(os, templateString, indentation, vkTypes, returnName, sizeName, commandData);
+//}
 
-  os << replaceWithMap(templateString, replacements);
-}
+//void writeFunctionBodyEnhancedCallTwoStepChecked(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
+//{
+//  std::string const templateString =
+//R"(${i}  Result result = static_cast<Result>( ${call1} );
+//${i}  if ( ( result == Result::eSuccess ) && ${sizeName} )
+//${i}  {
+//${i}    ${returnName}.resize( ${sizeName} );
+//${i}    result = static_cast<Result>( ${call2} );
+//${i}  }
+//)";
+//  writeFunctionBodyTwoStep(os, templateString, indentation, vkTypes, returnName, sizeName, commandData);
+//}
 
-void writeFunctionBodyEnhancedCallTwoStep(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
-{
-  std::string const templateString = 
-R"(${i}  ${call1};
-${i}  ${returnName}.resize( ${sizeName} );
-${i}  ${call2};
-)";
-  writeFunctionBodyTwoStep(os, templateString, indentation, vkTypes, returnName, sizeName, commandData);
-}
+//void writeFunctionBodyEnhancedCallTwoStepIterate(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
+//{
+//  std::string const templateString = 
+//R"(${i}  Result result;
+//${i}  do
+//${i}  {
+//${i}    result = static_cast<Result>( ${call1} );
+//${i}    if ( ( result == Result::eSuccess ) && ${sizeName} )
+//${i}    {
+//${i}      ${returnName}.resize( ${sizeName} );
+//${i}      result = static_cast<Result>( ${call2} );
+//${i}    }
+//${i}  } while ( result == Result::eIncomplete );
+//${i}  assert( ${sizeName} <= ${returnName}.size() );
+//${i}  ${returnName}.resize( ${sizeName} );
+//)";
+//  writeFunctionBodyTwoStep(os, templateString, indentation, vkTypes, returnName, sizeName, commandData);
+//}
 
-void writeFunctionBodyEnhancedCallTwoStepChecked(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
-{
-  std::string const templateString =
-R"(${i}  Result result = static_cast<Result>( ${call1} );
-${i}  if ( ( result == Result::eSuccess ) && ${sizeName} )
-${i}  {
-${i}    ${returnName}.resize( ${sizeName} );
-${i}    result = static_cast<Result>( ${call2} );
-${i}  }
-)";
-  writeFunctionBodyTwoStep(os, templateString, indentation, vkTypes, returnName, sizeName, commandData);
-}
-
-void writeFunctionBodyEnhancedCallTwoStepIterate(std::ostream & os, std::string const& indentation, std::set<std::string> const& vkTypes, std::string const& returnName, std::string const& sizeName, CommandData const& commandData)
-{
-  std::string const templateString = 
-R"(${i}  Result result;
-${i}  do
-${i}  {
-${i}    result = static_cast<Result>( ${call1} );
-${i}    if ( ( result == Result::eSuccess ) && ${sizeName} )
-${i}    {
-${i}      ${returnName}.resize( ${sizeName} );
-${i}      result = static_cast<Result>( ${call2} );
-${i}    }
-${i}  } while ( result == Result::eIncomplete );
-${i}  assert( ${sizeName} <= ${returnName}.size() );
-${i}  ${returnName}.resize( ${sizeName} );
-)";
-  writeFunctionBodyTwoStep(os, templateString, indentation, vkTypes, returnName, sizeName, commandData);
-}
-
-void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData)
-{
-  //// local count variable to hold the size of the vector to fill
-  //assert(commandData.returnParam != ~0);
-
-  //std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
-  //assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
-  ////assert((commandData.returnType == "Result") || (commandData.returnType == "void"));
-
-  //// take the pure type of the size parameter; strip the leading 'p' from its name for its local name
-  //os << indentation << "  " << commandData.params[returnit->second].pureType << " " << startLowerCase(strip(commandData.params[returnit->second].name, "p")) << ";" << std::endl;
-}
+//void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData)
+//{
+//  // local count variable to hold the size of the vector to fill
+//  assert(commandData.returnParam != ~0);
+//
+//  std::map<size_t, size_t>::const_iterator returnit = commandData.vectorParams.find(commandData.returnParam);
+//  assert(returnit != commandData.vectorParams.end() && (returnit->second != ~0));
+//  //assert((commandData.returnType == "Result") || (commandData.returnType == "void"));
+//
+//  // take the pure type of the size parameter; strip the leading 'p' from its name for its local name
+//  os << indentation << "  " << commandData.params[returnit->second].pureType << " " << startLowerCase(strip(commandData.params[returnit->second].name, "p")) << ";" << std::endl;
+//}
 
 //std::string writeFunctionBodyEnhancedLocalReturnVariable(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool singular)
 //{
@@ -2397,41 +2074,41 @@ void writeFunctionBodyEnhancedLocalCountVariable(std::ostream & os, std::string 
 //  return returnName;
 //}
 
-void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData)
-{
-  std::string const templateString = 
-R"#(#ifdef VULKAN_HPP_NO_EXCEPTIONS
-${i}  assert( ${firstVectorName}.size() == ${secondVectorName}.size() );
-#else
-${i}  if ( ${firstVectorName}.size() != ${secondVectorName}.size() )
-${i}  {
-${i}    throw LogicError( "vk::${className}::${reducedName}: ${firstVectorName}.size() != ${secondVectorName}.size()" );
-${i}  }
-#endif  // VULKAN_HPP_NO_EXCEPTIONS
-)#";
-
-
-  // add some error checks if multiple vectors need to have the same size
-  for (std::map<size_t, size_t>::const_iterator it0 = commandData.vectorParams.begin(); it0 != commandData.vectorParams.end(); ++it0)
-  {
-    if (it0->first != commandData.returnParam)
-    {
-      for (std::map<size_t, size_t>::const_iterator it1 = std::next(it0); it1 != commandData.vectorParams.end(); ++it1)
-      {
-        if ((it1->first != commandData.returnParam) && (it0->second == it1->second))
-        {
-          os << replaceWithMap(templateString, std::map<std::string, std::string>( {
-            { "firstVectorName", startLowerCase(strip(commandData.params[it0->first].name, "p")) },
-            { "secondVectorName", startLowerCase(strip(commandData.params[it1->first].name, "p")) },
-            { "className", commandData.className },
-            { "reducedName", commandData.reducedName},
-            { "i", indentation}
-          }));
-        }
-      }
-    }
-  }
-}
+//void writeFunctionBodyEnhancedMultiVectorSizeCheck(std::ostream & os, std::string const& indentation, CommandData const& commandData)
+//{
+//  std::string const templateString = 
+//R"#(#ifdef VULKAN_HPP_NO_EXCEPTIONS
+//${i}  assert( ${firstVectorName}.size() == ${secondVectorName}.size() );
+//#else
+//${i}  if ( ${firstVectorName}.size() != ${secondVectorName}.size() )
+//${i}  {
+//${i}    throw LogicError( "vk::${className}::${reducedName}: ${firstVectorName}.size() != ${secondVectorName}.size()" );
+//${i}  }
+//#endif  // VULKAN_HPP_NO_EXCEPTIONS
+//)#";
+//
+//
+//  // add some error checks if multiple vectors need to have the same size
+//  for (std::map<size_t, size_t>::const_iterator it0 = commandData.vectorParams.begin(); it0 != commandData.vectorParams.end(); ++it0)
+//  {
+//    if (it0->first != commandData.returnParam)
+//    {
+//      for (std::map<size_t, size_t>::const_iterator it1 = std::next(it0); it1 != commandData.vectorParams.end(); ++it1)
+//      {
+//        if ((it1->first != commandData.returnParam) && (it0->second == it1->second))
+//        {
+//          os << replaceWithMap(templateString, std::map<std::string, std::string>( {
+//            { "firstVectorName", startLowerCase(strip(commandData.params[it0->first].name, "p")) },
+//            { "secondVectorName", startLowerCase(strip(commandData.params[it1->first].name, "p")) },
+//            { "className", commandData.className },
+//            { "reducedName", commandData.reducedName},
+//            { "i", indentation}
+//          }));
+//        }
+//      }
+//    }
+//  }
+//}
 
 //void writeFunctionBodyEnhancedReturnResultValue(std::ostream & os, std::string const& indentation, std::string const& returnName, CommandData const& commandData, bool singular)
 //{
@@ -2768,29 +2445,29 @@ ${i}  }
 //  }
 //}
 
-void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData)
-{
-  // for the standard case, just list all the arguments as we've got them
-  bool argEncountered = false;
-  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
-  {
-    if (argEncountered)
-    {
-      os << ",";
-    }
-
-    os << " " << commandData.params[i].type << " " << commandData.params[i].name;
-    if (!commandData.params[i].arraySize.empty())
-    {
-      os << "[" << commandData.params[i].arraySize << "]";
-    }
-    argEncountered = true;
-  }
-  if (argEncountered)
-  {
-    os << " ";
-  }
-}
+//void writeFunctionHeaderArgumentsStandard(std::ostream & os, CommandData const& commandData)
+//{
+//  // for the standard case, just list all the arguments as we've got them
+//  bool argEncountered = false;
+//  for (size_t i = commandData.className.empty() ? 0 : 1; i < commandData.params.size(); i++)
+//  {
+//    if (argEncountered)
+//    {
+//      os << ",";
+//    }
+//
+//    os << " " << commandData.params[i].type << " " << commandData.params[i].name;
+//    if (!commandData.params[i].arraySize.empty())
+//    {
+//      os << "[" << commandData.params[i].arraySize << "]";
+//    }
+//    argEncountered = true;
+//  }
+//  if (argEncountered)
+//  {
+//    os << " ";
+//  }
+//}
 
 void writeFunctionHeaderName(std::ostream & os, std::string const& name, bool singular, bool unique)
 {
@@ -2801,82 +2478,82 @@ void writeFunctionHeaderName(std::ostream & os, std::string const& name, bool si
   }
 }
 
-void writeFunctionHeaderReturnType(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool enhanced, bool singular, bool unique)
-{
-  //std::string templateString;
-  //std::string returnType;
-  //if (enhanced)
-  //{
-  //  // the enhanced function might return some pretty complex return stuff
-  //  if (unique)
-  //  {
-  //    // the unique version returns something prefixed with 'Unique'; potentially a vector of that stuff
-  //    // it's a vector, if it's not the singular version and the return parameter is a vector parameter
-  //    bool returnsVector = !singular && (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end());
-  //    templateString = returnsVector ? "std::vector<Unique${returnType}> " : "Unique${returnType} ";
-  //    returnType = commandData.params[commandData.returnParam].pureType;
-  //    //os << replaceWithMap(, {{"returnType", commandData.params[commandData.returnParam].pureType }});
-  //  }
-  //  else if ((commandData.enhancedReturnType != commandData.returnType) && (commandData.returnType != "void"))
-  //  {
-  //    // if the enhanced return type differs from the original return type, and it's not void, we return a ResultValueType<...>::type
-  //    if (!singular && (commandData.enhancedReturnType.find("Allocator") != std::string::npos))
-  //    {
-  //      // for the non-singular case with allocation, we need to prepend with 'typename' to keep compilers happy
-  //      templateString = "typename ResultValueType<${returnType}>::type ";
-  //    }
-  //    else
-  //    {
-  //      templateString = "ResultValueType<${returnType}>::type ";
-  //    }
-  //    assert(commandData.returnType == "Result");
-  //    // in singular case, we create the ResultValueType from the pure return type, otherwise from the enhanced return type
-  //    returnType = singular ? commandData.params[commandData.returnParam].pureType : commandData.enhancedReturnType;
-  //  }
-  //  else if ((commandData.returnParam != ~0) && (1 < commandData.successCodes.size()))
-  //  {
-  //    // if there is a return parameter at all, and there are multiple success codes, we return a ResultValue<...> with the pure return type
-  //    assert(commandData.returnType == "Result");
-  //    templateString = "ResultValue<${returnType}> ";
-  //    returnType = commandData.params[commandData.returnParam].pureType;
-  //  }
-  //  else
-  //  {
-  //    // and in every other case, we just return the enhanced return type.
-  //    templateString = "${returnType} ";
-  //    returnType = commandData.enhancedReturnType;
-  //  }
-  //}
-  //else
-  //{
-  //  // the non-enhanced function just uses the return type
-  //  templateString = "${returnType} ";
-  //  returnType = commandData.returnType;
-  //}
-  //os << replaceWithMap(templateString, { { "returnType", returnType } });
-}
+//void writeFunctionHeaderReturnType(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool enhanced, bool singular, bool unique)
+//{
+//  std::string templateString;
+//  std::string returnType;
+//  if (enhanced)
+//  {
+//    // the enhanced function might return some pretty complex return stuff
+//    if (unique)
+//    {
+//      // the unique version returns something prefixed with 'Unique'; potentially a vector of that stuff
+//      // it's a vector, if it's not the singular version and the return parameter is a vector parameter
+//      bool returnsVector = !singular && (commandData.vectorParams.find(commandData.returnParam) != commandData.vectorParams.end());
+//      templateString = returnsVector ? "std::vector<Unique${returnType}> " : "Unique${returnType} ";
+//      returnType = commandData.params[commandData.returnParam].pureType;
+//      //os << replaceWithMap(, {{"returnType", commandData.params[commandData.returnParam].pureType }});
+//    }
+//    else if ((commandData.enhancedReturnType != commandData.returnType) && (commandData.returnType != "void"))
+//    {
+//      // if the enhanced return type differs from the original return type, and it's not void, we return a ResultValueType<...>::type
+//      if (!singular && (commandData.enhancedReturnType.find("Allocator") != std::string::npos))
+//      {
+//        // for the non-singular case with allocation, we need to prepend with 'typename' to keep compilers happy
+//        templateString = "typename ResultValueType<${returnType}>::type ";
+//      }
+//      else
+//      {
+//        templateString = "ResultValueType<${returnType}>::type ";
+//      }
+//      assert(commandData.returnType == "Result");
+//      // in singular case, we create the ResultValueType from the pure return type, otherwise from the enhanced return type
+//      returnType = singular ? commandData.params[commandData.returnParam].pureType : commandData.enhancedReturnType;
+//    }
+//    else if ((commandData.returnParam != ~0) && (1 < commandData.successCodes.size()))
+//    {
+//      // if there is a return parameter at all, and there are multiple success codes, we return a ResultValue<...> with the pure return type
+//      assert(commandData.returnType == "Result");
+//      templateString = "ResultValue<${returnType}> ";
+//      returnType = commandData.params[commandData.returnParam].pureType;
+//    }
+//    else
+//    {
+//      // and in every other case, we just return the enhanced return type.
+//      templateString = "${returnType} ";
+//      returnType = commandData.enhancedReturnType;
+//    }
+//  }
+//  else
+//  {
+//    // the non-enhanced function just uses the return type
+//    templateString = "${returnType} ";
+//    returnType = commandData.returnType;
+//  }
+//  os << replaceWithMap(templateString, { { "returnType", returnType } });
+//}
 
-void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool withDefault)
-{
-  if ((commandData.templateParam != ~0) && ((commandData.templateParam != commandData.returnParam) || (commandData.enhancedReturnType == "Result")))
-  {
-    // if there's a template parameter, not being the return parameter or where the enhanced return type is 'Result' -> templatize on type 'T'
-    assert(commandData.enhancedReturnType.find("Allocator") == std::string::npos);
-    os << indentation << "template <typename T>" << std::endl;
-  }
-  else if ((commandData.enhancedReturnType.find("Allocator") != std::string::npos))
-  {
-    // otherwise, if there's an Allocator used in the enhanced return type, we templatize on that Allocator
-    assert((commandData.enhancedReturnType.substr(0, 12) == "std::vector<") && (commandData.enhancedReturnType.find(',') != std::string::npos) && (12 < commandData.enhancedReturnType.find(',')));
-    os << indentation << "template <typename Allocator";
-    if (withDefault)
-    {
-      // for the default type get the type from the enhancedReturnType, which is of the form 'std::vector<Type,Allocator>'
-      os << " = std::allocator<" << commandData.enhancedReturnType.substr(12, commandData.enhancedReturnType.find(',') - 12) << ">";
-    }
-    os << "> " << std::endl;
-  }
-}
+//void writeFunctionHeaderTemplate(std::ostream & os, std::string const& indentation, CommandData const& commandData, bool withDefault)
+//{
+//  if ((commandData.templateParam != ~0) && ((commandData.templateParam != commandData.returnParam) || (commandData.enhancedReturnType == "Result")))
+//  {
+//    // if there's a template parameter, not being the return parameter or where the enhanced return type is 'Result' -> templatize on type 'T'
+//    assert(commandData.enhancedReturnType.find("Allocator") == std::string::npos);
+//    os << indentation << "template <typename T>" << std::endl;
+//  }
+//  else if ((commandData.enhancedReturnType.find("Allocator") != std::string::npos))
+//  {
+//    // otherwise, if there's an Allocator used in the enhanced return type, we templatize on that Allocator
+//    assert((commandData.enhancedReturnType.substr(0, 12) == "std::vector<") && (commandData.enhancedReturnType.find(',') != std::string::npos) && (12 < commandData.enhancedReturnType.find(',')));
+//    os << indentation << "template <typename Allocator";
+//    if (withDefault)
+//    {
+//      // for the default type get the type from the enhancedReturnType, which is of the form 'std::vector<Type,Allocator>'
+//      os << " = std::allocator<" << commandData.enhancedReturnType.substr(12, commandData.enhancedReturnType.find(',') - 12) << ">";
+//    }
+//    os << "> " << std::endl;
+//  }
+//}
 
 void writeReinterpretCast(std::ostream & os, bool leadingConst, bool vulkanType, std::string const& type, bool trailingPointerToConst)
 {
@@ -3751,11 +3428,77 @@ void writeVersionCheck(std::ostream & os, std::string const& version)
 	os << "}" << std::endl;
 }
 
+class RustTranslator : public ITranslator {
+	virtual std::string pointer_to(std::string const& type, PointerType pointer_type) override final {
+		switch (pointer_type) {
+		case PointerType::CONST_T_P:
+			return "*const " + type;
+		case PointerType::CONST_T_PP:
+			return "*mut *const " + type;
+		case PointerType::CONST_T_P_CONST_P:
+			return "*const *const " + type;
+		case PointerType::T_P:
+			return "*mut " + type;
+		case PointerType::T_PP:
+			return "*mut *mut " + type;
+		case PointerType::T_P_CONST_P:
+			return "*const *mut " + type;
+		default:
+			assert(false);
+			return "";
+		}
+	}
+
+	virtual std::string array_member(std::string const& type_name, std::string const& array_size) override final {
+		return "[" + type_name + "; " + array_size + "]";
+	}
+
+	virtual std::string array_param(std::string const& type_name, std::string const& array_size) override final {
+		return "&[" + type_name + "; " + array_size + "]";
+	}
+};
+
+// TODO: I can probably get rid of most of the type management and just store
+// strings if I can translate the information I need at runtime. For example,
+// I could use a lambda to get information about how a pointer type should be
+// written. That way I don't need to keep pointers because of undefined types,
+// since I have information about how to write the type.
 int main(int argc, char **argv)
 {
 	try {
 		std::string filename = (argc == 1) ? VK_SPEC : argv[1];
-		Registry reg;
+
+		RustTranslator translator;
+		Registry reg(&translator);
+
+		reg.add_c_type("void", "()");
+		reg.add_c_type("char", "c_char");
+		reg.add_c_type("float", "f32");
+		reg.add_c_type("uint8_t", "u8");
+		reg.add_c_type("uint32_t", "u32");
+		reg.add_c_type("uint64_t", "u64");
+		reg.add_c_type("int32_t", "i32");
+		reg.add_c_type("size_t", "usize"); // unsigned according to reference
+		reg.add_c_type("int", "c_int");
+		reg.add_c_type("Display", "Display");
+		reg.add_c_type("VisualID", "VisualID");
+		reg.add_c_type("Window", "Window");
+		reg.add_c_type("RROutput", "RROutput");
+		reg.add_c_type("ANativeWindow", "ANativeWindow");
+		reg.add_c_type("MirConnection", "MirConnection");
+		reg.add_c_type("MirSurface", "MirSurface");
+		reg.add_c_type("wl_display", "wl_display");
+		reg.add_c_type("wl_surface", "wl_surface");
+		reg.add_c_type("HINSTANCE", "HINSTANCE");
+		reg.add_c_type("HWND", "HWND");
+		reg.add_c_type("HANDLE", "HANDLE");
+		reg.add_c_type("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES");
+		reg.add_c_type("DWORD", "DWORD");
+		reg.add_c_type("LPCWSTR", "LPCWSTR");
+		reg.add_c_type("xcb_connection_t", "xcb_connection_t");
+		reg.add_c_type("xcb_visualid_t", "xcb_visualid_t");
+		reg.add_c_type("xcb_window_t", "xcb_window_t");
+
 		reg.parse(filename);
 
 		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
@@ -3782,7 +3525,7 @@ pub mod core {
 		ofs << std::endl;
 
 		for (auto tdef : reg.get_scalar_typedefs()) {
-			ofs << "type " << tdef->actual()->type_name() << " = " << tdef->type_name() << ";" << std::endl;
+			ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
 		}
 
 		ofs << std::endl;
