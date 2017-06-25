@@ -244,7 +244,7 @@ private:
 	void _read_disabled_extension_require(tinyxml2::XMLElement * element, Extension& ext);
 	// Defines what types, enumerants, and commands are used by an extension
 	void _read_extension_require(tinyxml2::XMLElement * element, std::string const& tag, Extension& ext);
-	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string> extensionCommands);
+	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string>& extensionCommands);
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension& ext);
 	void _read_extension_enum(tinyxml2::XMLElement * element, std::string const& extensionNumber);
 

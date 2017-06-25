@@ -900,7 +900,7 @@ namespace vkspec {
 		}
 	}
 
-	void Registry::_read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string> extensionCommands)
+	void Registry::_read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string>& extensionCommands)
 	{
 		// Command is marked as belonging to an extension after parsing is done
 		assert(element->Attribute("name"));
@@ -1159,9 +1159,15 @@ namespace vkspec {
 				default: throw std::runtime_error("The type of '" + type + "' not implemented when marking extension types.");
 				}
 
-				// Now we can update the item
-				item->extension = true;
-				item->disabled = ext.second.disabled;
+				// TODO: This is faulty logic for types. The type tag inside require
+				// of an extension does not mean that the extension defines the
+				// type. This is some kind of requirement thing for the extension
+				// that is not properly explained and does not seem to be consistant.
+				// One example is VkDebugReportObjectTypeEXT which is a type tag of
+				// both VK_EXT_debug_report (nr 12) and VK_EXT_debug_marker (nr 23).
+				//assert(!item->extension);
+				//item->extension = true;
+				//item->disabled = ext.second.disabled;
 			}
 
 			for (auto& command_name : ext.second.commands) {
@@ -1169,8 +1175,10 @@ namespace vkspec {
 					return command_name == cmd->name;
 				});
 				assert(command_it != _commands.end());
-				(*command_it)->extension = true;
-				(*command_it)->disabled = ext.second.disabled;
+				ExtensionItem* item = *command_it;
+				assert(!item->extension);
+				item->extension = true;
+				item->disabled = ext.second.disabled;
 			}
 		}
 	}
