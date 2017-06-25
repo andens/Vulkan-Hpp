@@ -165,6 +165,7 @@ struct Extension {
 	std::string tag;
 	std::string type; // instance or device if not empty string
 	std::vector<std::string> commands;
+	bool disabled = false;
 };
 
 enum class PointerType {
@@ -183,14 +184,6 @@ public:
 	virtual std::string array_param(std::string const& type_name, std::string const& array_size) = 0;
 };
 
-// TODO: To make things a bit cleaner, I could probably just have the typeOracle
-// define types (and return them) and let the user manipulate their data via
-// methods on Type instead. This would result in a better separation of concerns.
-// The oracle deals with awareness of types whereas Type deals with the specifics
-// of one particular type.
-// Also make Command into its own class instead of a type (Type should only be
-// actual types) but one that holds pointer to Type for parameters. Turn this
-// class into a VulkanOracle, responsible for tracking Vulkan items.
 class Registry {
 public:
 	Registry(ITranslator* translator) : _translator(translator) {}
@@ -1033,6 +1026,8 @@ private:
 
 		if (strcmp(element->Attribute("supported"), "disabled") == 0)
 		{
+			ext.disabled = true;
+
 			// Types and commands of disabled extensions should not be present in the
 			// final bindings, so mark them as disabled.
 			_read_disabled_extension_require(child);
@@ -3465,11 +3460,6 @@ class RustTranslator : public ITranslator {
 	}
 };
 
-// TODO: I can probably get rid of most of the type management and just store
-// strings if I can translate the information I need at runtime. For example,
-// I could use a lambda to get information about how a pointer type should be
-// written. That way I don't need to keep pointers because of undefined types,
-// since I have information about how to write the type.
 int main(int argc, char **argv)
 {
 	try {
