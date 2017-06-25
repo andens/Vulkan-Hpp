@@ -91,6 +91,11 @@ public:
 	}
 } *indent;
 
+struct ExtensionItem {
+	bool disabled = false;
+	bool extension = false;
+};
+
 struct ScalarTypedef {
 	std::string alias;
 	std::string actual;
@@ -107,7 +112,7 @@ struct FunctionTypedef {
 	std::vector<Parameter> params;
 };
 
-struct Bitmasks {
+struct Bitmasks : public ExtensionItem {
 	struct Member {
 		std::string name;
 		std::string value;
@@ -117,17 +122,17 @@ struct Bitmasks {
 	std::vector<Member> members;
 };
 
-struct BitmaskTypedef {
+struct BitmaskTypedef : public ExtensionItem {
 	std::string alias;
 	std::string bit_definitions; // The actual bitmask containing values
 };
 
-struct HandleTypedef {
+struct HandleTypedef : public ExtensionItem {
 	std::string alias;
 	std::string actual;
 };
 
-struct Struct {
+struct Struct : public ExtensionItem {
 	struct Member {
 		std::string type;
 		std::string name;
@@ -138,7 +143,7 @@ struct Struct {
 	bool is_union;
 };
 
-struct Enum {
+struct Enum : public ExtensionItem {
 	struct Member {
 		std::string name;
 		std::string value;
@@ -148,7 +153,7 @@ struct Enum {
 	std::vector<Member> members;
 };
 
-struct Command {
+struct Command : public ExtensionItem {
 	struct Parameter {
 		std::string type;
 		std::string name;
@@ -165,6 +170,7 @@ struct Extension {
 	std::string tag;
 	std::string type; // instance or device if not empty string
 	std::vector<std::string> commands;
+	std::vector<std::string> types;
 	bool disabled = false;
 };
 
@@ -275,6 +281,18 @@ public:
 	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
 		return _scalar_typedefs;
 	}
+
+private:
+	enum class ItemType {
+		ScalarTypedef,
+		FunctionTypedef,
+		Bitmasks,
+		BitmaskTypedef,
+		HandleTypedef,
+		Struct,
+		Enum,
+		Command,
+	};
 
 private:
 	void _read_comment(tinyxml2::XMLElement * element)
@@ -1030,7 +1048,7 @@ private:
 
 			// Types and commands of disabled extensions should not be present in the
 			// final bindings, so mark them as disabled.
-			_read_disabled_extension_require(child);
+			_read_disabled_extension_require(child, ext);
 		}
 		else
 		{
@@ -1050,22 +1068,27 @@ private:
 		return name.substr(start + 1, end - start - 1);
 	}
 
-	void _read_disabled_extension_require(tinyxml2::XMLElement * element)
+	void _read_disabled_extension_require(tinyxml2::XMLElement * element, Extension& ext)
 	{
 		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
 			std::string value = child->Value();
 
-			if ((value == "command") || (value == "type"))
-			{
-				// disable a command or a type !
+			// Add commands and types, but skip enums. Commands and types are
+			// defined elsewhere in the spec, and thus must be told to not be
+			// included in the bindings. This is done after parsing, so for now
+			// only the type names are stored to find them later.
+			if (value == "command") {
 				assert(child->Attribute("name"));
 				std::string name = child->Attribute("name");
-
-				// TODO: Get type from oracle and mark it as disabled
+				ext.commands.push_back(name);
 			}
-			else
-			{
+			else if (value == "type") {
+				assert(child->Attribute("name"));
+				std::string name = child->Attribute("name");
+				ext.types.push_back(name);
+			}
+			else {
 				// nothing to do for enums, no other values ever encountered
 				assert(value == "enum");
 			}
@@ -1085,7 +1108,7 @@ private:
 			}
 			else if (value == "type")
 			{
-				_read_extension_type(child);
+				_read_extension_type(child, ext);
 			}
 			else
 			{
@@ -1097,16 +1120,18 @@ private:
 
 	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string> extensionCommands)
 	{
+		// Command is marked as belonging to an extension after parsing is done
 		assert(element->Attribute("name"));
 		std::string t = _type_reference(element->Attribute("name"));
 		extensionCommands.push_back(t);
-
-		// Command is marked as belonging to an extension after parsing is done
 	}
 
-	void _read_extension_type(tinyxml2::XMLElement * element)
+	void _read_extension_type(tinyxml2::XMLElement * element, Extension& ext)
 	{
-		// TODO: Get type from oracle and mark it as extension-provided.
+		// Save the type name so we can mark it as belonging to an extension.
+		assert(element->Attribute("name"));
+		std::string t = _type_reference(element->Attribute("name"));
+		ext.types.push_back(t);
 	}
 
 	void _read_extension_enum(tinyxml2::XMLElement * element, std::string const& extensionNumber)
@@ -1201,7 +1226,7 @@ private:
 	}
 
 	ScalarTypedef* _define_scalar_typedef(std::string const& alias, std::string const& actual) {
-		_define(alias);
+		_define(alias, ItemType::ScalarTypedef);
 		ScalarTypedef* t = new ScalarTypedef;
 		t->alias = alias;
 		t->actual = actual;
@@ -1210,7 +1235,7 @@ private:
 	}
 
 	FunctionTypedef* _define_function_typedef(std::string const& alias, std::string const& return_type) {
-		_define(alias);
+		_define(alias, ItemType::FunctionTypedef);
 		FunctionTypedef* t = new FunctionTypedef;
 		t->alias = alias;
 		t->return_type = return_type;
@@ -1219,7 +1244,7 @@ private:
 	}
 
 	Bitmasks* _define_bitmasks(std::string const& name) {
-		_define(name);
+		_define(name, ItemType::Bitmasks);
 		Bitmasks* t = new Bitmasks;
 		t->name = name;
 		_bitmasks.push_back(t);
@@ -1227,7 +1252,7 @@ private:
 	}
 
 	BitmaskTypedef* _define_bitmask_typedef(std::string const& alias, std::string const& bit_definitions) {
-		_define(alias);
+		_define(alias, ItemType::BitmaskTypedef);
 		BitmaskTypedef* t = new BitmaskTypedef;
 		t->alias = alias;
 		t->bit_definitions = bit_definitions;
@@ -1236,7 +1261,7 @@ private:
 	}
 
 	HandleTypedef* _define_handle_typedef(std::string const& alias, std::string const& actual) {
-		_define(alias);
+		_define(alias, ItemType::HandleTypedef);
 		HandleTypedef* t = new HandleTypedef;
 		t->alias = alias;
 		t->actual = actual;
@@ -1245,7 +1270,7 @@ private:
 	}
 
 	Struct* _define_struct(std::string const& name, bool is_union) {
-		_define(name);
+		_define(name, ItemType::Struct);
 		Struct* t = new Struct;
 		t->name = name;
 		t->is_union = is_union;
@@ -1254,7 +1279,7 @@ private:
 	}
 
 	Enum* _define_enum(std::string const& name) {
-		_define(name);
+		_define(name, ItemType::Enum);
 		Enum* t = new Enum;
 		t->name = name;
 		_enums.push_back(t);
@@ -1262,7 +1287,7 @@ private:
 	}
 
 	Command* _define_command(std::string const& name, std::string const& return_type) {
-		_define(name);
+		_define(name, ItemType::Command);
 		Command* t = new Command;
 		t->name = name;
 		t->return_type = return_type;
@@ -1289,9 +1314,9 @@ private:
 		return type;
 	}
 
-	void _define(std::string const& name) {
+	void _define(std::string const& name, ItemType item_type) {
 		assert(_defined_types.find(name) == _defined_types.end());
-		_defined_types.insert(name);
+		_defined_types.insert(std::make_pair(name, item_type));
 		_undefined_types.erase(name);
 	}
 
@@ -1300,7 +1325,72 @@ private:
 	}
 
 	void _mark_extension_items() {
+		for (auto& ext : _extensions) {
+			for (auto& type : ext.second.types) {
+				// Get the type of item so we know where to find the implementation
+				auto item_type_it = _defined_types.find(type);
+				assert(item_type_it != _defined_types.end());
 
+				// Get the actual item to work with
+				ExtensionItem* item = nullptr;
+				switch (item_type_it->second) {
+				case ItemType::Struct: {
+					auto item_it = std::find_if(_structs.begin(), _structs.end(), [&type](Struct const* s) -> bool {
+						return type == s->name;
+					});
+					assert(item_it != _structs.end());
+					item = *item_it;
+					break;
+				}
+				case ItemType::Enum: {
+					auto item_it = std::find_if(_enums.begin(), _enums.end(), [&type](Enum const* e) -> bool {
+						return type == e->name;
+					});
+					assert(item_it != _enums.end());
+					item = *item_it;
+					break;
+				}
+				case ItemType::BitmaskTypedef: {
+					auto item_it = std::find_if(_bitmask_typedefs.begin(), _bitmask_typedefs.end(), [&type](BitmaskTypedef const* b) -> bool {
+						return type == b->alias;
+					});
+					assert(item_it != _bitmask_typedefs.end());
+					item = *item_it;
+					break;
+				}
+				case ItemType::Bitmasks: {
+					auto item_it = std::find_if(_bitmasks.begin(), _bitmasks.end(), [&type](Bitmasks const* b) -> bool {
+						return type == b->name;
+					});
+					assert(item_it != _bitmasks.end());
+					item = *item_it;
+					break;
+				}
+				case ItemType::HandleTypedef: {
+					auto item_it = std::find_if(_handle_typedefs.begin(), _handle_typedefs.end(), [&type](HandleTypedef const* h) -> bool {
+						return type == h->alias;
+					});
+					assert(item_it != _handle_typedefs.end());
+					item = *item_it;
+					break;
+				}
+				default: throw std::runtime_error("The type of '" + type + "' not implemented when marking extension types.");
+				}
+
+				// Now we can update the item
+				item->extension = true;
+				item->disabled = ext.second.disabled;
+			}
+
+			for (auto& command_name : ext.second.commands) {
+				auto command_it = std::find_if(_commands.begin(), _commands.end(), [&command_name](Command const* cmd) -> bool {
+					return command_name == cmd->name;
+				});
+				assert(command_it != _commands.end());
+				(*command_it)->extension = true;
+				(*command_it)->disabled = ext.second.disabled;
+			}
+		}
 	}
 
 	std::string _bitpos_to_value(std::string const& bitpos) {
@@ -1330,7 +1420,7 @@ private:
 	std::string _license_header;
 	std::vector<std::tuple<std::string, std::string, std::string>> _api_constants;
 	std::set<std::string> _tags;
-	std::set<std::string> _defined_types; // All types defined in the registry
+	std::map<std::string, ItemType> _defined_types; // All types defined in the registry
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
 	std::map<std::string, std::string> _c_types;
 	std::vector<ScalarTypedef*> _scalar_typedefs;
