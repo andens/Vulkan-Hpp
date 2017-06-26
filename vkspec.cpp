@@ -1133,68 +1133,6 @@ namespace vkspec {
 
 	void Registry::_mark_extension_items() {
 		for (auto& ext : _extensions) {
-			for (auto& type : ext.second.types) {
-				// Get the type of item so we know where to find the implementation
-				auto item_type_it = _defined_types.find(type);
-				assert(item_type_it != _defined_types.end());
-
-				// Get the actual item to work with
-				ExtensionItem* item = nullptr;
-				switch (item_type_it->second) {
-				case ItemType::Struct: {
-					auto item_it = std::find_if(_structs.begin(), _structs.end(), [&type](Struct const* s) -> bool {
-						return type == s->name;
-					});
-					assert(item_it != _structs.end());
-					item = *item_it;
-					break;
-				}
-				case ItemType::Enum: {
-					auto item_it = std::find_if(_enums.begin(), _enums.end(), [&type](Enum const* e) -> bool {
-						return type == e->name;
-					});
-					assert(item_it != _enums.end());
-					item = *item_it;
-					break;
-				}
-				case ItemType::BitmaskTypedef: {
-					auto item_it = std::find_if(_bitmask_typedefs.begin(), _bitmask_typedefs.end(), [&type](BitmaskTypedef const* b) -> bool {
-						return type == b->alias;
-					});
-					assert(item_it != _bitmask_typedefs.end());
-					item = *item_it;
-					break;
-				}
-				case ItemType::Bitmasks: {
-					auto item_it = std::find_if(_bitmasks.begin(), _bitmasks.end(), [&type](Bitmasks const* b) -> bool {
-						return type == b->name;
-					});
-					assert(item_it != _bitmasks.end());
-					item = *item_it;
-					break;
-				}
-				case ItemType::HandleTypedef: {
-					auto item_it = std::find_if(_handle_typedefs.begin(), _handle_typedefs.end(), [&type](HandleTypedef const* h) -> bool {
-						return type == h->alias;
-					});
-					assert(item_it != _handle_typedefs.end());
-					item = *item_it;
-					break;
-				}
-				default: throw std::runtime_error("The type of '" + type + "' not implemented when marking extension types.");
-				}
-
-				// TODO: This is faulty logic for types. The type tag inside require
-				// of an extension does not mean that the extension defines the
-				// type. This is some kind of requirement thing for the extension
-				// that is not properly explained and does not seem to be consistant.
-				// One example is VkDebugReportObjectTypeEXT which is a type tag of
-				// both VK_EXT_debug_report (nr 12) and VK_EXT_debug_marker (nr 23).
-				//assert(!item->extension);
-				//item->extension = true;
-				//item->disabled = ext.second.disabled;
-			}
-
 			// Mark all commands of this extension as being extension commands.
 			for (auto& command_name : ext.second.commands) {
 				auto command_it = std::find_if(_commands.begin(), _commands.end(), [&command_name](Command const* cmd) -> bool {
