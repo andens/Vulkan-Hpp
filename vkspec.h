@@ -204,6 +204,7 @@ private:
 		Constant,
 		Enum,
 		Command,
+		Extension,
 	};
 
 private:

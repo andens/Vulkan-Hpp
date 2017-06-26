@@ -1085,6 +1085,7 @@ namespace vkspec {
 	}
 
 	void Registry::_define_extension(Extension const&& ext) {
+		_define(ext.name, ItemType::Extension);
 		assert(_extensions.insert(std::make_pair(ext.name, ext)).second == true);
 	}
 
