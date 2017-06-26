@@ -209,6 +209,11 @@ namespace vkspec {
 		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
 		std::string name = nameElement->GetText();
 
+		// Bitmasks are typedefed to VkFlags, but VkFlags is never used explicitly
+		// in Vulkan. Here I just make the reference so that analyzing dependencies
+		// later works properly.
+		_type_reference(typeElement->GetText(), name);
+
 		assert(!nameElement->NextSiblingElement());
 
 		// Requires contains the type that will eventually hold definitions (with
@@ -911,10 +916,15 @@ namespace vkspec {
 
 	void Registry::_read_extension_type(tinyxml2::XMLElement * element, Extension& ext)
 	{
-		// Save the type name so we can mark it as belonging to an extension.
+		// Some types are not found by analyzing dependencies, but the extension
+		// may still require some types. These are provided explicitly. One of
+		// these is VkBindImageMemorySwapchainInfoKHX which is an extension struct
+		// to VkBindImageMemoryInfoKHX and thus is never a direct dependency of
+		// another type. However, the extension (VK_KHX_device_group) still adds
+		// it, so we collect these types here for when analyzing dependencies.
 		assert(element->Attribute("name"));
-		std::string t = _type_reference(element->Attribute("name"));
-		ext.types.push_back(t);
+		std::string t = _type_reference(element->Attribute("name"), ext.name);
+		ext.required_types.push_back(t);
 	}
 
 	void Registry::_read_extension_enum(tinyxml2::XMLElement * element, Extension const& extension)
@@ -1185,6 +1195,7 @@ namespace vkspec {
 				//item->disabled = ext.second.disabled;
 			}
 
+			// Mark all commands of this extension as being extension commands.
 			for (auto& command_name : ext.second.commands) {
 				auto command_it = std::find_if(_commands.begin(), _commands.end(), [&command_name](Command const* cmd) -> bool {
 					return command_name == cmd->name;
@@ -1196,6 +1207,128 @@ namespace vkspec {
 				item->disabled = ext.second.disabled;
 			}
 		}
+
+		// First we collect all types used directly by non-extension commands.
+		std::set<std::string> core_types;
+		for (auto c : _commands) {
+			if (!c->extension) {
+				core_types.insert(_dependencies[c->name].dependencies.begin(), _dependencies[c->name].dependencies.end());
+			}
+		}
+
+		auto add = [this](std::set<std::string>& set) -> bool {
+			for (auto& item : set) {
+				for (auto& dep : _dependencies[item].dependencies) {
+					if (set.insert(dep).second) {
+						// A value was added so we return in order to iterate again
+						return true;
+					}
+				}
+			}
+
+			// Nothing added
+			return false;
+		};
+
+		// Now we recurse and all dependencies of types until nothing new was
+		// added. At this point we have all types used directly or indirectly
+		// by core commands.
+		while (add(core_types));
+
+		// With all types used by the core API known, we collect those used by
+		// extensions. I guess we could just have gone with adding types having
+		// a tag directly without finding core types, but it's nice to compare
+		// to types we know are definitely used by core commands.
+		std::set<std::string> extension_types;
+		for (auto& t : _defined_types) {
+			// Ignore certain classes of items manually
+			if (std::find_if(_c_types.begin(), _c_types.end(), [&t](auto& c) -> bool { return c.second == t.first; }) != _c_types.end()) { // C types are not defined by extension
+				continue;
+			}
+			if (_extensions.find(t.first) != _extensions.end()) { // Extensions are not types
+				continue;
+			}
+			if (std::find_if(_api_constants.begin(), _api_constants.end(), [&t](auto& c) -> bool { return std::get<0>(c) == t.first; }) != _api_constants.end()) {
+				continue;
+			}
+			if (std::find_if(_commands.begin(), _commands.end(), [&t](Command* c) -> bool { return c->name == t.first; }) != _commands.end()) { // Commands are not types
+				continue;
+			}
+
+			// These types are defined in the core API, but never used directly
+			if (t.first == "VkDispatchIndirectCommand") { continue; }
+			if (t.first == "VkDrawIndexedIndirectCommand") { continue; }
+			if (t.first == "VkDrawIndirectCommand") { continue; }
+			if (t.first == "VkPipelineCacheHeaderVersion") { continue; } // Defined as an enum, but used as API constant
+			if (t.first == "VkRect3D") { continue; } // Defined but never used in the API
+
+			// All extension types should match this pattern. If they do not,
+			// we make sure that they are used in the core API as a second safe-
+			// guard against leaking types.
+			std::regex re(R"(^(PFN_v|V)k[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
+			auto it = std::sregex_iterator(t.first.begin(), t.first.end(), re);
+			auto end = std::sregex_iterator();
+			if (it == end) { // no match for extension item, should be used in core
+				assert(core_types.find(t.first) != core_types.end());
+			}
+			else { // matched extension item
+				std::smatch match = *it;
+				assert(_tags.find(match[2].str()) != _tags.end());
+				extension_types.insert(t.first);
+			}
+		}
+
+		// For each extension iterated in order, its dependency set is built
+		// and matched against extension types. If any type is found, that type
+		// is removed from remaining extension types and marked as being added
+		// by the extension in question.
+		std::set<std::string> current_set;
+		size_t extension_count = _extensions.size();
+		for (unsigned counter = 1; counter <= extension_count; ++counter) {
+			auto ext_it = std::find_if(_extensions.begin(), _extensions.end(), [counter](std::pair<const std::string, Extension>& e) -> bool {
+				return std::stoi(e.second.number) == counter;
+			});
+			assert(ext_it != _extensions.end());
+
+			Extension& e = ext_it->second;
+			if (e.disabled) {
+				continue;
+			}
+
+			current_set.clear();
+			for (auto& c : e.commands) {
+				current_set.insert(_dependencies[c].dependencies.begin(), _dependencies[c].dependencies.end());
+			}
+			for (auto& required : e.required_types) { // Also insert the dependencies not found implicitly via functions
+				current_set.insert(required);
+			}
+			while (add(current_set));
+
+			for (auto& dep : current_set) {
+				if (extension_types.erase(dep) > 0) {
+					auto type = _defined_types.find(dep);
+					assert(type != _defined_types.end());
+					ItemType item_type = type->second;
+					ExtensionItem* item = nullptr;
+					switch (item_type) {
+					case ItemType::FunctionTypedef: item = *std::find_if(_function_typedefs.begin(), _function_typedefs.end(), [&dep](FunctionTypedef* t) -> bool { return t->alias == dep; }); break;
+					case ItemType::Bitmasks: item = *std::find_if(_bitmasks.begin(), _bitmasks.end(), [&dep](Bitmasks* t) -> bool { return t->name == dep; }); break;
+					case ItemType::BitmaskTypedef: item = *std::find_if(_bitmask_typedefs.begin(), _bitmask_typedefs.end(), [&dep](BitmaskTypedef* t) -> bool { return t->alias == dep; }); break;
+					case ItemType::HandleTypedef: item = *std::find_if(_handle_typedefs.begin(), _handle_typedefs.end(), [&dep](HandleTypedef* t) -> bool { return t->alias == dep; }); break;
+					case ItemType::Struct: item = *std::find_if(_structs.begin(), _structs.end(), [&dep](Struct* t) -> bool { return t->name == dep; }); break;
+					case ItemType::Enum: item = *std::find_if(_enums.begin(), _enums.end(), [&dep](Enum* t) -> bool { return t->name == dep; }); break;
+					}
+					if (!item) {
+						throw std::runtime_error("Dependency '" + dep + "' of extension '" + e.name + "' was of unknown type. This is an oversight and should be easily fixed by adding another switch branch.");
+					}
+					item->extension = true;
+					e.types.push_back(dep);
+				}
+			}
+		}
+
+		// By now all extension types should have been added to some extension.
+		assert(extension_types.empty());
 	}
 
 	std::string Registry::_bitpos_to_value(std::string const& bitpos) {

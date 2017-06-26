@@ -40,7 +40,7 @@ struct ScalarTypedef {
 	std::string actual;
 };
 
-struct FunctionTypedef {
+struct FunctionTypedef : public ExtensionItem {
 	struct Parameter {
 		std::string type;
 		std::string name;
@@ -109,7 +109,8 @@ struct Extension {
 	std::string tag;
 	std::string type; // instance or device if not empty string
 	std::vector<std::string> commands;
-	std::vector<std::string> types;
+	std::vector<std::string> required_types; // Provided explicitly by registry
+	std::vector<std::string> types; // Types introduced by this extension
 	bool disabled = false;
 };
 
