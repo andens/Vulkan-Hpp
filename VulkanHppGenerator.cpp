@@ -77,9 +77,80 @@ public:
 	}
 } *indent;
 
-const std::string flagsMacro = R"(
-FLAGSMACRO
-)";
+const std::string flags_macro_comment = R"(/*
+For regular enums, a repr(C) enum is used, which seems to be the way to go.
+Things become a bit more difficult for flags because Rust requires enum values
+to be valid variants, which is not the case when oring them together. Some
+tests by transmuting worked, but sometimes Rust would cast to some actual
+variant and this was not always obvious (matching for example). Instead, the
+flag enums use the newtype pattern to build a struct that wraps an integer.
+This struct enables bitwise operations, provides type safety, and scopes so
+that only particular values can be created, just like an enum. The problem now
+is that since we are working with a struct using a single member and not the
+underlying type, the ABI may not be the same as when working with the wrapped
+type directly. This could cause problems when passing this new type to C. A
+suggestion about transparency attribute has been proposed that would solve this
+problem, but it's slow going: https://github.com/rust-lang/rfcs/pull/1758. As
+long as it works for me I'll leave it like this. Note that the type keyword
+does not help here as it is just an alias and not an actual new type. When it
+comes to the variants, for now I can create them using functions. It's
+expected that associated constants (const values inside a struct) will land in
+the 1.20 version of the compiler which could replace the functions.
+*/)";
+
+const std::string flags_macro = R"(
+macro_rules! vulkan_flags {
+    ($type_name:ident, { $($flag:ident = $flag_val:expr,)* }) => (
+        #[repr(C)]
+        #[derive(Debug, Copy, Clone, PartialEq)]
+        pub struct $type_name {
+            flags: VkFlags,
+        }
+
+        impl $type_name {
+            #[allow(dead_code)] // Don't know why this one warns... it's public
+            pub fn none() -> $type_name {
+                $type_name { flags: 0 }
+            }
+
+            $(
+                pub fn $flag() -> $type_name {
+                    $type_name { flags: $flag_val }
+                }
+            )*
+        }
+
+        impl BitOr for $type_name {
+            type Output = $type_name;
+
+            fn bitor(self, rhs: $type_name) -> $type_name {
+                $type_name { flags: self.flags | rhs.flags }
+            }
+        }
+
+        impl BitAnd for $type_name {
+            type Output = Self;
+
+            fn bitand(self, rhs: Self) -> Self {
+                $type_name { flags: self.flags & rhs.flags }
+            }
+        }
+
+        impl fmt::Display for $type_name {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, concat!(
+                    stringify!($type_name), " {{\n",
+                        $(
+                            "    [{}] ", stringify!($flag), "\n",
+                        )* "}}"
+                    )
+                    //$(, if *self & $type_name::$flag() == $type_name::$flag() { if self.flags != 0 && $type_name::$flag().flags == 0 { " " } else { "x" } } else { " " } )*
+                    $(, if *self & $type_name::$flag() == $type_name::$flag() { "x" } else { " " } )*
+                )
+            }
+        }
+    );
+})";
 
 //std::string replaceWithMap(std::string const &input, std::map<std::string, std::string> replacements)
 //{
@@ -2301,26 +2372,10 @@ pub mod core {
 		}
 
 		ofs << std::endl;
-		ofs << flagsMacro;
+		ofs << flags_macro_comment;
+		ofs << flags_macro;
 
 		ofs << std::endl;
-
-		// TODO: Removed dependencies
-
-		//// First of all, write out vk::Result
-		//std::list<DependencyData>::const_iterator it = std::find_if(vkData.dependencies.begin(), vkData.dependencies.end(), [](DependencyData const& dp) { return dp.name == "Result"; });
-		//assert(it != vkData.dependencies.end());
-		//writeTypeEnum(ofs, vkData.enums.find(it->name)->second);
-
-		//// Remove vk::Result because it has been handled
-		//vkData.dependencies.erase(it);
-
-		ofs << std::endl;
-
-		// TODO: Removed dependencies
-
-		//assert(vkData.deleterTypes.find("") != vkData.deleterTypes.end());
-		//writeTypes(ofs, vkData, defaultValues);
 
 		indent->decrease();
 
