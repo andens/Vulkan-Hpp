@@ -224,7 +224,7 @@ private:
 	// Reads the type tag of a member tag, including potential text nodes around
 	// the type tag to get qualifiers. We pass the first node that could potentially
 	// be a text node.
-	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& type);
+	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string const& struct_name, std::string& type);
 
 	void _read_enums(tinyxml2::XMLElement * element);
 	void _read_api_constants(tinyxml2::XMLElement* element);
@@ -247,9 +247,9 @@ private:
 	void _read_disabled_extension_require(tinyxml2::XMLElement * element, Extension& ext);
 	// Defines what types, enumerants, and commands are used by an extension
 	void _read_extension_require(tinyxml2::XMLElement * element, std::string const& tag, Extension& ext);
-	void _read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string>& extensionCommands);
+	void _read_extension_command(tinyxml2::XMLElement * element, Extension& extension);
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension& ext);
-	void _read_extension_enum(tinyxml2::XMLElement * element, std::string const& extensionNumber);
+	void _read_extension_enum(tinyxml2::XMLElement * element, Extension const& extension);
 
 	ScalarTypedef* _define_scalar_typedef(std::string const& alias, std::string const& actual);
 	FunctionTypedef* _define_function_typedef(std::string const& alias, std::string const& return_type);
@@ -262,7 +262,7 @@ private:
 	Command* _define_command(std::string const& name, std::string const& return_type);
 	void _define_extension(Extension const&& ext);
 
-	std::string const& _type_reference(const std::string& type);
+	std::string const& _type_reference(std::string const& type, std::string const& dependant);
 
 	void _define(std::string const& name, ItemType item_type);
 
@@ -273,6 +273,11 @@ private:
 	std::string _bitpos_to_value(std::string const& bitpos);
 
 private:
+	struct Dependencies {
+		std::set<std::string> dependants; // Those depending on a me
+		std::set<std::string> dependencies; // Those I depend on
+	};
+
 	/*
 	The base types themselves are only stored once and then their pointers are
 	reused. This allows declaring Vulkan types before they are defined by
@@ -293,6 +298,7 @@ private:
 	std::set<std::string> _tags;
 	std::map<std::string, ItemType> _defined_types; // All types defined in the registry
 	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
+	std::map<std::string, Dependencies> _dependencies; // Maps a type to those it depends on and those which depends on a type
 	std::map<std::string, std::string> _c_types;
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;

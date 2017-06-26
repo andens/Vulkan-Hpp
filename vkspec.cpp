@@ -191,12 +191,11 @@ namespace vkspec {
 		std::string type = typeElement->GetText();
 		assert(type == "uint32_t" || type == "uint64_t");
 
-		std::string const& underlying = _type_reference(type);
-
 		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
 		std::string newType = nameElement->GetText();
 
+		std::string const& underlying = _type_reference(type, newType);
 		_define_scalar_typedef(newType, underlying);
 	}
 
@@ -205,7 +204,6 @@ namespace vkspec {
 		assert(strcmp(element->GetText(), "typedef ") == 0);
 		tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText() && (strcmp(typeElement->GetText(), "VkFlags") == 0));
-		std::string type = typeElement->GetText();
 
 		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
@@ -228,7 +226,7 @@ namespace vkspec {
 			// I don't define bitmasks here, but rather when parsing its members.
 			// Non-existant definitions should not be a requirement, so this turns
 			// into an extra check that the type is not undefined later.
-			bit_definitions = _type_reference(element->Attribute("requires"));
+			bit_definitions = _type_reference(element->Attribute("requires"), name);
 		}
 
 		_define_bitmask_typedef(name, bit_definitions);
@@ -252,18 +250,6 @@ namespace vkspec {
 		assert(node && node->ToText());
 		std::string text = node->Value();
 
-		// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
-		// group 1.
-		std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
-		auto it = std::sregex_iterator(text.begin(), text.end(), re);
-		auto end = std::sregex_iterator();
-		assert(it != end);
-		std::smatch match = *it;
-		std::string returnType = _type_reference(match[1].str());
-		if (match[2].matched) {
-			returnType = _translator->pointer_to(returnType, PointerType::T_P);
-		}
-
 		// name tag containing the type def name
 		node = node->NextSibling();
 		assert(node && node->ToElement());
@@ -271,6 +257,18 @@ namespace vkspec {
 		assert(tag && strcmp(tag->Value(), "name") == 0 && tag->GetText());
 		std::string name = tag->GetText();
 		assert(!tag->FirstChildElement());
+
+		// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
+		// group 1.
+		std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
+		auto it = std::sregex_iterator(text.begin(), text.end(), re);
+		auto end = std::sregex_iterator();
+		assert(it != end);
+		std::smatch match = *it;
+		std::string returnType = _type_reference(match[1].str(), name);
+		if (match[2].matched) {
+			returnType = _translator->pointer_to(returnType, PointerType::T_P);
+		}
 
 		// Text node after name tag beginning parameter list. Note that for void
 		// functions this is the last node that also ends the function definition.
@@ -332,7 +330,7 @@ namespace vkspec {
 				nextParamConst = match[1].matched;
 			}
 
-			std::string t = _type_reference(paramType);
+			std::string t = _type_reference(paramType, name);
 
 			if (constModifier) {
 				assert(pointer);
@@ -359,18 +357,19 @@ namespace vkspec {
 		tinyxml2::XMLElement * typeElement = element->FirstChildElement();
 		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
 		std::string type = typeElement->GetText();
-		std::string underlying = "";
-		if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
-			underlying = _type_reference("size_t");
-		}
-		else {
-			assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
-			underlying = _type_reference("uint64_t");
-		}
 
 		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
 		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
 		std::string name = nameElement->GetText();
+
+		std::string underlying = "";
+		if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
+			underlying = _type_reference("size_t", name);
+		}
+		else {
+			assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
+			underlying = _type_reference("uint64_t", name);
+		}
 
 		_define_handle_typedef(name, underlying);
 	}
@@ -399,7 +398,7 @@ namespace vkspec {
 
 		// Read the type, parsing modifiers to get a string of the type.
 		std::string type;
-		tinyxml2::XMLNode* child = _read_type_struct_member_type(element->FirstChild(), type);
+		tinyxml2::XMLNode* child = _read_type_struct_member_type(element->FirstChild(), theStruct->name, type);
 
 		// After we have parsed the type we expect to find the name of the member
 		assert(child->ToElement() && strcmp(child->Value(), "name") == 0 && child->ToElement()->GetText());
@@ -421,7 +420,7 @@ namespace vkspec {
 	// Reads the type tag of a member tag, including potential text nodes around
 	// the type tag to get qualifiers. We pass the first node that could potentially
 	// be a text node.
-	tinyxml2::XMLNode* Registry::_read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& type)
+	tinyxml2::XMLNode* Registry::_read_type_struct_member_type(tinyxml2::XMLNode* element, std::string const& struct_name, std::string& type)
 	{
 		assert(element);
 
@@ -443,7 +442,7 @@ namespace vkspec {
 
 		assert(element->ToElement());
 		assert((strcmp(element->Value(), "type") == 0) && element->ToElement()->GetText());
-		type = _type_reference(element->ToElement()->GetText());
+		type = _type_reference(element->ToElement()->GetText(), struct_name);
 
 		element = element->NextSibling();
 		assert(element);
@@ -538,7 +537,7 @@ namespace vkspec {
 			// Matched a regular integer
 			if (it != end) {
 				std::smatch match = *it;
-				std::string dataType = match[1].matched ? "i32" : "u32";
+				std::string dataType = _type_reference(match[1].matched ? "i32" : "u32", constant);
 				_define_api_constant(constant, dataType, value);
 				continue;
 			}
@@ -655,8 +654,8 @@ namespace vkspec {
 		assert(!nameElement->NextSibling());
 
 		// get return type and name of the command
-		std::string type = _type_reference(typeElement->GetText());
 		std::string name = nameElement->GetText();
+		std::string type = _type_reference(typeElement->GetText(), name);
 
 		return _define_command(name, type);
 	}
@@ -722,7 +721,7 @@ namespace vkspec {
 
 		// get the pure type
 		assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
-		type = _type_reference(node->ToElement()->GetText());
+		type = _type_reference(node->ToElement()->GetText(), cmd->name);
 
 		// end with "*", "**", or "* const*", if needed
 		node = node->NextSibling();
@@ -888,7 +887,7 @@ namespace vkspec {
 
 			if (value == "command")
 			{
-				_read_extension_command(child, ext.commands);
+				_read_extension_command(child, ext);
 			}
 			else if (value == "type")
 			{
@@ -897,17 +896,17 @@ namespace vkspec {
 			else
 			{
 				assert(value == "enum");
-				_read_extension_enum(child, ext.number);
+				_read_extension_enum(child, ext);
 			}
 		}
 	}
 
-	void Registry::_read_extension_command(tinyxml2::XMLElement * element, std::vector<std::string>& extensionCommands)
+	void Registry::_read_extension_command(tinyxml2::XMLElement * element, Extension& extension)
 	{
 		// Command is marked as belonging to an extension after parsing is done
 		assert(element->Attribute("name"));
-		std::string t = _type_reference(element->Attribute("name"));
-		extensionCommands.push_back(t);
+		std::string t = _type_reference(element->Attribute("name"), extension.name);
+		extension.commands.push_back(t);
 	}
 
 	void Registry::_read_extension_type(tinyxml2::XMLElement * element, Extension& ext)
@@ -918,7 +917,7 @@ namespace vkspec {
 		ext.types.push_back(t);
 	}
 
-	void Registry::_read_extension_enum(tinyxml2::XMLElement * element, std::string const& extensionNumber)
+	void Registry::_read_extension_enum(tinyxml2::XMLElement * element, Extension const& extension)
 	{
 		assert(element->Attribute("name"));
 		std::string name = element->Attribute("name");
@@ -932,7 +931,7 @@ namespace vkspec {
 				// the enum data and extend the enum in the post-parse cleanup
 				// pass where we mark commands as extension commands.
 				std::string extends = element->Attribute("extends");
-				_type_reference(extends);
+				_type_reference(extends, extension.name);
 				auto it = std::find_if(_bitmasks.begin(), _bitmasks.end(), [&extends](Bitmasks* bitmask) -> bool {
 					return bitmask->name == extends;
 				});
@@ -946,7 +945,7 @@ namespace vkspec {
 				// The value depends on extension number and offset. See
 				// https://www.khronos.org/registry/vulkan/specs/1.0/styleguide.html#_assigning_extension_token_values
 				// for calculation.
-				int value = 1000000000 + (std::stoi(extensionNumber) - 1) * 1000 + std::stoi(element->Attribute("offset"));
+				int value = 1000000000 + (std::stoi(extension.number) - 1) * 1000 + std::stoi(element->Attribute("offset"));
 
 				if (element->Attribute("dir") && strcmp(element->Attribute("dir"), "-") == 0) {
 					value = -value;
@@ -956,7 +955,7 @@ namespace vkspec {
 
 				// If type does not exist, same goes as above
 				std::string extends = element->Attribute("extends");
-				_type_reference(extends);
+				_type_reference(extends, extension.name);
 				auto it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
 					return e->name == extends;
 				});
@@ -970,7 +969,7 @@ namespace vkspec {
 				// This is a special case for an enum variant that used to be core.
 				// It uses value instead of offset.
 				std::string extends = element->Attribute("extends");
-				_type_reference(extends);
+				_type_reference(extends, extension.name);
 				auto it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
 					return e->name == extends;
 				});
@@ -1089,19 +1088,27 @@ namespace vkspec {
 		assert(_extensions.insert(std::make_pair(ext.name, ext)).second == true);
 	}
 
-	std::string const& Registry::_type_reference(const std::string& type) {
+	// dependant is the one making a reference to type
+	std::string const& Registry::_type_reference(std::string const& type, std::string const& dependant) {
 		assert(type.find_first_of("* ") == std::string::npos);
 
+		// Use translation if we work with a C type
 		auto c = _c_types.find(type);
-		if (c != _c_types.end()) {
-			return c->second; // translation
+		std::string const& referenced = (c != _c_types.end()) ? c->second : type;
+
+		// Set up dependencies while we're at it
+		_dependencies[referenced].dependants.insert(dependant);
+		_dependencies[dependant].dependencies.insert(referenced);
+
+		if (_defined_types.find(referenced) == _defined_types.end()) {
+			_undefined_types.insert(referenced);
 		}
 
-		if (_defined_types.find(type) == _defined_types.end()) {
-			_undefined_types.insert(type);
+		if (_defined_types.find(dependant) == _defined_types.end()) {
+			_undefined_types.insert(dependant);
 		}
 
-		return type;
+		return referenced;
 	}
 
 	void Registry::_define(std::string const& name, ItemType item_type) {
