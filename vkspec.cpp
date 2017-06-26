@@ -539,7 +539,7 @@ namespace vkspec {
 			if (it != end) {
 				std::smatch match = *it;
 				std::string dataType = match[1].matched ? "i32" : "u32";
-				_api_constants.push_back(std::make_tuple(constant, dataType, value));
+				_define_api_constant(constant, dataType, value);
 				continue;
 			}
 
@@ -549,20 +549,20 @@ namespace vkspec {
 			// Matched float
 			if (it != end) {
 				value.pop_back();
-				_api_constants.push_back(std::make_tuple(constant, "f32", value));
+				_define_api_constant(constant, _type_reference("f32", constant), value);
 				continue;
 			}
 
 			// The rest
 			if (value == "(~0U)") {
-				_api_constants.push_back(std::make_tuple(constant, "u32", "~0"));
+				_define_api_constant(constant, _type_reference("u32", constant), "~0");
 			}
 			else if (value == "(~0ULL)") {
-				_api_constants.push_back(std::make_tuple(constant, "u64", "~0"));
+				_define_api_constant(constant, _type_reference("u64", constant), "~0");
 			}
 			else {
 				assert(value == "(~0U-1)");
-				_api_constants.push_back(std::make_tuple(constant, "u32", "~0u32 - 1"));
+				_define_api_constant(constant, _type_reference("u32", constant), "~0u32 - 1");
 			}
 		}
 	}
@@ -1060,6 +1060,11 @@ namespace vkspec {
 		t->is_union = is_union;
 		_structs.push_back(t);
 		return t;
+	}
+
+	void Registry::_define_api_constant(std::string const& constant, std::string const& data_type, std::string const& value) {
+		_define(constant, ItemType::Constant);
+		_api_constants.push_back(std::make_tuple(constant, data_type, value));
 	}
 
 	Enum* Registry::_define_enum(std::string const& name) {

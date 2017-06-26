@@ -201,6 +201,7 @@ private:
 		BitmaskTypedef,
 		HandleTypedef,
 		Struct,
+		Constant,
 		Enum,
 		Command,
 	};
@@ -255,6 +256,7 @@ private:
 	BitmaskTypedef* _define_bitmask_typedef(std::string const& alias, std::string const& bit_definitions);
 	HandleTypedef* _define_handle_typedef(std::string const& alias, std::string const& actual);
 	Struct* _define_struct(std::string const& name, bool is_union);
+	void _define_api_constant(std::string const& constant, std::string const& data_type, std::string const& value);
 	Enum* _define_enum(std::string const& name);
 	Command* _define_command(std::string const& name, std::string const& return_type);
 	void _define_extension(Extension const&& ext);
