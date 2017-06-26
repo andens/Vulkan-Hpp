@@ -194,6 +194,7 @@ public:
 
 private:
 	enum class ItemType {
+		CType,
 		ScalarTypedef,
 		FunctionTypedef,
 		Bitmasks,

@@ -11,6 +11,7 @@ namespace vkspec {
 
 	void Registry::add_c_type(std::string const& c, std::string const& translation) {
 		_c_types[c] = translation;
+		assert(_defined_types.insert(std::make_pair(translation, ItemType::CType)).second == true);
 	}
 
 	void Registry::parse(std::string const& spec) {
