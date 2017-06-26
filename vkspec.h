@@ -126,7 +126,7 @@ class ITranslator {
 public:
 	virtual std::string pointer_to(std::string const& type_name, PointerType pointer_type) = 0;
 	virtual std::string array_member(std::string const& type_name, std::string const& array_size) = 0;
-	virtual std::string array_param(std::string const& type_name, std::string const& array_size) = 0;
+	virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) = 0;
 };
 
 class Registry {
@@ -233,7 +233,7 @@ private:
 	Command* _read_command_proto(tinyxml2::XMLElement * element);
 	void _read_command_params(tinyxml2::XMLElement* element, Command* cmd);
 	void _read_command_param(tinyxml2::XMLElement * element, Command* cmd);
-	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& type);
+	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, Command const* cmd, std::string& type, bool& const_modifier);
 
 	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
 	std::string _trim_end(std::string const& input);

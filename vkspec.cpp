@@ -682,14 +682,15 @@ namespace vkspec {
 	void Registry::_read_command_param(tinyxml2::XMLElement * element, Command* cmd)
 	{
 		std::string type;
-		tinyxml2::XMLNode * afterType = _read_command_param_type(element->FirstChild(), type);
+		bool const_modifier;
+		tinyxml2::XMLNode * afterType = _read_command_param_type(element->FirstChild(), cmd, type, const_modifier);
 
 		assert(afterType->ToElement() && (strcmp(afterType->Value(), "name") == 0) && afterType->ToElement()->GetText());
 		std::string name = afterType->ToElement()->GetText();
 
 		std::string arraySize = _read_array_size(afterType, name);
 		if (arraySize != "") {
-			type = _translator->array_param(type, arraySize);
+			type = _translator->array_param(type, arraySize, const_modifier);
 		}
 
 		Command::Parameter p;
@@ -698,9 +699,9 @@ namespace vkspec {
 		cmd->params.push_back(p);
 	}
 
-	tinyxml2::XMLNode* Registry::_read_command_param_type(tinyxml2::XMLNode* node, std::string& type)
+	tinyxml2::XMLNode* Registry::_read_command_param_type(tinyxml2::XMLNode* node, Command const* cmd, std::string& type, bool& const_modifier)
 	{
-		bool constModifier = false;
+		const_modifier = false;
 
 		assert(node);
 		if (node->ToText())
@@ -708,7 +709,7 @@ namespace vkspec {
 			// start type with "const" or "struct", if needed
 			std::string value = _trim_end(node->Value());
 			if (value == "const") {
-				constModifier = true;
+				const_modifier = true;
 			}
 			else {
 				// Struct parameter C syntax. Not needed in Rust
@@ -730,14 +731,14 @@ namespace vkspec {
 			std::string value = _trim_end(node->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				type = _translator->pointer_to(type, constModifier ? PointerType::CONST_T_P : PointerType::T_P);
+				type = _translator->pointer_to(type, const_modifier ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				type = _translator->pointer_to(type, constModifier ? PointerType::CONST_T_PP : PointerType::T_PP);
+				type = _translator->pointer_to(type, const_modifier ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				type = _translator->pointer_to(type, constModifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
+				type = _translator->pointer_to(type, const_modifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			node = node->NextSibling();
 		}

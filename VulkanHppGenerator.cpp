@@ -2188,8 +2188,8 @@ class RustTranslator : public vkspec::ITranslator {
 		return "[" + type_name + "; " + array_size + "]";
 	}
 
-	virtual std::string array_param(std::string const& type_name, std::string const& array_size) override final {
-		return "&[" + type_name + "; " + array_size + "]";
+	virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) override final {
+		return "&" + std::string(!const_modifier ? "mut " : "") + "[" + type_name + "; " + array_size + "]";
 	}
 };
 
