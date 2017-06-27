@@ -239,20 +239,16 @@ public:
 		return _version;
 	}
 
-	std::vector<std::tuple<std::string, std::string, std::string>> const& get_api_constants(void) const {
-		return _api_constants;
-	}
-
 	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
 		return _scalar_typedefs;
 	}
 
-	std::vector<FunctionTypedef*> const& get_function_typedefs(void) const {
-		return _function_typedefs;
-	}
-
 	std::vector<Bitmasks*> const& get_bitmasks(void) const {
 		return _bitmasks;
+	}
+
+	std::vector<FunctionTypedef*> const& get_function_typedefs(void) const {
+		return _function_typedefs;
 	}
 
 	std::vector<HandleTypedef*> const& get_handle_typedefs(void) const {
@@ -261,6 +257,10 @@ public:
 
 	std::vector<Struct*> const& get_structs(void) const {
 		return _structs;
+	}
+
+	std::vector<ApiConstant*> const& get_api_constants(void) const {
+		return _api_constants;
 	}
 
 	std::vector<Enum*> const& get_enums(void) const {
@@ -298,6 +298,7 @@ private:
 	void _parse_function_typedef_definition(FunctionTypedef* f);
 	void _parse_handle_typedef_definition(HandleTypedef* h);
 	void _parse_struct_definition(Struct* s);
+	void _parse_api_constant_definition(ApiConstant* a);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
@@ -360,20 +361,20 @@ private:
 	std::map<std::string, Item*> _items; // All items used in the registry
 	std::map<std::string, Type*> _types; // All types used in the registry (no commands, extensions, constants, etc)
 	std::set<std::string> _c_types; // Keeps the set of passed C types for easy existance checks
-
-	ITranslator* _translator;
-	std::string _version;
-	std::string _license_header;
-	std::vector<std::tuple<std::string, std::string, std::string>> _api_constants;
-	std::set<std::string> _tags;
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
 	std::vector<HandleTypedef*> _handle_typedefs;
 	std::vector<Struct*> _structs;
+	std::vector<ApiConstant*> _api_constants;
 	std::vector<Enum*> _enums;
 	std::vector<Command*> _commands;
 	std::vector<Extension*> _extensions;
+
+	ITranslator* _translator;
+	std::string _version;
+	std::string _license_header;
+	std::set<std::string> _tags;
 };
 
 } // vkspec

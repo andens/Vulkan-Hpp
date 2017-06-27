@@ -320,49 +320,8 @@ namespace vkspec {
 
 			ApiConstant* c = new ApiConstant(constant, child);
 			assert(_items.insert(std::make_pair(constant, c)).second == true);
-
-			/*
-			assert(child->Attribute("value"));
-			std::string value = child->Attribute("value");
-
-			// Most are fine, but some may become troublesome at times depending on
-			// how large an unsigned int will be. Those of U suffix seem to be used
-			// in places of type uint32_t, and ULL is used in places where the type
-			// is VkDeviceSize, which is typedefed to uint64_t.
-
-			std::regex re(R"(^(-)?[0-9]+$)");
-			auto it = std::sregex_iterator(value.begin(), value.end(), re);
-			auto end = std::sregex_iterator();
-
-			// Matched a regular integer
-			if (it != end) {
-				std::smatch match = *it;
-				std::string dataType = _type_reference(match[1].matched ? "i32" : "u32", constant);
-				_define_api_constant(constant, dataType, value, child);
-				continue;
-			}
-
-			re = std::regex(R"(^[0-9]+\.[0-9]+f$)");
-			it = std::sregex_iterator(value.begin(), value.end(), re);
-
-			// Matched float
-			if (it != end) {
-				value.pop_back();
-				_define_api_constant(constant, _type_reference("f32", constant), value, child);
-				continue;
-			}
-
-			// The rest
-			if (value == "(~0U)") {
-				_define_api_constant(constant, _type_reference("u32", constant), "~0", child);
-			}
-			else if (value == "(~0ULL)") {
-				_define_api_constant(constant, _type_reference("u64", constant), "~0", child);
-			}
-			else {
-				assert(value == "(~0U-1)");
-				_define_api_constant(constant, _type_reference("u32", constant), "~0u32 - 1", child);
-			}*/
+			// Note: Not a type, so no insertion to _types
+			_api_constants.push_back(c);
 		}
 	}
 
@@ -472,6 +431,10 @@ namespace vkspec {
 
 		for (auto s : _structs) {
 			_parse_struct_definition(s);
+		}
+
+		for (auto a : _api_constants) {
+			_parse_api_constant_definition(a);
 		}
 	}
 
@@ -762,6 +725,64 @@ namespace vkspec {
 		}
 
 		return element;
+	}
+
+	void Registry::_parse_api_constant_definition(ApiConstant* a) {
+		assert(a->_xml_node->Attribute("value"));
+		std::string value = a->_xml_node->Attribute("value");
+
+		// Most are fine, but some may become troublesome at times depending on
+		// how large an unsigned int will be. Those of U suffix seem to be used
+		// in places of type uint32_t, and ULL is used in places where the type
+		// is VkDeviceSize, which is typedefed to uint64_t.
+
+		std::regex re(R"(^(-)?[0-9]+$)");
+		auto it = std::sregex_iterator(value.begin(), value.end(), re);
+		auto end = std::sregex_iterator();
+
+		// Matched a regular integer
+		if (it != end) {
+			std::smatch match = *it;
+			auto type_it = _types.find(match[1].matched ? "int32_t" : "uint32_t");
+			assert(type_it != _types.end());
+			a->_data_type = type_it->second;
+			a->_value = value;
+			return;
+		}
+
+		re = std::regex(R"(^[0-9]+\.[0-9]+f$)");
+		it = std::sregex_iterator(value.begin(), value.end(), re);
+
+		// Matched float
+		if (it != end) {
+			value.pop_back();
+			auto type_it = _types.find("float");
+			assert(type_it != _types.end());
+			a->_data_type = type_it->second;
+			a->_value = value;
+			return;
+		}
+
+		// The rest
+		if (value == "(~0U)") {
+			auto type_it = _types.find("uint32_t");
+			assert(type_it != _types.end());
+			a->_data_type = type_it->second;
+			a->_value = "~0";
+		}
+		else if (value == "(~0ULL)") {
+			auto type_it = _types.find("uint64_t");
+			assert(type_it != _types.end());
+			a->_data_type = type_it->second;
+			a->_value = "~0";
+		}
+		else {
+			assert(value == "(~0U-1)");
+			auto type_it = _types.find("uint32_t");
+			assert(type_it != _types.end());
+			a->_data_type = type_it->second;
+			a->_value = "(~0) - 1";
+		}
 	}
 
 	void Registry::_read_enums_bitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make)

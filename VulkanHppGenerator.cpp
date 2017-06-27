@@ -2384,7 +2384,7 @@ pub mod core {
 
 		ofs << std::endl;
 		for (auto c : reg.get_api_constants()) {
-			ofs << "const " << std::get<0>(c) << ": " << std::get<1>(c) << " = " << std::get<2>(c) << ";" << std::endl;
+			ofs << "const " << c->name() << ": " << "CONSTANT_DATATYPE" << " = " << "CONSTANT_VALUE" << ";" << std::endl;
 		}
 
 		ofs << std::endl;
