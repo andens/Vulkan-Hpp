@@ -10,8 +10,10 @@
 namespace vkspec {
 
 	void Registry::add_c_type(std::string const& c, std::string const& translation) {
-		_c_types[c] = translation;
-		assert(_defined_types.insert(std::make_pair(translation, ItemType::CType)).second == true);
+		CType* c_type = new CType(c, translation);
+		assert(_items.insert(std::make_pair(c, c_type)).second == true);
+		assert(_types.insert(std::make_pair(c, c_type)).second == true);
+		assert(_c_types.insert(c).second == true);
 	}
 
 	void Registry::parse(std::string const& spec) {
@@ -34,9 +36,7 @@ namespace vkspec {
 
 		// Parse type definitions. We are now able to get any type we depend on
 		// since they were created in the pass before.
-		//_parse_type_definitions(registryElement);
-
-		_undefined_check();
+		_parse_item_definitions(registryElement);
 
 		_mark_extension_items();
 	}
@@ -198,29 +198,9 @@ namespace vkspec {
 
 		ScalarTypedef* t = new ScalarTypedef(name, element);
 		assert(_items.insert(std::make_pair(name, t)).second == true);
+		assert(_types.insert(std::make_pair(name, t)).second == true);
+		_scalar_typedefs.push_back(t);
 	}
-
-	//void Registry::_read_type_basetype(tinyxml2::XMLElement * element)
-	//{
-	//	tinyxml2::XMLNode* node = element->FirstChild();
-	//	assert(node && node->ToText() && strcmp(node->Value(), "typedef ") == 0);
-
-	//	node = node->NextSibling();
-	//	assert(node && node->ToElement() && strcmp(node->Value(), "type") == 0);
-	//	tinyxml2::XMLElement* type_element = node->ToElement();
-	//	assert(type_element->GetText());
-	//	std::string type = type_element->GetText();
-	//	assert(type == "uint32_t" || type == "uint64_t");
-
-	//	node = type_element->NextSibling();
-	//	assert(node && node->ToElement() && strcmp(node->Value(), "name") == 0);
-	//	tinyxml2::XMLElement* name_element = node->ToElement();
-	//	assert(name_element->GetText());
-	//	std::string alias = name_element->GetText();
-
-	//	ScalarTypedef* t = new ScalarTypedef(alias, reinterpret_cast<Type const*>(type_element));
-	//	assert(_items.insert(std::make_pair(alias, t)).second == true);
-	//}
 
 	void Registry::_read_type_bitmask(tinyxml2::XMLElement * element)
 	{
@@ -634,6 +614,34 @@ namespace vkspec {
 
 	//	_define_extension(std::move(ext));
 	//}
+
+	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
+		// basetype, bitmask, funpointer, handle, struct/union, apiconst, enums, commands, ext
+		for (auto t : _scalar_typedefs) {
+			_parse_scalar_typedef_definition(t);
+		}
+	}
+
+	void Registry::_parse_scalar_typedef_definition(ScalarTypedef* t) {
+		tinyxml2::XMLNode* node = t->_xml_node->FirstChild();
+		assert(node && node->ToText() && strcmp(node->Value(), "typedef ") == 0);
+
+		node = node->NextSibling();
+		assert(node && node->ToElement() && strcmp(node->Value(), "type") == 0);
+		tinyxml2::XMLElement* type_element = node->ToElement();
+		assert(type_element->GetText());
+		std::string type = type_element->GetText();
+		assert(type == "uint32_t" || type == "uint64_t");
+
+		node = type_element->NextSibling();
+		assert(node && node->ToElement() && strcmp(node->Value(), "name") == 0);
+		tinyxml2::XMLElement* name_element = node->ToElement();
+		assert(name_element->GetText());
+
+		auto type_it = _types.find(type);
+		assert(type_it != _types.end());
+		t->_actual_type = type_it->second;
+	}
 
 	// Read a member tag of a struct, adding members to the provided struct.
 	void Registry::_read_type_struct_member(Struct* theStruct, tinyxml2::XMLElement * element) {
@@ -1096,7 +1104,7 @@ namespace vkspec {
 
 	// dependant is the one making a reference to type
 	std::string const& Registry::_type_reference(std::string const& type, std::string const& dependant) {
-		assert(type.find_first_of("* ") == std::string::npos);
+		/*assert(type.find_first_of("* ") == std::string::npos);
 
 		// Use translation if we work with a C type
 		auto c = _c_types.find(type);
@@ -1114,17 +1122,8 @@ namespace vkspec {
 			_undefined_types.insert(dependant);
 		}
 
-		return referenced;
-	}
-
-	void Registry::_define(std::string const& name, ItemType item_type) {
-		assert(_defined_types.find(name) == _defined_types.end());
-		_defined_types.insert(std::make_pair(name, item_type));
-		_undefined_types.erase(name);
-	}
-
-	void Registry::_undefined_check() {
-		assert(_undefined_types.empty());
+		return referenced;*/
+		return "";
 	}
 
 	void Registry::_mark_extension_items() {/*

@@ -59,6 +59,16 @@ protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
 };
 
+class CType : public Type {
+	friend class Registry;
+
+private:
+	CType(std::string const& c, std::string const& translation) : Type(translation, nullptr), _original_type(c) {}
+
+private:
+	std::string _original_type;
+};
+
 class ScalarTypedef : public Type {
 	friend class Registry;
 
@@ -85,7 +95,8 @@ class FunctionTypedef : public Type {
 
 public:
 	struct Parameter {
-		Type* type;
+		std::string complete_type;
+		Type* pure_type;
 		std::string name;
 	};
 
@@ -93,7 +104,8 @@ private:
 	FunctionTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 
 private:
-	Type* _return_type = nullptr;
+	std::string _return_type_complete;
+	Type* _return_type_pure = nullptr;
 	std::vector<Parameter> _params;
 };
 
@@ -112,7 +124,8 @@ class Struct : public Type {
 
 public:
 	struct Member {
-		Type* type;
+		std::string complete_type;
+		Type* pure_type;
 		std::string name;
 	};
 
@@ -157,7 +170,8 @@ class Command : public Item {
 
 public:
 	struct Parameter {
-		std::string type;
+		std::string complete_type;
+		Type* pure_type;
 		std::string name;
 	};
 
@@ -165,7 +179,8 @@ private:
 	Command(std::string const& name, tinyxml2::XMLElement* command_element) : Item(name, command_element) {}
 
 private:
-	Type* _return_type = nullptr;
+	std::string _return_type_complete;
+	Type* _return_type_pure = nullptr;
 	std::vector<Parameter> _params;
 };
 
@@ -256,27 +271,29 @@ public:
 		return _commands;
 	}
 
-	std::map<std::string, Extension> const& get_extensions(void) const {
+	std::vector<Extension*> const& get_extensions(void) const {
 		return _extensions;
 	}
 
 private:
-	enum class ItemType {
-		CType,
-		ScalarTypedef,
-		FunctionTypedef,
-		Bitmasks,
-		BitmaskTypedef,
-		HandleTypedef,
-		Struct,
-		Constant,
-		Enum,
-		Command,
-		Extension,
-	};
+	//enum class ItemType {
+	//	CType,
+	//	ScalarTypedef,
+	//	FunctionTypedef,
+	//	Bitmasks,
+	//	BitmaskTypedef,
+	//	HandleTypedef,
+	//	Struct,
+	//	Constant,
+	//	Enum,
+	//	Command,
+	//	Extension,
+	//};
 
 private:
 	void _parse_item_declarations(tinyxml2::XMLElement* registry_element);
+	void _parse_item_definitions(tinyxml2::XMLElement* registry_element);
+	void _parse_scalar_typedef_definition(ScalarTypedef* t);
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
 
@@ -321,20 +338,11 @@ private:
 
 	std::string const& _type_reference(std::string const& type, std::string const& dependant);
 
-	void _define(std::string const& name, ItemType item_type);
-
-	void _undefined_check();
-
 	void _mark_extension_items();
 
 	std::string _bitpos_to_value(std::string const& bitpos);
 
 private:
-	struct Dependencies {
-		std::set<std::string> dependants; // Those depending on a me
-		std::set<std::string> dependencies; // Those I depend on
-	};
-
 	/*
 	The base types themselves are only stored once and then their pointers are
 	reused. This allows declaring Vulkan types before they are defined by
@@ -348,16 +356,15 @@ private:
 	never tells us what it is, thus indicating that it was C all the time.
 	*/
 
-	std::map<std::string, Item*> _items;
+	std::map<std::string, Item*> _items; // All items used in the registry
+	std::map<std::string, Type*> _types; // All types used in the registry (no commands, extensions, constants, etc)
+	std::set<std::string> _c_types; // Keeps the set of passed C types for easy existance checks
+
 	ITranslator* _translator;
 	std::string _version;
 	std::string _license_header;
 	std::vector<std::tuple<std::string, std::string, std::string>> _api_constants;
 	std::set<std::string> _tags;
-	std::map<std::string, ItemType> _defined_types; // All types defined in the registry
-	std::set<std::string> _undefined_types; // Types referenced, but currently not defined. Should be empty after parsing
-	std::map<std::string, Dependencies> _dependencies; // Maps a type to those it depends on and those which depends on a type
-	std::map<std::string, std::string> _c_types;
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
@@ -365,7 +372,7 @@ private:
 	std::vector<Struct*> _structs;
 	std::vector<Enum*> _enums;
 	std::vector<Command*> _commands;
-	std::map<std::string, Extension> _extensions;
+	std::vector<Extension*> _extensions;
 };
 
 } // vkspec
