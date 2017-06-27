@@ -210,11 +210,10 @@ private:
 
 private:
 	void _parse_general_information(tinyxml2::XMLElement* registry_element);
-
 	void _read_comment(tinyxml2::XMLElement * element);
-
 	void _read_tags(tinyxml2::XMLElement * element);
 
+	void _parse_type_declarations(tinyxml2::XMLElement* registry_element);
 	void _read_types(tinyxml2::XMLElement * element);
 	void _read_type_basetype(tinyxml2::XMLElement * element);
 	void _read_type_bitmask(tinyxml2::XMLElement * element);

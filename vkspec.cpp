@@ -33,6 +33,10 @@ namespace vkspec {
 		// Parse license header, tags, and other general independent information.
 		_parse_general_information(registryElement);
 
+		// Parse type declarations, temporarily using dependency pointers as
+		// storage for XML nodes instead of the types intended to be stored.
+		_parse_type_declarations(registryElement);
+
 		// The root tag contains zero or more of the following tags. Order may change.
 		for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
@@ -52,8 +56,8 @@ namespace vkspec {
 			}
 			else if (value == "types")
 			{
-				// Defines API types
-				_read_types(child);
+				//// Defines API types
+				//_read_types(child);
 			}
 			else if (value == "enums")
 			{
@@ -139,6 +143,28 @@ namespace vkspec {
 		{
 			assert(child->Attribute("name"));
 			_tags.insert(child->Attribute("name"));
+		}
+	}
+
+	void Registry::_parse_type_declarations(tinyxml2::XMLElement* registry_element) {
+		for (tinyxml2::XMLElement * child = registry_element->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			assert(child->Value());
+			const std::string value = child->Value();
+
+			if (value == "types") {
+				_read_types(child);
+			}
+			else {
+				bool ok = false;
+				ok |= value == "comment";
+				ok |= value == "tags";
+				ok |= value == "enums";
+				ok |= value == "commands";
+				ok |= value == "extensions";
+				ok |= value == "feature";
+				ok |= value == "vendorids";
+				assert(ok);
+			}
 		}
 	}
 
