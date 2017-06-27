@@ -38,6 +38,9 @@ namespace vkspec {
 		// since they were created in the pass before.
 		_parse_item_definitions(registryElement);
 
+		// TODO: Sort extension on number before going further (should be a
+		// no-op, but you never know)
+
 		_mark_extension_items();
 	}
 
@@ -290,27 +293,6 @@ namespace vkspec {
 		assert(_items.insert(std::make_pair(name, e)).second == true);
 		assert(_types.insert(std::make_pair(name, e)).second == true);
 		_enums.push_back(e);
-
-		//if (type == "bitmask") {
-		//	Bitmasks* t = _define_bitmasks(name);
-
-		//	_read_enums_bitmask(element, [t, this](std::string const& member, std::string const& value, bool isBitpos) {
-		//		Bitmasks::Member m;
-		//		m.name = member;
-		//		m.value = isBitpos ? _bitpos_to_value(value) : value;
-		//		t->members.push_back(m);
-		//	});
-		//}
-		//else {
-		//	Enum* t = _define_enum(name);
-
-		//	_read_enums_enum(element, [t](std::string const& member, std::string const& value) {
-		//		Enum::Member m;
-		//		m.name = member;
-		//		m.value = value;
-		//		t->members.push_back(m);
-		//	});
-		//}
 	}
 
 	void Registry::_read_api_constants(tinyxml2::XMLElement* element) {
@@ -412,7 +394,7 @@ namespace vkspec {
 	//}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
-		// apiconst, enums, commands, ext
+		// commands, ext
 		for (auto t : _scalar_typedefs) {
 			_parse_scalar_typedef_definition(t);
 		}
@@ -435,6 +417,10 @@ namespace vkspec {
 
 		for (auto a : _api_constants) {
 			_parse_api_constant_definition(a);
+		}
+
+		for (auto e : _enums) {
+			_parse_enum_definition(e);
 		}
 	}
 
@@ -785,14 +771,10 @@ namespace vkspec {
 		}
 	}
 
-	void Registry::_read_enums_bitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make)
-	{
+	void Registry::_parse_enum_definition(Enum* e) {
 		// read the names of the enum values
-		tinyxml2::XMLElement * child = element->FirstChildElement();
-		while (child)
-		{
+		for (tinyxml2::XMLElement * child = e->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement()) {
 			if (strcmp(child->Value(), "unused") == 0) {
-				child = child->NextSiblingElement();
 				continue;
 			}
 
@@ -800,38 +782,20 @@ namespace vkspec {
 			std::string name = child->Attribute("name");
 
 			std::string value;
-			bool bitpos;
 			if (child->Attribute("bitpos")) {
-				value = child->Attribute("bitpos");
-				bitpos = true;
+				value = _bitpos_to_value(child->Attribute("bitpos"));
 				assert(!child->Attribute("value"));
 			}
 			else {
 				assert(child->Attribute("value"));
 				value = child->Attribute("value"); // Can be arbitrary string but I don't consider that for now
-				bitpos = false;
 			}
 
-			make(name, value, bitpos);
-
-			child = child->NextSiblingElement();
-		}
-	}
-
-	void Registry::_read_enums_enum(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make)
-	{
-		// read the names of the enum values
-		tinyxml2::XMLElement * child = element->FirstChildElement();
-		while (child)
-		{
-			if (strcmp(child->Value(), "unused") == 0) {
-				child = child->NextSiblingElement();
-				continue;
-			}
-
-			assert(child->Attribute("name") && child->Attribute("value"));
-			make(child->Attribute("name"), child->Attribute("value")); // Well, apparently values can be arbitrary string. That could be interesting
-			child = child->NextSiblingElement();
+			Enum::Member m;
+			m.name = name;
+			m.value = value;
+			
+			e->_members.push_back(m);
 		}
 	}
 

@@ -299,6 +299,7 @@ private:
 	void _parse_handle_typedef_definition(HandleTypedef* h);
 	void _parse_struct_definition(Struct* s);
 	void _parse_api_constant_definition(ApiConstant* a);
+	void _parse_enum_definition(Enum* e);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
@@ -315,8 +316,6 @@ private:
 
 	void _read_enums(tinyxml2::XMLElement * element);
 	void _read_api_constants(tinyxml2::XMLElement* element);
-	void _read_enums_bitmask(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value, bool isBitpos)> make);
-	void _read_enums_enum(tinyxml2::XMLElement * element, std::function<void(const std::string& member, const std::string& value)> make);
 
 	void _read_commands(tinyxml2::XMLElement * element);
 	void _read_commands_command(tinyxml2::XMLElement * element);
