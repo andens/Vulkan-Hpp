@@ -256,24 +256,9 @@ namespace vkspec {
 
 		Struct* s = new Struct(name, element, isUnion);
 		assert(_items.insert(std::make_pair(name, s)).second == true);
+		assert(_types.insert(std::make_pair(name, s)).second == true);
+		_structs.push_back(s);
 	}
-
-	//void Registry::_read_type_struct(tinyxml2::XMLElement * element, bool isUnion)
-	//{
-	//	assert(!element->Attribute("returnedonly") || (strcmp(element->Attribute("returnedonly"), "true") == 0));
-
-	//	assert(element->Attribute("name"));
-	//	std::string name = element->Attribute("name");
-
-	//	// element->Attribute("returnedonly") is also applicable for structs and unions
-	//	Struct* t = _define_struct(name, isUnion);
-
-	//	for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-	//	{
-	//		assert(child->Value() && strcmp(child->Value(), "member") == 0);
-	//		_read_type_struct_member(t, child);
-	//	}
-	//}
 
 	void Registry::_read_enums(tinyxml2::XMLElement * element)
 	{
@@ -468,7 +453,7 @@ namespace vkspec {
 	//}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
-		// struct/union, apiconst, enums, commands, ext
+		// apiconst, enums, commands, ext
 		for (auto t : _scalar_typedefs) {
 			_parse_scalar_typedef_definition(t);
 		}
@@ -483,6 +468,10 @@ namespace vkspec {
 
 		for (auto h : _handle_typedefs) {
 			_parse_handle_typedef_definition(h);
+		}
+
+		for (auto s : _structs) {
+			_parse_struct_definition(s);
 		}
 	}
 
@@ -677,36 +666,52 @@ namespace vkspec {
 		h->_actual_type = actual_type;
 	}
 
+	void Registry::_parse_struct_definition(Struct* s) {
+		assert(!s->_xml_node->Attribute("returnedonly") || (strcmp(s->_xml_node->Attribute("returnedonly"), "true") == 0));
+
+		assert(s->_xml_node->Attribute("name"));
+		std::string name = s->_xml_node->Attribute("name");
+
+		for (tinyxml2::XMLElement * child = s->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			assert(child->Value() && strcmp(child->Value(), "member") == 0);
+			_read_type_struct_member(s, child);
+		}
+	}
+
 	// Read a member tag of a struct, adding members to the provided struct.
 	void Registry::_read_type_struct_member(Struct* theStruct, tinyxml2::XMLElement * element) {
 		// The attributes of member tags seem to mostly concern documentation
 		// generation, so they are not of interest for the bindings.
 
 		// Read the type, parsing modifiers to get a string of the type.
-		std::string type;
-		tinyxml2::XMLNode* child = _read_type_struct_member_type(element->FirstChild(), theStruct->name(), type);
+		std::string complete_type;
+		Type* pure_type = nullptr;
+		tinyxml2::XMLNode* child = _read_type_struct_member_type(element->FirstChild(), complete_type, pure_type);
 
 		// After we have parsed the type we expect to find the name of the member
 		assert(child->ToElement() && strcmp(child->Value(), "name") == 0 && child->ToElement()->GetText());
-		std::string memberName = child->ToElement()->GetText();
+		std::string member_name = child->ToElement()->GetText();
 
 		// Some members have more information about array size
-		std::string arraySize = _read_array_size(child, memberName);
-		if (arraySize != "") {
-			type = _translator->array_member(type, arraySize);
+		std::string array_size = _read_array_size(child, member_name);
+		if (array_size != "") {
+			assert(complete_type == pure_type->name());
+			complete_type = _translator->array_member(complete_type, array_size);
 		}
 
-		//// Add member to struct
-		//Struct::Member m;
-		//m.type = type;
-		//m.name = memberName;
-		//theStruct->members.push_back(m);
+		Struct::Member m;
+		m.complete_type = complete_type;
+		m.pure_type = pure_type;
+		m.name = member_name;
+
+		theStruct->_members.push_back(m);
 	}
 
 	// Reads the type tag of a member tag, including potential text nodes around
 	// the type tag to get qualifiers. We pass the first node that could potentially
 	// be a text node.
-	tinyxml2::XMLNode* Registry::_read_type_struct_member_type(tinyxml2::XMLNode* element, std::string const& struct_name, std::string& type)
+	tinyxml2::XMLNode* Registry::_read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& complete_type, Type*& pure_type)
 	{
 		assert(element);
 
@@ -728,7 +733,10 @@ namespace vkspec {
 
 		assert(element->ToElement());
 		assert((strcmp(element->Value(), "type") == 0) && element->ToElement()->GetText());
-		type = _type_reference(element->ToElement()->GetText(), struct_name);
+		auto type_it = _types.find(element->ToElement()->GetText());
+		assert(type_it != _types.end());
+		pure_type = type_it->second;
+		complete_type = pure_type->name(); // In case of no pointer
 
 		element = element->NextSibling();
 		assert(element);
@@ -737,14 +745,14 @@ namespace vkspec {
 			std::string value = _trim_end(element->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				type = _translator->pointer_to(type, constant ? PointerType::CONST_T_P : PointerType::T_P);
+				complete_type = _translator->pointer_to(pure_type->name(), constant ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				type = _translator->pointer_to(type, constant ? PointerType::CONST_T_PP : PointerType::T_PP);
+				complete_type = _translator->pointer_to(pure_type->name(), constant ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				type = _translator->pointer_to(type, constant ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
+				complete_type = _translator->pointer_to(pure_type->name(), constant ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			element = element->NextSibling();
 		}

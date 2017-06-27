@@ -297,6 +297,7 @@ private:
 	void _parse_bitmasks_definition(Bitmasks* b);
 	void _parse_function_typedef_definition(FunctionTypedef* f);
 	void _parse_handle_typedef_definition(HandleTypedef* h);
+	void _parse_struct_definition(Struct* s);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
@@ -308,12 +309,8 @@ private:
 	void _read_type_funcpointer(tinyxml2::XMLElement * element);
 	void _read_type_handle(tinyxml2::XMLElement * element);
 	void _read_type_struct(tinyxml2::XMLElement * element, bool isUnion);
-	// Read a member tag of a struct, adding members to the provided struct.
 	void _read_type_struct_member(Struct* theStruct, tinyxml2::XMLElement * element);
-	// Reads the type tag of a member tag, including potential text nodes around
-	// the type tag to get qualifiers. We pass the first node that could potentially
-	// be a text node.
-	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string const& struct_name, std::string& type);
+	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& complete_type, Type*& pure_type);
 
 	void _read_enums(tinyxml2::XMLElement * element);
 	void _read_api_constants(tinyxml2::XMLElement* element);
