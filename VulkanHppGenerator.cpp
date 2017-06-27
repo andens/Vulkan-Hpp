@@ -2227,6 +2227,22 @@ void writeVersionCheck(std::ostream & os, std::string const& version)
 	os << "}" << std::endl;
 }
 
+void writeEnums(std::ofstream& os, vkspec::Registry& reg) {
+	for (auto e : reg.get_enums()) {
+		os << std::endl;
+		os << "#[repr(C)]" << std::endl;
+		os << "pub enum " << e->name << " {" << std::endl;
+		indent->increase();
+
+		for (auto& m : e->members) {
+			os << m.name << " = " << m.value << "," << std::endl;
+		}
+
+		indent->decrease();
+		os << "}" << std::endl;
+	}
+}
+
 class RustTranslator : public vkspec::ITranslator {
 	virtual std::string pointer_to(std::string const& type, vkspec::PointerType pointer_type) override final {
 		// void as in no parameters or return value is not the same as void
@@ -2373,9 +2389,9 @@ pub mod core {
 
 		ofs << std::endl;
 		ofs << flags_macro_comment;
-		ofs << flags_macro;
+		ofs << flags_macro << std::endl;
 
-		ofs << std::endl;
+		writeEnums(ofs, reg);
 
 		indent->decrease();
 
