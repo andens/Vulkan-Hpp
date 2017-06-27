@@ -30,87 +30,158 @@
 
 namespace vkspec {
 
-struct ExtensionItem {
-	bool disabled = false;
-	bool extension = false;
+enum class Association {
+	Instance,
+	Device,
+	Unspecified,
 };
 
-struct ScalarTypedef {
-	std::string alias;
-	std::string actual;
+class Extension;
+class Item {
+public:
+	std::string const& name(void) const { return _name; }
+
+protected:
+	Item(std::string const& name, tinyxml2::XMLElement* xml_node) : _name(name), _xml_node(xml_node) {}
+
+protected:
+	std::string _name;
+	Extension* _extension = nullptr; // Owning extension, if any
+	tinyxml2::XMLElement* _xml_node;
+
+private:
+	Item(Item const&) = delete;
+	void operator=(Item const&) = delete;
 };
 
-struct FunctionTypedef : public ExtensionItem {
+class Type : public Item {
+protected:
+	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
+};
+
+class ScalarTypedef : public Type {
+	friend class Registry;
+
+private:
+	ScalarTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+
+private:
+	Type* _actual_type = nullptr;
+};
+
+class Enum;
+class Bitmasks : public Type {
+	friend class Registry;
+
+private:
+	Bitmasks(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+
+private:
+	Enum* _flags = nullptr; // Enum containing flag definitions
+};
+
+class FunctionTypedef : public Type {
+	friend class Registry;
+
+public:
 	struct Parameter {
-		std::string type;
+		Type* type;
 		std::string name;
 	};
 
-	std::string alias;
-	std::string return_type;
-	std::vector<Parameter> params;
+private:
+	FunctionTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+
+private:
+	Type* _return_type = nullptr;
+	std::vector<Parameter> _params;
 };
 
-struct Bitmasks : public ExtensionItem {
+class HandleTypedef : public Type {
+	friend class Registry;
+
+private:
+	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+
+private:
+	Type* _actual_type = nullptr;
+};
+
+class Struct : public Type {
+	friend class Registry;
+
+public:
+	struct Member {
+		Type* type;
+		std::string name;
+	};
+
+private:
+	Struct(std::string const& name, tinyxml2::XMLElement* type_element, bool is_union) : Type(name, type_element), _is_union(is_union) {}
+
+private:
+	std::vector<Member> _members;
+	bool _is_union = false;
+};
+
+class Enum : public Type {
+	friend class Registry;
+
+public:
 	struct Member {
 		std::string name;
 		std::string value;
 	};
 
-	std::string name;
-	std::vector<Member> members;
+private:
+	Enum(std::string const& name, tinyxml2::XMLElement* type_element, bool bitmask) : Type(name, type_element), _bitmask(bitmask) {}
+
+private:
+	std::vector<Member> _members;
+	bool _bitmask;
 };
 
-struct BitmaskTypedef : public ExtensionItem {
-	std::string alias;
-	std::string bit_definitions; // The actual bitmask containing values
+class ApiConstant : public Item {
+	friend class Registry;
+
+private:
+	ApiConstant(std::string const& name, tinyxml2::XMLElement* enum_element) : Item(name, enum_element) {}
+
+private:
+	Type* _data_type = nullptr;
+	std::string _value;
 };
 
-struct HandleTypedef : public ExtensionItem {
-	std::string alias;
-	std::string actual;
-};
+class Command : public Item {
+	friend class Registry;
 
-struct Struct : public ExtensionItem {
-	struct Member {
-		std::string type;
-		std::string name;
-	};
-
-	std::string name;
-	std::vector<Member> members;
-	bool is_union;
-};
-
-struct Enum : public ExtensionItem {
-	struct Member {
-		std::string name;
-		std::string value;
-	};
-
-	std::string name;
-	std::vector<Member> members;
-};
-
-struct Command : public ExtensionItem {
+public:
 	struct Parameter {
 		std::string type;
 		std::string name;
 	};
 
-	std::string return_type;
-	std::string name;
-	std::vector<Parameter> params;
+private:
+	Command(std::string const& name, tinyxml2::XMLElement* command_element) : Item(name, command_element) {}
+
+private:
+	Type* _return_type = nullptr;
+	std::vector<Parameter> _params;
 };
 
-struct Extension {
-	std::string name;
-	std::string number;
+class Extension : public Item {
+	friend class Registry;
+
+private:
+	Extension(std::string const& name, tinyxml2::XMLElement* extension_element) : Item(name, extension_element) {}
+
+private:
+	int _number = 0;
 	std::string tag;
-	std::string type; // instance or device if not empty string
-	std::vector<std::string> commands;
-	std::vector<std::string> required_types; // Provided explicitly by registry
-	std::vector<std::string> types; // Types introduced by this extension
+	Association _association = Association::Unspecified;
+	std::vector<Command*> _commands;
+	std::vector<Type*> _required_types; // Provided explicitly by registry
+	std::vector<Type*> _types; // Types introduced by this extension
 	bool disabled = false;
 };
 
@@ -169,10 +240,6 @@ public:
 		return _bitmasks;
 	}
 
-	std::vector<BitmaskTypedef*> const& get_bitmask_typedefs(void) const {
-		return _bitmask_typedefs;
-	}
-
 	std::vector<HandleTypedef*> const& get_handle_typedefs(void) const {
 		return _handle_typedefs;
 	}
@@ -209,11 +276,10 @@ private:
 	};
 
 private:
-	void _parse_general_information(tinyxml2::XMLElement* registry_element);
+	void _parse_item_declarations(tinyxml2::XMLElement* registry_element);
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
 
-	void _parse_type_declarations(tinyxml2::XMLElement* registry_element);
 	void _read_types(tinyxml2::XMLElement * element);
 	void _read_type_basetype(tinyxml2::XMLElement * element);
 	void _read_type_bitmask(tinyxml2::XMLElement * element);
@@ -253,17 +319,6 @@ private:
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension& ext);
 	void _read_extension_enum(tinyxml2::XMLElement * element, Extension const& extension);
 
-	ScalarTypedef* _define_scalar_typedef(std::string const& alias, std::string const& actual);
-	FunctionTypedef* _define_function_typedef(std::string const& alias, std::string const& return_type);
-	Bitmasks* _define_bitmasks(std::string const& name);
-	BitmaskTypedef* _define_bitmask_typedef(std::string const& alias, std::string const& bit_definitions);
-	HandleTypedef* _define_handle_typedef(std::string const& alias, std::string const& actual);
-	Struct* _define_struct(std::string const& name, bool is_union);
-	void _define_api_constant(std::string const& constant, std::string const& data_type, std::string const& value);
-	Enum* _define_enum(std::string const& name);
-	Command* _define_command(std::string const& name, std::string const& return_type);
-	void _define_extension(Extension const&& ext);
-
 	std::string const& _type_reference(std::string const& type, std::string const& dependant);
 
 	void _define(std::string const& name, ItemType item_type);
@@ -293,6 +348,7 @@ private:
 	never tells us what it is, thus indicating that it was C all the time.
 	*/
 
+	std::map<std::string, Item*> _items;
 	ITranslator* _translator;
 	std::string _version;
 	std::string _license_header;
@@ -305,7 +361,6 @@ private:
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
-	std::vector<BitmaskTypedef*> _bitmask_typedefs;
 	std::vector<HandleTypedef*> _handle_typedefs;
 	std::vector<Struct*> _structs;
 	std::vector<Enum*> _enums;

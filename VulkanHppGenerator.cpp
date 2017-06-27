@@ -2231,12 +2231,12 @@ void writeEnums(std::ofstream& os, vkspec::Registry& reg) {
 	for (auto e : reg.get_enums()) {
 		os << std::endl;
 		os << "#[repr(C)]" << std::endl;
-		os << "pub enum " << e->name << " {" << std::endl;
+		os << "pub enum " << e->name() << " {" << std::endl;
 		indent->increase();
 
-		for (auto& m : e->members) {
+		/*for (auto& m : e->members) {
 			os << m.name << " = " << m.value << "," << std::endl;
-		}
+		}*/
 
 		indent->decrease();
 		os << "}" << std::endl;
@@ -2372,14 +2372,14 @@ pub mod core {
 
 		ofs << std::endl;
 		for (auto tdef : reg.get_scalar_typedefs()) {
-			ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
+			//ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
 		}
 
 		ofs << std::endl;
 		for (auto handle : reg.get_handle_typedefs()) {
-			if (!handle->extension) {
+			/*if (!handle->extension) {
 				ofs << "type " << handle->actual << " = " << handle->alias << ";" << std::endl;
-			}
+			}*/
 		}
 
 		ofs << std::endl;
