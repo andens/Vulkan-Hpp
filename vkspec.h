@@ -209,6 +209,8 @@ private:
 	};
 
 private:
+	void _parse_general_information(tinyxml2::XMLElement* registry_element);
+
 	void _read_comment(tinyxml2::XMLElement * element);
 
 	void _read_tags(tinyxml2::XMLElement * element);

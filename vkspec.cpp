@@ -30,6 +30,9 @@ namespace vkspec {
 		assert(strcmp(registryElement->Value(), "registry") == 0);
 		assert(!registryElement->NextSiblingElement());
 
+		// Parse license header, tags, and other general independent information.
+		_parse_general_information(registryElement);
+
 		// The root tag contains zero or more of the following tags. Order may change.
 		for (tinyxml2::XMLElement * child = registryElement->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
@@ -38,14 +41,14 @@ namespace vkspec {
 
 			if (value == "comment")
 			{
-				// Get the vulkan license header and skip any leading spaces
-				_read_comment(child);
-				_license_header.erase(_license_header.begin(), std::find_if(_license_header.begin(), _license_header.end(), [](char c) { return !std::isspace(c); }));
+				//// Get the vulkan license header and skip any leading spaces
+				//_read_comment(child);
+				//_license_header.erase(_license_header.begin(), std::find_if(_license_header.begin(), _license_header.end(), [](char c) { return !std::isspace(c); }));
 			}
 			else if (value == "tags")
 			{
-				// Author IDs for extensions and layers
-				_read_tags(child);
+				//// Author IDs for extensions and layers
+				//_read_tags(child);
 			}
 			else if (value == "types")
 			{
@@ -76,6 +79,33 @@ namespace vkspec {
 		_undefined_check();
 
 		_mark_extension_items();
+	}
+
+	void Registry::_parse_general_information(tinyxml2::XMLElement* registry_element) {
+		for (tinyxml2::XMLElement * child = registry_element->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			assert(child->Value());
+			const std::string value = child->Value();
+
+			if (value == "comment") {
+				// Get the vulkan license header and skip any leading spaces
+				_read_comment(child);
+				_license_header.erase(_license_header.begin(), std::find_if(_license_header.begin(), _license_header.end(), [](char c) { return !std::isspace(c); }));
+			}
+			else if (value == "tags") {
+				// Author IDs for extensions and layers
+				_read_tags(child);
+			}
+			else {
+				bool ok = false;
+				ok |= value == "types";
+				ok |= value == "enums";
+				ok |= value == "commands";
+				ok |= value == "extensions";
+				ok |= value == "feature";
+				ok |= value == "vendorids";
+				assert(ok);
+			}
+		}
 	}
 
 	void Registry::_read_comment(tinyxml2::XMLElement * element)
