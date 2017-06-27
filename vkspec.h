@@ -296,6 +296,7 @@ private:
 	void _parse_scalar_typedef_definition(ScalarTypedef* t);
 	void _parse_bitmasks_definition(Bitmasks* b);
 	void _parse_function_typedef_definition(FunctionTypedef* f);
+	void _parse_handle_typedef_definition(HandleTypedef* h);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);

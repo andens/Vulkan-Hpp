@@ -245,29 +245,9 @@ namespace vkspec {
 
 		HandleTypedef* h = new HandleTypedef(name, element);
 		assert(_items.insert(std::make_pair(name, h)).second == true);
+		assert(_types.insert(std::make_pair(name, h)).second == true);
+		_handle_typedefs.push_back(h);
 	}
-
-	//void Registry::_read_type_handle(tinyxml2::XMLElement * element)
-	//{
-	//	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-	//	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
-	//	std::string type = typeElement->GetText();
-
-	//	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-	//	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	//	std::string name = nameElement->GetText();
-
-	//	std::string underlying = "";
-	//	if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
-	//		underlying = _type_reference("size_t", name);
-	//	}
-	//	else {
-	//		assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
-	//		underlying = _type_reference("uint64_t", name);
-	//	}
-
-	//	_define_handle_typedef(name, underlying);
-	//}
 
 	void Registry::_read_type_struct(tinyxml2::XMLElement * element, bool isUnion)
 	{
@@ -488,7 +468,7 @@ namespace vkspec {
 	//}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
-		// handle, struct/union, apiconst, enums, commands, ext
+		// struct/union, apiconst, enums, commands, ext
 		for (auto t : _scalar_typedefs) {
 			_parse_scalar_typedef_definition(t);
 		}
@@ -499,6 +479,10 @@ namespace vkspec {
 
 		for (auto f : _function_typedefs) {
 			_parse_function_typedef_definition(f);
+		}
+
+		for (auto h : _handle_typedefs) {
+			_parse_handle_typedef_definition(h);
 		}
 	}
 
@@ -666,6 +650,31 @@ namespace vkspec {
 		f->_return_type_complete = return_type_complete;
 		f->_return_type_pure = return_type;
 		f->_params = params;
+	}
+
+	void Registry::_parse_handle_typedef_definition(HandleTypedef* h) {
+		tinyxml2::XMLElement * typeElement = h->_xml_node->FirstChildElement();
+		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText());
+		std::string type = typeElement->GetText();
+
+		tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
+		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
+		std::string name = nameElement->GetText();
+
+		Type* actual_type = nullptr;
+		if (type == "VK_DEFINE_HANDLE") { // Defined as pointer meaning varying size
+			auto type_it = _types.find("size_t");
+			assert(type_it != _types.end());
+			actual_type = type_it->second;
+		}
+		else {
+			assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
+			auto type_it = _types.find("uint64_t");
+			assert(type_it != _types.end());
+			actual_type = type_it->second;
+		}
+
+		h->_actual_type = actual_type;
 	}
 
 	// Read a member tag of a struct, adding members to the provided struct.
