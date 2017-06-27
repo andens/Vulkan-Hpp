@@ -210,32 +210,9 @@ namespace vkspec {
 
 		Bitmasks* b = new Bitmasks(name, element);
 		assert(_items.insert(std::make_pair(name, b)).second == true);
+		assert(_types.insert(std::make_pair(name, b)).second == true);
+		_bitmasks.push_back(b);
 	}
-
-	//void Registry::_read_type_bitmask(tinyxml2::XMLElement * element)
-	//{
-	//	assert(strcmp(element->GetText(), "typedef ") == 0);
-	//	tinyxml2::XMLElement * typeElement = element->FirstChildElement();
-	//	assert(typeElement && (strcmp(typeElement->Value(), "type") == 0) && typeElement->GetText() && (strcmp(typeElement->GetText(), "VkFlags") == 0));
-
-	//	tinyxml2::XMLElement * nameElement = typeElement->NextSiblingElement();
-	//	assert(nameElement && (strcmp(nameElement->Value(), "name") == 0) && nameElement->GetText());
-	//	std::string name = nameElement->GetText();
-
-	//	assert(!nameElement->NextSiblingElement());
-
-	//	// The requires attribute contains the type that will eventually hold
-	//	// definitions (a name with FlagBits in it). Oftentimes however, a type
-	//	// containing Flags is used instead. This separation is done to indicate
-	//	// that several flags can be used as opposed to just one. For C it's
-	//	// implemented as a regular typedef, and since some of the Flag types
-	//	// do not have members, they are not present in the enums tags. The C
-	//	// typedef implicitly makes them work anyway, but in Rust where I gain
-	//	// a little more type safety I need to at least make bitflags without
-	//	// members so that the type exists.
-	//	Bitmasks* b = new Bitmasks(name, reinterpret_cast<Enum const*>(element->Attribute("requires")));
-	//	assert(_items.insert(std::make_pair(name, b)).second == true);
-	//}
 
 	void Registry::_read_type_define(tinyxml2::XMLElement * element)
 	{
@@ -453,6 +430,8 @@ namespace vkspec {
 		bool bitmask = type == "bitmask";
 		Enum* e = new Enum(name, element, bitmask);
 		assert(_items.insert(std::make_pair(name, e)).second == true);
+		assert(_types.insert(std::make_pair(name, e)).second == true);
+		_enums.push_back(e);
 
 		//if (type == "bitmask") {
 		//	Bitmasks* t = _define_bitmasks(name);
@@ -616,9 +595,13 @@ namespace vkspec {
 	//}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
-		// basetype, bitmask, funpointer, handle, struct/union, apiconst, enums, commands, ext
+		// funpointer, handle, struct/union, apiconst, enums, commands, ext
 		for (auto t : _scalar_typedefs) {
 			_parse_scalar_typedef_definition(t);
+		}
+
+		for (auto b : _bitmasks) {
+			_parse_bitmasks_definition(b);
 		}
 	}
 
@@ -641,6 +624,40 @@ namespace vkspec {
 		auto type_it = _types.find(type);
 		assert(type_it != _types.end());
 		t->_actual_type = type_it->second;
+	}
+
+	void Registry::_parse_bitmasks_definition(Bitmasks* b) {
+		// Note: this is just the bitmask typedef. Actual flags are parsed as enum
+
+		assert(strcmp(b->_xml_node->GetText(), "typedef ") == 0);
+		tinyxml2::XMLElement * type_element = b->_xml_node->FirstChildElement();
+		assert(type_element && (strcmp(type_element->Value(), "type") == 0) && type_element->GetText() && (strcmp(type_element->GetText(), "VkFlags") == 0));
+
+		tinyxml2::XMLElement * name_element = type_element->NextSiblingElement();
+		assert(name_element && (strcmp(name_element->Value(), "name") == 0) && name_element->GetText());
+
+		assert(!name_element->NextSiblingElement());
+
+		// The requires attribute contains the type that will eventually hold
+		// definitions (a name with FlagBits in it). Oftentimes however, a type
+		// containing Flags is used instead. This separation is done to indicate
+		// that several flags can be used as opposed to just one. For C it's
+		// implemented as a regular typedef, and since some of the Flag types
+		// do not have members, they are not present in the enums tags. The C
+		// typedef implicitly makes them work anyway, but in Rust where I gain
+		// a little more type safety I need to at least make bitflags without
+		// members so that the type exists.
+		Enum* bit_definitions = nullptr;
+		char const* requires = b->_xml_node->Attribute("requires");
+		if (requires) {
+			auto enum_it = std::find_if(_enums.begin(), _enums.end(), [requires](Enum* e) -> bool {
+				return e->name() == requires;
+			});
+			assert(enum_it != _enums.end());
+			bit_definitions = *enum_it;
+		}
+
+		b->_flags = bit_definitions;
 	}
 
 	// Read a member tag of a struct, adding members to the provided struct.
