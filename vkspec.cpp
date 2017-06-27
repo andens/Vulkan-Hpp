@@ -331,10 +331,8 @@ namespace vkspec {
 
 		Command* c = new Command(name, element);
 		assert(_items.insert(std::make_pair(name, c)).second == true);
-
-		// ###############################################################
-		//Command* cmd = _read_command_proto(child);
-		//_read_command_params(child, cmd);
+		// Note: not a type, so no insertion to _types
+		_commands.push_back(c);
 	}
 
 	void Registry::_read_extensions(tinyxml2::XMLElement * element)
@@ -394,7 +392,7 @@ namespace vkspec {
 	//}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
-		// commands, ext
+		// , ext
 		for (auto t : _scalar_typedefs) {
 			_parse_scalar_typedef_definition(t);
 		}
@@ -421,6 +419,10 @@ namespace vkspec {
 
 		for (auto e : _enums) {
 			_parse_enum_definition(e);
+		}
+
+		for (auto c : _commands) {
+			_parse_command_definition(c);
 		}
 	}
 
@@ -799,7 +801,15 @@ namespace vkspec {
 		}
 	}
 
-	Command* Registry::_read_command_proto(tinyxml2::XMLElement * element)
+	void Registry::_parse_command_definition(Command* c) {
+		tinyxml2::XMLElement * proto = c->_xml_node->FirstChildElement();
+		assert(proto && (strcmp(proto->Value(), "proto") == 0));
+
+		_read_command_proto(proto, c);
+		_read_command_params(proto, c);
+	}
+
+	void Registry::_read_command_proto(tinyxml2::XMLElement * element, Command* c)
 	{
 		// Defines the return type and name of a command
 
@@ -807,61 +817,62 @@ namespace vkspec {
 		tinyxml2::XMLNode* node = element->FirstChild();
 		assert(node && node->ToElement());
 		tinyxml2::XMLElement * typeElement = node->ToElement();
-		assert(typeElement && (strcmp(typeElement->Value(), "type") == 0));
+		assert(strcmp(typeElement->Value(), "type") == 0 && typeElement->GetText());
 		node = typeElement->NextSibling();
 		assert(node && node->ToElement());
 		tinyxml2::XMLElement * nameElement = node->ToElement();
-		assert(nameElement && (strcmp(nameElement->Value(), "name") == 0));
+		assert(strcmp(nameElement->Value(), "name") == 0 && nameElement->GetText());
 		assert(!nameElement->NextSibling());
 
 		// get return type and name of the command
-		std::string name = nameElement->GetText();
-		std::string type = _type_reference(typeElement->GetText(), name);
-
-		//return _define_command(name, type);
-		return nullptr;
+		auto type_it = _types.find(typeElement->GetText());
+		assert(type_it != _types.end());
+		c->_return_type_complete = type_it->second->name();
+		c->_return_type_pure = type_it->second;
 	}
 
-	void Registry::_read_command_params(tinyxml2::XMLElement* element, Command* cmd)
+	void Registry::_read_command_params(tinyxml2::XMLElement* element, Command* c)
 	{
 		// iterate over the siblings of the element and read the command parameters
 		assert(element);
 		while (element = element->NextSiblingElement())
 		{
 			std::string value = element->Value();
-			if (value == "param")
-			{
-				_read_command_param(element, cmd);
+			if (value == "param") {
+				_read_command_param(element, c);
 			}
-			else
-			{
+			else {
 				// ignore these values!
 				assert((value == "implicitexternsyncparams") || (value == "validity"));
 			}
 		}
 	}
 
-	void Registry::_read_command_param(tinyxml2::XMLElement * element, Command* cmd)
+	void Registry::_read_command_param(tinyxml2::XMLElement * element, Command* c)
 	{
-		std::string type;
-		bool const_modifier;
-		tinyxml2::XMLNode * afterType = _read_command_param_type(element->FirstChild(), cmd, type, const_modifier);
+		std::string complete_type;
+		Type* pure_type = nullptr;
+		bool const_modifier = false;
+		tinyxml2::XMLNode * after_type = _read_command_param_type(element->FirstChild(), complete_type, pure_type, const_modifier);
 
-		assert(afterType->ToElement() && (strcmp(afterType->Value(), "name") == 0) && afterType->ToElement()->GetText());
-		std::string name = afterType->ToElement()->GetText();
+		assert(after_type->ToElement() && (strcmp(after_type->Value(), "name") == 0) && after_type->ToElement()->GetText());
+		std::string name = after_type->ToElement()->GetText();
 
-		std::string arraySize = _read_array_size(afterType, name);
-		if (arraySize != "") {
-			type = _translator->array_param(type, arraySize, const_modifier);
+		std::string array_size = _read_array_size(after_type, name);
+		if (array_size != "") {
+			assert(complete_type == pure_type->name());
+			complete_type = _translator->array_param(complete_type, array_size, const_modifier);
 		}
 
-		//Command::Parameter p;
-		//p.type = type;
-		//p.name = name;
-		//cmd->params.push_back(p);
+		Command::Parameter p;
+		p.complete_type = complete_type;
+		p.pure_type = pure_type;
+		p.name = name;
+
+		c->_params.push_back(p);
 	}
 
-	tinyxml2::XMLNode* Registry::_read_command_param_type(tinyxml2::XMLNode* node, Command const* cmd, std::string& type, bool& const_modifier)
+	tinyxml2::XMLNode* Registry::_read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier)
 	{
 		const_modifier = false;
 
@@ -883,7 +894,10 @@ namespace vkspec {
 
 		// get the pure type
 		assert(node->ToElement() && (strcmp(node->Value(), "type") == 0) && node->ToElement()->GetText());
-		type = _type_reference(node->ToElement()->GetText(), cmd->name());
+		auto type_it = _types.find(node->ToElement()->GetText());
+		assert(type_it != _types.end());
+		pure_type = type_it->second;
+		complete_type = pure_type->name(); // In case of no pointer
 
 		// end with "*", "**", or "* const*", if needed
 		node = node->NextSibling();
@@ -893,14 +907,14 @@ namespace vkspec {
 			std::string value = _trim_end(node->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				type = _translator->pointer_to(type, const_modifier ? PointerType::CONST_T_P : PointerType::T_P);
+				complete_type = _translator->pointer_to(pure_type->name(), const_modifier ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				type = _translator->pointer_to(type, const_modifier ? PointerType::CONST_T_PP : PointerType::T_PP);
+				complete_type = _translator->pointer_to(pure_type->name(), const_modifier ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				type = _translator->pointer_to(type, const_modifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
+				complete_type = _translator->pointer_to(pure_type->name(), const_modifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			node = node->NextSibling();
 		}

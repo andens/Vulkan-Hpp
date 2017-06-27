@@ -300,6 +300,7 @@ private:
 	void _parse_struct_definition(Struct* s);
 	void _parse_api_constant_definition(ApiConstant* a);
 	void _parse_enum_definition(Enum* e);
+	void _parse_command_definition(Command* c);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
@@ -319,10 +320,10 @@ private:
 
 	void _read_commands(tinyxml2::XMLElement * element);
 	void _read_commands_command(tinyxml2::XMLElement * element);
-	Command* _read_command_proto(tinyxml2::XMLElement * element);
-	void _read_command_params(tinyxml2::XMLElement* element, Command* cmd);
-	void _read_command_param(tinyxml2::XMLElement * element, Command* cmd);
-	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, Command const* cmd, std::string& type, bool& const_modifier);
+	void _read_command_proto(tinyxml2::XMLElement * element, Command* c);
+	void _read_command_params(tinyxml2::XMLElement* element, Command* c);
+	void _read_command_param(tinyxml2::XMLElement * element, Command* c);
+	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier);
 
 	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
 	std::string _trim_end(std::string const& input);
