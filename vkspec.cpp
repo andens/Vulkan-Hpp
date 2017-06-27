@@ -233,116 +233,9 @@ namespace vkspec {
 
 		FunctionTypedef* f = new FunctionTypedef(name, element);
 		assert(_items.insert(std::make_pair(name, f)).second == true);
+		assert(_types.insert(std::make_pair(name, f)).second == true);
+		_function_typedefs.push_back(f);
 	}
-
-	//void Registry::_read_type_funcpointer(tinyxml2::XMLElement * element)
-	//{
-	//	// The typedef <ret> text node
-	//	tinyxml2::XMLNode * node = element->FirstChild();
-	//	assert(node && node->ToText());
-	//	std::string text = node->Value();
-
-	//	// name tag containing the type def name
-	//	node = node->NextSibling();
-	//	assert(node && node->ToElement());
-	//	tinyxml2::XMLElement * tag = node->ToElement();
-	//	assert(tag && strcmp(tag->Value(), "name") == 0 && tag->GetText());
-	//	std::string name = tag->GetText();
-	//	assert(!tag->FirstChildElement());
-
-	//	// This will match 'typedef TYPE (VKAPI_PTR *' and contain TYPE in match
-	//	// group 1.
-	//	std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
-	//	auto it = std::sregex_iterator(text.begin(), text.end(), re);
-	//	auto end = std::sregex_iterator();
-	//	assert(it != end);
-	//	std::smatch match = *it;
-	//	std::string returnType = _type_reference(match[1].str(), name);
-	//	if (match[2].matched) {
-	//		returnType = _translator->pointer_to(returnType, PointerType::T_P);
-	//	}
-
-	//	// Text node after name tag beginning parameter list. Note that for void
-	//	// functions this is the last node that also ends the function definition.
-	//	node = node->NextSibling();
-	//	assert(node && node->ToText());
-	//	text = node->Value();
-	//	bool nextParamConst = false;
-	//	if (text != ")(void);") {
-	//		// In this case we will begin parameters, so we check if the first has
-	//		// a const modifier.
-	//		re = std::regex(R"(\)\(\n[ ]+(const )?)");
-	//		auto it = std::sregex_iterator(text.begin(), text.end(), re);
-	//		assert(it != end);
-	//		match = *it;
-	//		nextParamConst = match[1].matched;
-	//	}
-
-	//	// Storage for parsed parameters (type, name)
-	//	std::vector<FunctionTypedef::Parameter> params;
-
-	//	// Start processing parameters.
-	//	while (node = node->NextSibling()) {
-	//		bool constModifier = nextParamConst;
-	//		nextParamConst = false;
-
-	//		// Type of parameter
-	//		tag = node->ToElement();
-	//		assert(tag && strcmp(tag->Value(), "type") == 0 && tag->GetText());
-	//		std::string paramType = tag->GetText();
-	//		assert(!tag->FirstChildElement());
-
-	//		// Text node containing parameter name and at times a pointer modifier.
-	//		node = node->NextSibling();
-	//		assert(node && node->ToText());
-	//		text = node->ToText()->Value();
-
-	//		// Match optional asterisk (group 1), a bunch of spaces, the parameter
-	//		// name (group 2), and the rest (group 3). It doesn't seem that newline
-	//		// is a part of this. It's probably good because then I can easily work
-	//		// directly with suffix instead of more regex magic.
-	//		re = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
-	//		it = std::sregex_iterator(text.begin(), text.end(), re);
-	//		assert(it != end);
-	//		match = *it;
-	//		bool pointer = match[1].matched;
-	//		std::string paramName = match[2].str();
-	//		if (match[3].str() == ");") {
-	//			assert(!node->NextSibling());
-	//		}
-	//		else {
-	//			assert(match[3].str() == ",");
-
-	//			// Match on the suffix to know if the upcoming parameter is const.
-	//			std::string suffix = match.suffix().str();
-	//			re = std::regex(R"(^\n[ ]+(const )?$)");
-	//			it = std::sregex_iterator(suffix.begin(), suffix.end(), re);
-	//			assert(it != end);
-	//			match = *it;
-	//			nextParamConst = match[1].matched;
-	//		}
-
-	//		std::string t = _type_reference(paramType, name);
-
-	//		if (constModifier) {
-	//			assert(pointer);
-	//		}
-
-	//		if (pointer) {
-	//			t = _translator->pointer_to(t, constModifier ? PointerType::CONST_T_P : PointerType::T_P);
-	//		}
-
-	//		params.push_back({
-	//			t,
-	//			paramName,
-	//		});
-	//	}
-
-	//	FunctionTypedef* t = _define_function_typedef(name, returnType);
-	//	for (auto p : params) {
-	//		t->params.push_back(p);
-	//	}
-	//}
 
 	void Registry::_read_type_handle(tinyxml2::XMLElement * element)
 	{
@@ -595,13 +488,17 @@ namespace vkspec {
 	//}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
-		// funpointer, handle, struct/union, apiconst, enums, commands, ext
+		// handle, struct/union, apiconst, enums, commands, ext
 		for (auto t : _scalar_typedefs) {
 			_parse_scalar_typedef_definition(t);
 		}
 
 		for (auto b : _bitmasks) {
 			_parse_bitmasks_definition(b);
+		}
+
+		for (auto f : _function_typedefs) {
+			_parse_function_typedef_definition(f);
 		}
 	}
 
@@ -658,6 +555,117 @@ namespace vkspec {
 		}
 
 		b->_flags = bit_definitions;
+	}
+
+	void Registry::_parse_function_typedef_definition(FunctionTypedef* f) {
+		// The typedef <ret> text node
+		tinyxml2::XMLNode * node = f->_xml_node->FirstChild();
+		assert(node && node->ToText());
+		std::string text = node->Value();
+
+		// name tag containing the type def name
+		node = node->NextSibling();
+		assert(node && node->ToElement());
+		tinyxml2::XMLElement * tag = node->ToElement();
+		assert(tag && strcmp(tag->Value(), "name") == 0 && tag->GetText());
+		std::string name = tag->GetText();
+		assert(!tag->FirstChildElement());
+
+		// This will match 'typedef TYPE* (VKAPI_PTR *' and contain TYPE in match
+		// group 1 with optional * in group 2.
+		std::regex re(R"(^typedef ([^ ^\*]+)(\*)? \(VKAPI_PTR \*$)");
+		auto it = std::sregex_iterator(text.begin(), text.end(), re);
+		auto end = std::sregex_iterator();
+		assert(it != end);
+		std::smatch match = *it;
+		auto type_it = _types.find(match[1].str());
+		assert(type_it != _types.end());
+		Type* return_type = type_it->second;
+		std::string return_type_complete = match[2].matched ? _translator->pointer_to(return_type->name(), PointerType::T_P) : return_type->name();
+
+		// Text node after name tag beginning parameter list. Note that for void
+		// functions this is the last node that also ends the function definition.
+		node = node->NextSibling();
+		assert(node && node->ToText());
+		text = node->Value();
+		bool nextParamConst = false;
+		if (text != ")(void);") {
+			// In this case we will begin parameters, so we check if the first has
+			// a const modifier.
+			re = std::regex(R"(\)\(\n[ ]+(const )?)");
+			auto it = std::sregex_iterator(text.begin(), text.end(), re);
+			assert(it != end);
+			match = *it;
+			nextParamConst = match[1].matched;
+		}
+
+		// Storage for parsed parameters (type, name)
+		std::vector<FunctionTypedef::Parameter> params;
+
+		// Start processing parameters.
+		while (node = node->NextSibling()) {
+			bool constModifier = nextParamConst;
+			nextParamConst = false;
+
+			// Type of parameter
+			tag = node->ToElement();
+			assert(tag && strcmp(tag->Value(), "type") == 0 && tag->GetText());
+			auto type_it = _types.find(tag->GetText());
+			assert(type_it != _types.end());
+			Type* param_type = type_it->second;
+			assert(!tag->FirstChildElement());
+
+			// Text node containing parameter name and at times a pointer modifier.
+			node = node->NextSibling();
+			assert(node && node->ToText());
+			text = node->ToText()->Value();
+
+			// Match optional asterisk (group 1), a bunch of spaces, the parameter
+			// name (group 2), and the rest (group 3). It doesn't seem that newline
+			// is a part of this. It's probably good because then I can easily work
+			// directly with suffix instead of more regex magic.
+			re = std::regex(R"(^(\*)?[ ]+([a-zA-Z]+)(.*)$)");
+			it = std::sregex_iterator(text.begin(), text.end(), re);
+			assert(it != end);
+			match = *it;
+			bool pointer = match[1].matched;
+			std::string param_name = match[2].str();
+			if (match[3].str() == ");") {
+				assert(!node->NextSibling());
+			}
+			else {
+				assert(match[3].str() == ",");
+
+				// Match on the suffix to know if the upcoming parameter is const.
+				std::string suffix = match.suffix().str();
+				re = std::regex(R"(^\n[ ]+(const )?$)");
+				it = std::sregex_iterator(suffix.begin(), suffix.end(), re);
+				assert(it != end);
+				match = *it;
+				nextParamConst = match[1].matched;
+			}
+
+			FunctionTypedef::Parameter p;
+			p.pure_type = param_type;
+			p.name = param_name;
+
+			if (constModifier) {
+				assert(pointer);
+			}
+
+			if (pointer) {
+				p.complete_type = _translator->pointer_to(param_type->name(), constModifier ? PointerType::CONST_T_P : PointerType::T_P);
+			}
+			else {
+				p.complete_type = param_type->name();
+			}
+
+			params.push_back(p);
+		}
+
+		f->_return_type_complete = return_type_complete;
+		f->_return_type_pure = return_type;
+		f->_params = params;
 	}
 
 	// Read a member tag of a struct, adding members to the provided struct.
