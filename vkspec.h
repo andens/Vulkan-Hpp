@@ -188,16 +188,16 @@ class Extension : public Item {
 	friend class Registry;
 
 private:
-	Extension(std::string const& name, tinyxml2::XMLElement* extension_element) : Item(name, extension_element) {}
+	Extension(std::string const& name, int number, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number) {}
 
 private:
 	int _number = 0;
-	std::string tag;
+	std::string _tag;
 	Association _association = Association::Unspecified;
 	std::vector<Command*> _commands;
 	std::vector<Type*> _required_types; // Provided explicitly by registry
 	std::vector<Type*> _types; // Types introduced by this extension
-	bool disabled = false;
+	bool _disabled = false;
 };
 
 enum class PointerType {
@@ -301,6 +301,7 @@ private:
 	void _parse_api_constant_definition(ApiConstant* a);
 	void _parse_enum_definition(Enum* e);
 	void _parse_command_definition(Command* c);
+	void _parse_extension_definition(Extension* e);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
@@ -331,12 +332,10 @@ private:
 
 	void _read_extensions(tinyxml2::XMLElement * element);
 	void _read_extensions_extension(tinyxml2::XMLElement * element);
-	void _read_disabled_extension_require(tinyxml2::XMLElement * element, Extension& ext);
-	// Defines what types, enumerants, and commands are used by an extension
-	void _read_extension_require(tinyxml2::XMLElement * element, std::string const& tag, Extension& ext);
-	void _read_extension_command(tinyxml2::XMLElement * element, Extension& extension);
-	void _read_extension_type(tinyxml2::XMLElement * element, Extension& ext);
-	void _read_extension_enum(tinyxml2::XMLElement * element, Extension const& extension);
+	void _read_extension_require(tinyxml2::XMLElement * element, Extension* e);
+	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
+	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
+	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
 
 	std::string const& _type_reference(std::string const& type, std::string const& dependant);
 
