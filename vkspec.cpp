@@ -955,8 +955,10 @@ namespace vkspec {
 			return c->_name == name;
 		});
 		assert(cmd_it != _commands.end());
-		e->_commands.push_back(*cmd_it);
-		(*cmd_it)->_extension = e;
+		Command* c = *cmd_it;
+		e->_commands.push_back(c);
+		assert(!c->_extension);
+		c->_extension = e;
 	}
 
 	void Registry::_read_extension_type(tinyxml2::XMLElement * element, Extension* e)
