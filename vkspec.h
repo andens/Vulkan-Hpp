@@ -336,6 +336,9 @@ private:
 
 private:
 	void _parse_item_declarations(tinyxml2::XMLElement* registry_element);
+
+	void _sort_extensions();
+
 	void _parse_item_definitions(tinyxml2::XMLElement* registry_element);
 	void _parse_scalar_typedef_definition(ScalarTypedef* t);
 	void _parse_bitmasks_definition(Bitmasks* b);

@@ -34,9 +34,11 @@ namespace vkspec {
 
 		_parse_item_declarations(registryElement);
 
-		// TODO: Sort extensions on number before going further (should already be
-		// sorted but you never know). That way I can process them in order which is
-		// useful when determining which extension types were added by what extension.
+		// Sort extensions on number before going further (should already be
+		// sorted but you never know). That way I can process them in order
+		// which is useful when determining which extension types were added by
+		// what extension.
+		_sort_extensions();
 
 		// Parse type definitions. We are now able to get any type we depend on
 		// since they were created in the pass before.
@@ -366,6 +368,12 @@ namespace vkspec {
 		assert(_items.insert(std::make_pair(name, e)).second == true);
 		// Note: not a type, so no insertion to _types
 		_extensions.push_back(e);
+	}
+
+	void Registry::_sort_extensions() {
+		std::sort(_extensions.begin(), _extensions.end(), [](Extension* e1, Extension* e2) -> bool {
+			return e1->_number < e2->_number;
+		});
 	}
 
 	void Registry::_parse_item_definitions(tinyxml2::XMLElement* registry_element) {
