@@ -1152,6 +1152,78 @@ namespace vkspec {
 	}
 
 	void Registry::_build_dependency_chain() {
+		// First we build a naïve dependency chain that collects dependencies
+		// in the order they are used by functions. While this chain is likely
+		// a mess of interleaved types, it allows us to scan the types in the
+		// order used by the API and have the same relative order within groups
+		// produced here. This is also where stuff is marked if they are core
+		// or extension.
+		std::vector<Type*> ungrouped_dependency_chain;
+		_build_ungrouped_dependency_chain(ungrouped_dependency_chain);
+
+		std::set<std::string> all_added_dependencies;
+		std::set<std::string> current_added_dependencies;
+		int new_types = 0;
+
+		// Ultimately, everything depend on C types which are expected to have
+		// no dependencies themselves, so we begin by adding those.
+		for (auto& c : _c_types) {
+			auto type_it = _types.find(c);
+			assert(type_it != _types.end());
+			_dependency_chain.push_back(type_it->second);
+			assert(all_added_dependencies.insert(c).second == true);
+		}
+
+		// Now the algorithm is as follows. Several iterations is done. We push
+		// all types that only depend on types added in previous iterations,
+		// that is, we don't consider those added in the current iteration when
+		// matching. If a type has a dependency that has not been added, we
+		// ignore it until the dependency have been added. This also means that
+		// nested dependencies are dealt with automatically; we only need to
+		// check that the direct dependencies have been added. When there are
+		// no more possible types, the added set is sorted on type (they don't
+		// depend on each other). This continues until all types have been
+		// added to the dependency chain.
+		while (all_added_dependencies.size() != ungrouped_dependency_chain.size()) {
+			for (auto& type : ungrouped_dependency_chain) {
+				if (all_added_dependencies.find(type->_name) != all_added_dependencies.end()) {
+					continue; // Added before
+				}
+
+				if (type->_all_dependencies_in_set(all_added_dependencies)) {
+					assert(current_added_dependencies.insert(type->_name).second == true);
+					_dependency_chain.push_back(type);
+					new_types++;
+				}
+			}
+
+			// Some new type must have been added (every type ultimately depend
+			// on C types)
+			assert(!current_added_dependencies.empty());
+
+			// Stable sort to preserve the relative order of types as used in
+			// commands.
+			std::stable_sort(_dependency_chain.rbegin(), _dependency_chain.rbegin() + new_types, [](Type* t1, Type* t2) -> bool {
+				return t2->_sort_order() < t1->_sort_order();
+			});
+
+			all_added_dependencies.insert(current_added_dependencies.begin(), current_added_dependencies.end());
+			current_added_dependencies.clear();
+			new_types = 0;
+		}
+
+		// With the dependency chain built, we set dependency orders on types
+		// that are used to sort subsets in the same fashion. While at it we
+		// check that all types are accounted for.
+		for (int i = 0; i < _dependency_chain.size(); ++i) {
+			_dependency_chain[i]->_dependency_order = i;
+			assert(_types.find(_dependency_chain[i]->_name) != _types.end());
+		}
+
+		assert(_types.size() == _dependency_chain.size());
+	}
+
+	void Registry::_build_ungrouped_dependency_chain(std::vector<Type*>& chain) {
 		std::vector<Type*> current_sub_chain;
 		std::set<std::string> added_dependencies;
 
@@ -1159,11 +1231,12 @@ namespace vkspec {
 			Type::_build_dependency_chain(c->_return_type_pure, current_sub_chain);
 			for (auto t : current_sub_chain) {
 				if (added_dependencies.insert(t->_name).second == true) {
-					_dependency_chain.push_back(t);
+					chain.push_back(t);
 				}
 
 				// If core function, all dependencies also belong in core. Note
-				// that the reverse is not necessarily true.
+				// that an extension function does not imply that dependencies
+				// are also in extension. Core types can of course be used!
 				assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
 				if (!c->_extension) {
 					t->_api_part = ApiPart::Core;
@@ -1175,11 +1248,10 @@ namespace vkspec {
 				Type::_build_dependency_chain(p.pure_type, current_sub_chain);
 				for (auto t : current_sub_chain) {
 					if (added_dependencies.insert(t->_name).second == true) {
-						_dependency_chain.push_back(t);
+						chain.push_back(t);
 					}
 
-					// If core function, all dependencies also belong in core. Note
-					// that the reverse is not necessarily true.
+					// Like above
 					assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
 					if (!c->_extension) {
 						t->_api_part = ApiPart::Core;
@@ -1207,11 +1279,10 @@ namespace vkspec {
 			Type::_build_dependency_chain(type_it->second, current_sub_chain);
 			for (auto t : current_sub_chain) {
 				if (added_dependencies.insert(t->_name).second == true) {
-					_dependency_chain.push_back(t);
+					chain.push_back(t);
 				}
 
-				// If core function, all dependencies also belong in core. Note
-				// that the reverse is not necessarily true.
+				// Like above
 				assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
 				t->_api_part = ApiPart::Core;
 			}
@@ -1238,17 +1309,18 @@ namespace vkspec {
 				Type::_build_dependency_chain(t, current_sub_chain);
 				for (auto t : current_sub_chain) {
 					if (added_dependencies.insert(t->_name).second == true) {
-						_dependency_chain.push_back(t);
+						chain.push_back(t);
 					}
 				}
 				current_sub_chain.clear();
 			}
 		}
 
-		for (int i = 0; i < _dependency_chain.size(); ++i) {
-			_dependency_chain[i]->_dependency_order = i;
-			assert(_types.find(_dependency_chain[i]->_name) != _types.end());
+		// Check that all types are represented in the dependency chain
+		for (auto t : chain) {
+			assert(_types.find(t->_name) != _types.end());
 		}
+		assert(_types.size() == chain.size());
 	}
 
 	void Registry::_mark_extension_items() {

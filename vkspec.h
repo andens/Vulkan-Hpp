@@ -42,6 +42,16 @@ enum class ApiPart {
 	Unspecified,
 };
 
+enum class SortOrder {
+	CType = 0,
+	ScalarTypedef,
+	HandleTypedef,
+	Enum,
+	Bitmasks,
+	FunctionTypedef,
+	Struct,
+};
+
 class Extension;
 class Item {
 public:
@@ -65,6 +75,13 @@ private:
 
 class Type : public Item {
 	friend class Registry;
+	friend class CType;
+	friend class ScalarTypedef;
+	friend class FunctionTypedef;
+	friend class HandleTypedef;
+	friend class Struct;
+	friend class Enum;
+	friend class Bitmasks;
 
 protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
@@ -73,6 +90,8 @@ protected:
 		type->_build_dependency_chain(chain);
 		chain.push_back(type);
 	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const = 0;
+	virtual uint32_t _sort_order() const = 0;
 
 protected:
 	int _dependency_order = 0; // Used when sorting
@@ -87,6 +106,12 @@ public:
 private:
 	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		return true; // No dependencies; always true
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::CType);
+	}
 
 private:
 	std::string _translation;
@@ -99,6 +124,12 @@ private:
 	ScalarTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
 		Type::_build_dependency_chain(_actual_type, chain);
+	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		return set.find(_actual_type->_name) != set.end();
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::ScalarTypedef);
 	}
 
 private:
@@ -123,6 +154,22 @@ private:
 			Type::_build_dependency_chain(p.pure_type, chain);
 		}
 	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		if (set.find(_return_type_pure->_name) == set.end()) {
+			return false;
+		}
+
+		for (auto& p : _params) {
+			if (set.find(p.pure_type->_name) == set.end()) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::FunctionTypedef);
+	}
 
 private:
 	std::string _return_type_complete;
@@ -137,6 +184,12 @@ private:
 	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
 		Type::_build_dependency_chain(_actual_type, chain);
+	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		return set.find(_actual_type->_name) != set.end();
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::HandleTypedef);
 	}
 
 private:
@@ -160,6 +213,18 @@ private:
 			Type::_build_dependency_chain(m.pure_type, chain);
 		}
 	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		for (auto& m : _members) {
+			if (set.find(m.pure_type->_name) == set.end()) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::Struct);
+	}
 
 private:
 	std::vector<Member> _members;
@@ -178,6 +243,12 @@ public:
 private:
 	Enum(std::string const& name, tinyxml2::XMLElement* type_element, bool bitmask) : Type(name, type_element), _bitmask(bitmask) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		return true; // No dependencies; always true
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::Enum);
+	}
 
 private:
 	std::vector<Member> _members;
@@ -194,6 +265,20 @@ private:
 		if (_flags) { // Can be nullptr if the bitmasks have no flag definitions
 			Type::_build_dependency_chain(_flags, chain);
 		}
+	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		if (set.find(_actual_type->_name) == set.end()) {
+			return false;
+		}
+
+		if (_flags) {
+			return set.find(_flags->_name) != set.end();
+		}
+
+		return true;
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::Bitmasks);
 	}
 
 private:
@@ -339,6 +424,7 @@ private:
 	void _parse_extension_definition(Extension* e);
 
 	void _build_dependency_chain();
+	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
 
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
