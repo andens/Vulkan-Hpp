@@ -34,12 +34,14 @@ namespace vkspec {
 
 		_parse_item_declarations(registryElement);
 
+		// TODO: Sort extensions on number before going further (should already be
+		// sorted but you never know). That way I can process them in order which is
+		// useful when determining which extension types were added by what extension.
+
 		// Parse type definitions. We are now able to get any type we depend on
 		// since they were created in the pass before.
 		_parse_item_definitions(registryElement);
 
-		// TODO: Sort extension on number before going further (should be a
-		// no-op, but you never know)
 
 		_mark_extension_items();
 	}
@@ -440,7 +442,7 @@ namespace vkspec {
 		char const* requires = b->_xml_node->Attribute("requires");
 		if (requires) {
 			auto enum_it = std::find_if(_enums.begin(), _enums.end(), [requires](Enum* e) -> bool {
-				return e->name() == requires;
+				return e->_name == requires;
 			});
 			assert(enum_it != _enums.end());
 			bit_definitions = *enum_it;
@@ -891,7 +893,7 @@ namespace vkspec {
 	}
 
 	void Registry::_parse_extension_definition(Extension* e) {
-		e->_tag = _extract_tag(e->name());
+		e->_tag = _extract_tag(e->_name);
 		assert(_tags.find(e->_tag) != _tags.end());
 
 		if (strcmp(e->_xml_node->Attribute("supported"), "disabled") == 0) {
@@ -950,7 +952,7 @@ namespace vkspec {
 		char const* name = element->Attribute("name");
 		assert(name);
 		auto cmd_it = std::find_if(_commands.begin(), _commands.end(), [name](Command* c) -> bool {
-			return c->name() == name;
+			return c->_name == name;
 		});
 		assert(cmd_it != _commands.end());
 		e->_commands.push_back(*cmd_it);
@@ -983,7 +985,7 @@ namespace vkspec {
 				// Find the extended enum so we can add the member to it.
 				std::string extends = element->Attribute("extends");
 				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
-					return extends == e->name();
+					return extends == e->_name;
 				});
 				assert(enum_it != _enums.end());
 				assert((*enum_it)->_bitmask);
@@ -1009,7 +1011,7 @@ namespace vkspec {
 				// Like above, find extended enum to add value
 				std::string extends = element->Attribute("extends");
 				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
-					return extends == e->name();
+					return extends == e->_name;
 				});
 				assert(enum_it != _enums.end());
 				assert(!(*enum_it)->_bitmask);
@@ -1026,7 +1028,7 @@ namespace vkspec {
 				// It uses value instead of offset.
 				std::string extends = element->Attribute("extends");
 				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
-					return extends == e->name();
+					return extends == e->_name;
 				});
 				assert(enum_it != _enums.end());
 				assert(!(*enum_it)->_bitmask);

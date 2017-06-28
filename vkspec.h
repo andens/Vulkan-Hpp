@@ -39,7 +39,9 @@ enum class Association {
 class Extension;
 class Item {
 public:
-	std::string const& name(void) const { return _name; }
+	// Returns the type name, which is translated for C types. When parsing the
+	// registry, the parser should access _name for the type used in the spec.
+	virtual std::string const& name(void) const { return _name; }
 
 protected:
 	Item(std::string const& name, tinyxml2::XMLElement* xml_node) : _name(name), _xml_node(xml_node) {}
@@ -62,11 +64,14 @@ protected:
 class CType : public Type {
 	friend class Registry;
 
-private:
-	CType(std::string const& c, std::string const& translation) : Type(translation, nullptr), _original_type(c) {}
+public:
+	virtual std::string const& name(void) const { return _translation; }
 
 private:
-	std::string _original_type;
+	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
+
+private:
+	std::string _translation;
 };
 
 class ScalarTypedef : public Type {
