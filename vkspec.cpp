@@ -52,6 +52,9 @@ namespace vkspec {
 
 		// Find out what extension adds what types.
 		_mark_extension_items();
+
+		// Sort type vectors according to dependency chain
+		_sort_types();
 	}
 
 	void Registry::_parse_item_declarations(tinyxml2::XMLElement* registry_element) {
@@ -1203,8 +1206,8 @@ namespace vkspec {
 
 			// Stable sort to preserve the relative order of types as used in
 			// commands.
-			std::stable_sort(_dependency_chain.rbegin(), _dependency_chain.rbegin() + new_types, [](Type* t1, Type* t2) -> bool {
-				return t2->_sort_order() < t1->_sort_order();
+			std::stable_sort(_dependency_chain.end() - new_types, _dependency_chain.end(), [](Type* t1, Type* t2) -> bool {
+				return t1->_sort_order() < t2->_sort_order();
 			});
 
 			all_added_dependencies.insert(current_added_dependencies.begin(), current_added_dependencies.end());
@@ -1393,6 +1396,32 @@ namespace vkspec {
 
 		// By now all extension types should have been added to some extension.
 		assert(extension_types.empty());
+	}
+
+	void Registry::_sort_types() {
+		std::sort(_scalar_typedefs.begin(), _scalar_typedefs.end(), [](ScalarTypedef* t1, ScalarTypedef* t2) {
+			return t1->_dependency_order < t2->_dependency_order;
+		});
+
+		std::sort(_function_typedefs.begin(), _function_typedefs.end(), [](FunctionTypedef* t1, FunctionTypedef* t2) {
+			return t1->_dependency_order < t2->_dependency_order;
+		});
+
+		std::sort(_bitmasks.begin(), _bitmasks.end(), [](Bitmasks* t1, Bitmasks* t2) {
+			return t1->_dependency_order < t2->_dependency_order;
+		});
+
+		std::sort(_handle_typedefs.begin(), _handle_typedefs.end(), [](HandleTypedef* t1, HandleTypedef* t2) {
+			return t1->_dependency_order < t2->_dependency_order;
+		});
+
+		std::sort(_structs.begin(), _structs.end(), [](Struct* t1, Struct* t2) {
+			return t1->_dependency_order < t2->_dependency_order;
+		});
+
+		std::sort(_enums.begin(), _enums.end(), [](Enum* t1, Enum* t2) {
+			return t1->_dependency_order < t2->_dependency_order;
+		});
 	}
 
 	std::string Registry::_bitpos_to_value(std::string const& bitpos) {

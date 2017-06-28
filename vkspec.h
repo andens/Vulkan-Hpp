@@ -429,6 +429,8 @@ private:
 	void _build_dependency_chain();
 	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
 
+	void _sort_types();
+
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
 
