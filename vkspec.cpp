@@ -42,6 +42,11 @@ namespace vkspec {
 		// since they were created in the pass before.
 		_parse_item_definitions(registryElement);
 
+		// Build dependency chain in order to sort types according to how
+		// early they are used by commands (I think this is the sorting used in
+		// vulkan.h). This pass also marks whether a type belongs to core or an
+		// extension, albeit not which extension. That is done in the next pass.
+		_build_dependency_chain();
 
 		_mark_extension_items();
 	}
@@ -259,6 +264,11 @@ namespace vkspec {
 		assert(element->Attribute("name"));
 		std::string name = element->Attribute("name");
 
+		// Defined, but never used!
+		if (name == "VkRect3D") {
+			return;
+		}
+
 		Struct* s = new Struct(name, element, isUnion);
 		assert(_items.insert(std::make_pair(name, s)).second == true);
 		assert(_types.insert(std::make_pair(name, s)).second == true);
@@ -429,6 +439,9 @@ namespace vkspec {
 
 		assert(!name_element->NextSiblingElement());
 
+		auto type_it = _types.find(type_element->GetText());
+		assert(type_it != _types.end());
+
 		// The requires attribute contains the type that will eventually hold
 		// definitions (a name with FlagBits in it). Oftentimes however, a type
 		// containing Flags is used instead. This separation is done to indicate
@@ -448,6 +461,7 @@ namespace vkspec {
 			bit_definitions = *enum_it;
 		}
 
+		b->_actual_type = type_it->second;
 		b->_flags = bit_definitions;
 	}
 
@@ -1150,6 +1164,103 @@ namespace vkspec {
 
 		return referenced;*/
 		return "";
+	}
+
+	void Registry::_build_dependency_chain() {
+		std::vector<Type*> current_sub_chain;
+		std::set<std::string> added_dependencies;
+
+		for (auto c : _commands) {
+			Type::_build_dependency_chain(c->_return_type_pure, current_sub_chain);
+			for (auto t : current_sub_chain) {
+				if (added_dependencies.insert(t->_name).second == true) {
+					_dependency_chain.push_back(t);
+				}
+
+				// If core function, all dependencies also belong in core. Note
+				// that the reverse is not necessarily true.
+				assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
+				if (!c->_extension) {
+					t->_api_part = ApiPart::Core;
+				}
+			}
+			current_sub_chain.clear();
+
+			for (auto& p : c->_params) {
+				Type::_build_dependency_chain(p.pure_type, current_sub_chain);
+				for (auto t : current_sub_chain) {
+					if (added_dependencies.insert(t->_name).second == true) {
+						_dependency_chain.push_back(t);
+					}
+
+					// If core function, all dependencies also belong in core. Note
+					// that the reverse is not necessarily true.
+					assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
+					if (!c->_extension) {
+						t->_api_part = ApiPart::Core;
+					}
+				}
+				current_sub_chain.clear();
+			}
+		}
+
+		// Some types are never used directly and will thus not be collected in
+		// the dependency chain. This could be VkDispatchIndirectCommand which
+		// defines elements used in raw buffers of indirect calls or structs
+		// used as extension structs (pNext). These are all present in require
+		// tags of feature, which could be included in the future. When that
+		// happens, this piece of code should not be required.
+		std::vector<std::string> manual_dependencies = {
+			"VkDispatchIndirectCommand",
+			"VkDrawIndexedIndirectCommand",
+			"VkDrawIndirectCommand",
+			"VkPipelineCacheHeaderVersion",
+		};
+		for (auto& dep : manual_dependencies) {
+			auto type_it = _types.find(dep);
+			assert(type_it != _types.end());
+			Type::_build_dependency_chain(type_it->second, current_sub_chain);
+			for (auto t : current_sub_chain) {
+				if (added_dependencies.insert(t->_name).second == true) {
+					_dependency_chain.push_back(t);
+				}
+
+				// If core function, all dependencies also belong in core. Note
+				// that the reverse is not necessarily true.
+				assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
+				t->_api_part = ApiPart::Core;
+			}
+			current_sub_chain.clear();
+		}
+
+		// All commands have been processed, and as such everything used in the
+		// core API has been marked. As a consequence, every unspecified type
+		// can now be marked as belonging to an extension.
+		for (auto& t : _types) {
+			if (t.second->_api_part == ApiPart::Core) {
+				continue;
+			}
+
+			assert(t.second->_api_part == ApiPart::Unspecified);
+			t.second->_api_part = ApiPart::Extension;
+		}
+
+		// Finish off dependency chain generation by adding types not used
+		// directly (they have not been covered in the previous step) but still
+		// required. These types were parsed during extension definitions.
+		for (auto e : _extensions) {
+			for (auto t : e->_required_types) {
+				Type::_build_dependency_chain(t, current_sub_chain);
+				for (auto t : current_sub_chain) {
+					if (added_dependencies.insert(t->_name).second == true) {
+						_dependency_chain.push_back(t);
+					}
+				}
+				current_sub_chain.clear();
+			}
+		}
+
+		assert(_dependency_chain.size() == _types.size());
 	}
 
 	void Registry::_mark_extension_items() {/*

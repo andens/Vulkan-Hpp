@@ -36,6 +36,12 @@ enum class Association {
 	Unspecified,
 };
 
+enum class ApiPart {
+	Core,
+	Extension,
+	Unspecified,
+};
+
 class Extension;
 class Item {
 public:
@@ -49,6 +55,7 @@ protected:
 protected:
 	std::string _name;
 	Extension* _extension = nullptr; // Owning extension, if any
+	ApiPart _api_part = ApiPart::Unspecified;
 	tinyxml2::XMLElement* _xml_node;
 
 private:
@@ -57,8 +64,15 @@ private:
 };
 
 class Type : public Item {
+	friend class Registry;
+
 protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) = 0;
+	static void _build_dependency_chain(Type* type, std::vector<Type*>& chain) {
+		type->_build_dependency_chain(chain);
+		chain.push_back(type);
+	}
 };
 
 class CType : public Type {
@@ -69,6 +83,7 @@ public:
 
 private:
 	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {}
 
 private:
 	std::string _translation;
@@ -79,20 +94,12 @@ class ScalarTypedef : public Type {
 
 private:
 	ScalarTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		Type::_build_dependency_chain(_actual_type, chain);
+	}
 
 private:
 	Type* _actual_type = nullptr;
-};
-
-class Enum;
-class Bitmasks : public Type {
-	friend class Registry;
-
-private:
-	Bitmasks(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
-
-private:
-	Enum* _flags = nullptr; // Enum containing flag definitions
 };
 
 class FunctionTypedef : public Type {
@@ -107,6 +114,12 @@ public:
 
 private:
 	FunctionTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		Type::_build_dependency_chain(_return_type_pure, chain);
+		for (auto& p : _params) {
+			Type::_build_dependency_chain(p.pure_type, chain);
+		}
+	}
 
 private:
 	std::string _return_type_complete;
@@ -119,6 +132,9 @@ class HandleTypedef : public Type {
 
 private:
 	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		Type::_build_dependency_chain(_actual_type, chain);
+	}
 
 private:
 	Type* _actual_type = nullptr;
@@ -136,6 +152,11 @@ public:
 
 private:
 	Struct(std::string const& name, tinyxml2::XMLElement* type_element, bool is_union) : Type(name, type_element), _is_union(is_union) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		for (auto& m : _members) {
+			Type::_build_dependency_chain(m.pure_type, chain);
+		}
+	}
 
 private:
 	std::vector<Member> _members;
@@ -153,10 +174,28 @@ public:
 
 private:
 	Enum(std::string const& name, tinyxml2::XMLElement* type_element, bool bitmask) : Type(name, type_element), _bitmask(bitmask) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {}
 
 private:
 	std::vector<Member> _members;
 	bool _bitmask;
+};
+
+class Bitmasks : public Type {
+	friend class Registry;
+
+private:
+	Bitmasks(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		Type::_build_dependency_chain(_actual_type, chain);
+		if (_flags) { // Can be nullptr if the bitmasks have no flag definitions
+			Type::_build_dependency_chain(_flags, chain);
+		}
+	}
+
+private:
+	Type* _actual_type = nullptr; // Should probably always be VkFlags. Not really used, but here for dependency purposes
+	Enum* _flags = nullptr; // Enum containing flag definitions
 };
 
 class ApiConstant : public Item {
@@ -308,6 +347,8 @@ private:
 	void _parse_command_definition(Command* c);
 	void _parse_extension_definition(Extension* e);
 
+	void _build_dependency_chain();
+
 	void _read_comment(tinyxml2::XMLElement * element);
 	void _read_tags(tinyxml2::XMLElement * element);
 
@@ -374,6 +415,7 @@ private:
 	std::vector<Enum*> _enums;
 	std::vector<Command*> _commands;
 	std::vector<Extension*> _extensions;
+	std::vector<Type*> _dependency_chain; // The order in which dependencies are required
 
 	ITranslator* _translator;
 	std::string _version;
