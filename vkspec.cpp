@@ -1245,7 +1245,10 @@ namespace vkspec {
 			}
 		}
 
-		assert(_dependency_chain.size() == _types.size());
+		for (int i = 0; i < _dependency_chain.size(); ++i) {
+			_dependency_chain[i]->_dependency_order = i;
+			assert(_types.find(_dependency_chain[i]->_name) != _types.end());
+		}
 	}
 
 	void Registry::_mark_extension_items() {

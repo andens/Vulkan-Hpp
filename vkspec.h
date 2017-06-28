@@ -73,6 +73,9 @@ protected:
 		type->_build_dependency_chain(chain);
 		chain.push_back(type);
 	}
+
+protected:
+	int _dependency_order = 0; // Used when sorting
 };
 
 class CType : public Type {
