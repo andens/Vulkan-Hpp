@@ -320,21 +320,6 @@ public:
 	}
 
 private:
-	//enum class ItemType {
-	//	CType,
-	//	ScalarTypedef,
-	//	FunctionTypedef,
-	//	Bitmasks,
-	//	BitmaskTypedef,
-	//	HandleTypedef,
-	//	Struct,
-	//	Constant,
-	//	Enum,
-	//	Command,
-	//	Extension,
-	//};
-
-private:
 	void _parse_item_declarations(tinyxml2::XMLElement* registry_element);
 
 	void _sort_extensions();
@@ -385,8 +370,6 @@ private:
 	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
-
-	std::string const& _type_reference(std::string const& type, std::string const& dependant);
 
 	void _mark_extension_items();
 

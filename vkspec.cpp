@@ -1151,30 +1151,6 @@ namespace vkspec {
 		return name.substr(start + 1, end - start - 1);
 	}
 
-	// dependant is the one making a reference to type
-	std::string const& Registry::_type_reference(std::string const& type, std::string const& dependant) {
-		/*assert(type.find_first_of("* ") == std::string::npos);
-
-		// Use translation if we work with a C type
-		auto c = _c_types.find(type);
-		std::string const& referenced = (c != _c_types.end()) ? c->second : type;
-
-		// Set up dependencies while we're at it
-		_dependencies[referenced].dependants.insert(dependant);
-		_dependencies[dependant].dependencies.insert(referenced);
-
-		if (_defined_types.find(referenced) == _defined_types.end()) {
-			_undefined_types.insert(referenced);
-		}
-
-		if (_defined_types.find(dependant) == _defined_types.end()) {
-			_undefined_types.insert(dependant);
-		}
-
-		return referenced;*/
-		return "";
-	}
-
 	void Registry::_build_dependency_chain() {
 		std::vector<Type*> current_sub_chain;
 		std::set<std::string> added_dependencies;
