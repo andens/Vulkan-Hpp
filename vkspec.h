@@ -86,10 +86,6 @@ class Type : public Item {
 protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) = 0;
-	static void _build_dependency_chain(Type* type, std::vector<Type*>& chain) {
-		type->_build_dependency_chain(chain);
-		chain.push_back(type);
-	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const = 0;
 	virtual uint32_t _sort_order() const = 0;
 
@@ -105,7 +101,7 @@ public:
 
 private:
 	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
-	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final { chain.push_back(this); }
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return true; // No dependencies; always true
 	}
@@ -123,7 +119,8 @@ class ScalarTypedef : public Type {
 private:
 	ScalarTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
-		Type::_build_dependency_chain(_actual_type, chain);
+		_actual_type->_build_dependency_chain(chain);
+		chain.push_back(this);
 	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return set.find(_actual_type->_name) != set.end();
@@ -149,10 +146,11 @@ public:
 private:
 	FunctionTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
-		Type::_build_dependency_chain(_return_type_pure, chain);
+		_return_type_pure->_build_dependency_chain(chain);
 		for (auto& p : _params) {
-			Type::_build_dependency_chain(p.pure_type, chain);
+			p.pure_type->_build_dependency_chain(chain);
 		}
+		chain.push_back(this);
 	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		if (set.find(_return_type_pure->_name) == set.end()) {
@@ -183,7 +181,8 @@ class HandleTypedef : public Type {
 private:
 	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
-		Type::_build_dependency_chain(_actual_type, chain);
+		_actual_type->_build_dependency_chain(chain);
+		chain.push_back(this);
 	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return set.find(_actual_type->_name) != set.end();
@@ -210,8 +209,9 @@ private:
 	Struct(std::string const& name, tinyxml2::XMLElement* type_element, bool is_union) : Type(name, type_element), _is_union(is_union) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
 		for (auto& m : _members) {
-			Type::_build_dependency_chain(m.pure_type, chain);
+			m.pure_type->_build_dependency_chain(chain);
 		}
+		chain.push_back(this);
 	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		for (auto& m : _members) {
@@ -242,7 +242,9 @@ public:
 
 private:
 	Enum(std::string const& name, tinyxml2::XMLElement* type_element, bool bitmask) : Type(name, type_element), _bitmask(bitmask) {}
-	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		chain.push_back(this);
+	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return true; // No dependencies; always true
 	}
@@ -261,10 +263,11 @@ class Bitmasks : public Type {
 private:
 	Bitmasks(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
-		Type::_build_dependency_chain(_actual_type, chain);
+		_actual_type->_build_dependency_chain(chain);
 		if (_flags) { // Can be nullptr if the bitmasks have no flag definitions
-			Type::_build_dependency_chain(_flags, chain);
+			((Type*)_flags)->_build_dependency_chain(chain);
 		}
+		chain.push_back(this);
 	}
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		if (set.find(_actual_type->_name) == set.end()) {

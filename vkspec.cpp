@@ -1228,7 +1228,7 @@ namespace vkspec {
 		std::set<std::string> added_dependencies;
 
 		for (auto c : _commands) {
-			Type::_build_dependency_chain(c->_return_type_pure, current_sub_chain);
+			c->_return_type_pure->_build_dependency_chain(current_sub_chain);
 			for (auto t : current_sub_chain) {
 				if (added_dependencies.insert(t->_name).second == true) {
 					chain.push_back(t);
@@ -1245,7 +1245,7 @@ namespace vkspec {
 			current_sub_chain.clear();
 
 			for (auto& p : c->_params) {
-				Type::_build_dependency_chain(p.pure_type, current_sub_chain);
+				p.pure_type->_build_dependency_chain(current_sub_chain);
 				for (auto t : current_sub_chain) {
 					if (added_dependencies.insert(t->_name).second == true) {
 						chain.push_back(t);
@@ -1276,7 +1276,7 @@ namespace vkspec {
 		for (auto& dep : manual_dependencies) {
 			auto type_it = _types.find(dep);
 			assert(type_it != _types.end());
-			Type::_build_dependency_chain(type_it->second, current_sub_chain);
+			type_it->second->_build_dependency_chain(current_sub_chain);
 			for (auto t : current_sub_chain) {
 				if (added_dependencies.insert(t->_name).second == true) {
 					chain.push_back(t);
@@ -1306,7 +1306,7 @@ namespace vkspec {
 		// required. These types were parsed during extension definitions.
 		for (auto e : _extensions) {
 			for (auto t : e->_required_types) {
-				Type::_build_dependency_chain(t, current_sub_chain);
+				t->_build_dependency_chain(current_sub_chain);
 				for (auto t : current_sub_chain) {
 					if (added_dependencies.insert(t->_name).second == true) {
 						chain.push_back(t);
@@ -1365,14 +1365,14 @@ namespace vkspec {
 			assert(e->_types.empty());
 
 			for (auto c : e->_commands) {
-				Type::_build_dependency_chain(c->_return_type_pure, current_dep_chain);
+				c->_return_type_pure->_build_dependency_chain(current_dep_chain);
 				for (auto& p : c->_params) {
-					Type::_build_dependency_chain(p.pure_type, current_dep_chain);
+					p.pure_type->_build_dependency_chain(current_dep_chain);
 				}
 			}
 
 			for (auto t : e->_required_types) {
-				Type::_build_dependency_chain(t, current_dep_chain);
+				t->_build_dependency_chain(current_dep_chain);
 			}
 
 			for (auto t : current_dep_chain) {
