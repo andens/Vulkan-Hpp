@@ -20,6 +20,8 @@
 // registry contains inline C code which I can't use directly, so I needed
 // something more robust.
 
+#include <algorithm>
+#include <cassert>
 #include <functional>
 #include <map>
 #include <set>
@@ -315,6 +317,7 @@ private:
 
 class Command : public Item {
 	friend class Registry;
+	friend class Feature;
 
 public:
 	struct Parameter {
@@ -334,6 +337,7 @@ private:
 
 class Extension : public Item {
 	friend class Registry;
+	friend class Feature;
 
 private:
 	Extension(std::string const& name, int number, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number) {}
@@ -362,6 +366,14 @@ private:
 			}
 		}
 	}
+	void _require_command(Command* c) {
+		assert(_commands.end() == std::find_if(_commands.begin(), _commands.end(), [c](Command* existing) -> bool { return existing->_name == c->_name; }));
+		_commands.push_back(c);
+		_insert_type_with_dependencies(c->_return_type_pure);
+		for (auto& p : c->_params) {
+			_insert_type_with_dependencies(p.pure_type);
+		}
+	}
 	void _require_type(Type* t) {
 		_insert_type_with_dependencies(t);
 	}
@@ -375,6 +387,7 @@ private:
 	int _minor = 0;
 	std::map<std::string, Type*> _types;
 	std::vector<Type*> _dependency_chain;
+	std::vector<Command*> _commands;
 };
 
 enum class PointerType {
@@ -495,6 +508,7 @@ private:
 	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
 	void _parse_feature_definition(Feature* f);
 	void _read_feature_require(tinyxml2::XMLElement* element, Feature* f);
+	void _read_feature_command(tinyxml2::XMLElement* element, Feature* f);
 	void _read_feature_type(tinyxml2::XMLElement* element, Feature* f);
 	void _read_feature_enum(tinyxml2::XMLElement* element, Feature* f);
 

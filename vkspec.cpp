@@ -1142,7 +1142,7 @@ namespace vkspec {
 			std::string value = child->Value();
 
 			if (value == "command") {
-				//_read_extension_command(child, e);
+				_read_feature_command(child, f);
 			}
 			else if (value == "type") {
 				_read_feature_type(child, f);
@@ -1152,6 +1152,16 @@ namespace vkspec {
 				_read_feature_enum(child, f);
 			}
 		}
+	}
+
+	void Registry::_read_feature_command(tinyxml2::XMLElement * element, Feature * f) {
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+		auto cmd_it = std::find_if(_commands.begin(), _commands.end(), [name](Command* c) -> bool {
+			return c->_name == name;
+		});
+		assert(cmd_it != _commands.end());
+		f->_require_command(*cmd_it);
 	}
 
 	void Registry::_read_feature_type(tinyxml2::XMLElement * element, Feature * f) {
