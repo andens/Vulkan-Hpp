@@ -2317,6 +2317,7 @@ int main(int argc, char **argv)
 		reg.add_c_type("xcb_window_t", "xcb_window_t");
 
 		reg.parse(filename);
+		vkspec::Feature* feature = reg.build_feature("vulkan");
 
 		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
 

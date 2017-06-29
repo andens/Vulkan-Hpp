@@ -340,10 +340,11 @@ class Extension : public Item {
 	friend class Feature;
 
 private:
-	Extension(std::string const& name, int number, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number) {}
+	Extension(std::string const& name, int number, std::string const& supported, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number), _supported(supported) {}
 
 private:
 	int _number = 0;
+	std::string _supported;
 	std::string _tag;
 	Association _association = Association::Unspecified;
 	std::vector<Command*> _commands;
@@ -379,6 +380,20 @@ private:
 	}
 	void _require_enum(ApiConstant* a) {
 		_insert_type_with_dependencies(a);
+	}
+	void _mark_all_core() {
+		for (auto& t : _types) {
+			assert(t.second->_api_part == ApiPart::Unspecified);
+			t.second->_api_part = ApiPart::Core;
+		}
+
+		for (auto c : _commands) {
+			assert(c->_api_part == ApiPart::Unspecified);
+			c->_api_part = ApiPart::Core;
+		}
+	}
+	void _use_extension(Extension* e) {
+
 	}
 
 private:
@@ -507,11 +522,6 @@ private:
 	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
-	void _parse_feature_definition(Feature* f);
-	void _read_feature_require(tinyxml2::XMLElement* element, Feature* f);
-	void _read_feature_command(tinyxml2::XMLElement* element, Feature* f);
-	void _read_feature_type(tinyxml2::XMLElement* element, Feature* f);
-	void _read_feature_enum(tinyxml2::XMLElement* element, Feature* f);
 
 	void _build_dependency_chain();
 	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
@@ -526,8 +536,15 @@ private:
 	std::string _bitpos_to_value(std::string const& bitpos);
 
 	void _build_feature(Feature* f);
+	void _parse_feature_definition(Feature* f);
+	void _read_feature_require(tinyxml2::XMLElement* element, Feature* f);
+	void _read_feature_command(tinyxml2::XMLElement* element, Feature* f);
+	void _read_feature_type(tinyxml2::XMLElement* element, Feature* f);
+	void _read_feature_enum(tinyxml2::XMLElement* element, Feature* f);
 
 private:
+	tinyxml2::XMLDocument _doc;
+
 	/*
 	The base types themselves are only stored once and then their pointers are
 	reused. This allows declaring Vulkan types before they are defined by

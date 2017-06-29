@@ -23,8 +23,7 @@ namespace vkspec {
 
 		std::cout << "Loading vk.xml from " << spec << std::endl;
 
-		tinyxml2::XMLDocument doc;
-		tinyxml2::XMLError error = doc.LoadFile(spec.c_str());
+		tinyxml2::XMLError error = _doc.LoadFile(spec.c_str());
 		if (error != tinyxml2::XML_SUCCESS)
 		{
 			throw std::runtime_error("VkGenerate: failed to load file " + spec + ". Error code: " + std::to_string(error));
@@ -32,7 +31,7 @@ namespace vkspec {
 
 		// The very first element is expected to be a registry, and it should
 		// be the only root element.
-		tinyxml2::XMLElement * registryElement = doc.FirstChildElement();
+		tinyxml2::XMLElement * registryElement = _doc.FirstChildElement();
 		assert(strcmp(registryElement->Value(), "registry") == 0);
 		assert(!registryElement->NextSiblingElement());
 
@@ -56,15 +55,23 @@ namespace vkspec {
 		// early they are used by commands (I think this is the sorting used in
 		// vulkan.h). This pass also marks whether a type belongs to core or an
 		// extension, albeit not which extension. That is done in the next pass.
-		_build_dependency_chain();
+		// TODO: Dependency chain is no longer needed because it's generated as
+		// a feature is built. Marking API part should be done when building feature.
+		//_build_dependency_chain();
 
 		// Find out what extension adds what types.
-		_mark_extension_items();
+		// TODO: Should be done in the process of building feature
+		//_mark_extension_items();
 
 		// Sort type vectors according to dependency chain
-		_sort_types();
+		// TODO: These vectors will not be returned to the user
+		//_sort_types();
 
 		_parsed = true;
+
+		if (_features.size() != 1) {
+			throw std::runtime_error("Multiple features defined in the registry. Now would be a good time to take a look at those to see if anything needs to be done about it.");
+		}
 	}
 
 	Feature * Registry::build_feature(std::string const& feature) {
@@ -397,11 +404,12 @@ namespace vkspec {
 
 	void Registry::_read_extensions_extension(tinyxml2::XMLElement * element)
 	{
-		assert(element->Attribute("name") && element->Attribute("number"));
+		assert(element->Attribute("name") && element->Attribute("number") && element->Attribute("supported"));
 		std::string name = element->Attribute("name");
 		int number = std::stoi(element->Attribute("number"));
+		std::string supported = element->Attribute("supported");
 		
-		Extension* e = new Extension(name, number, element);
+		Extension* e = new Extension(name, number, supported, element);
 		assert(_items.insert(std::make_pair(name, e)).second == true);
 		// Note: not a type, so no insertion to _types
 		_extensions.push_back(e);
@@ -464,13 +472,8 @@ namespace vkspec {
 			_parse_command_definition(c);
 		}
 
-		for (auto e : _extensions) {
-			_parse_extension_definition(e);
-		}
-
-		for (auto f : _features) {
-			_parse_feature_definition(f);
-		}
+		// Features are defined at a later time and extensions are defined in
+		// that process as well.
 	}
 
 	void Registry::_parse_scalar_typedef_definition(ScalarTypedef* t) {
@@ -1153,108 +1156,6 @@ namespace vkspec {
 		}
 	}
 
-	void Registry::_parse_feature_definition(Feature * f) {
-		for (tinyxml2::XMLElement* child = f->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement()) {
-			assert(strcmp(child->Value(), "require") == 0);
-			assert(!child->Attribute("profile")); // Profiles are not used yet, so they are not implemented
-			assert(!child->Attribute("api")); // Not supported in feature tags
-
-			_read_feature_require(child, f);
-		}
-	}
-
-	void Registry::_read_feature_require(tinyxml2::XMLElement * element, Feature * f) {
-		for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
-			std::string value = child->Value();
-
-			if (value == "command") {
-				_read_feature_command(child, f);
-			}
-			else if (value == "type") {
-				_read_feature_type(child, f);
-			}
-			else {
-				assert(value == "enum");
-				_read_feature_enum(child, f);
-			}
-		}
-	}
-
-	void Registry::_read_feature_command(tinyxml2::XMLElement * element, Feature * f) {
-		assert(element->Attribute("name"));
-		std::string name = element->Attribute("name");
-		auto cmd_it = std::find_if(_commands.begin(), _commands.end(), [name](Command* c) -> bool {
-			return c->_name == name;
-		});
-		assert(cmd_it != _commands.end());
-		f->_require_command(*cmd_it);
-	}
-
-	void Registry::_read_feature_type(tinyxml2::XMLElement * element, Feature * f) {
-		// Mostly includes and defines that can be ignored manually I guess.
-		// Every now and then there is an actual type that should have been
-		// parsed before, and then it seems to be types not used directly by
-		// the API. Other types are picked up as dependencies of commands.
-
-		std::set<std::string> ignored = {
-			"vk_platform", // include type
-			"VK_API_VERSION", // C define to pack version number into a uint32_t (deprecated)
-			"VK_API_VERSION_1_0", // C define to pack this version
-			"VK_VERSION_MAJOR", // C define to extract major version from packed number
-			"VK_VERSION_MINOR", // C define to extract minor version from packed number
-			"VK_VERSION_PATCH", // C define to extract patch version from packed number
-			"VK_HEADER_VERSION", // I have read this separately and do not treat it as a type
-			"VK_NULL_HANDLE", // Defined to 0
-		};
-
-		assert(element->Attribute("name"));
-		std::string name = element->Attribute("name");
-
-		if (ignored.find(name) != ignored.end()) {
-			return;
-		}
-
-		auto type_it = _types.find(name);
-		assert(type_it != _types.end());
-		f->_require_type(type_it->second);
-	}
-
-	void Registry::_read_feature_enum(tinyxml2::XMLElement * element, Feature * f) {
-		// I have only ever seen reference enums here, that is, pulling in an
-		// already existing definition. It makes sense, since the extension enum
-		// information says it's an inline definition inside an extensions block.
-
-		const tinyxml2::XMLAttribute* first = element->FirstAttribute();
-		assert(first);
-		const tinyxml2::XMLAttribute* second = first->Next();
-
-		std::string enum_name;
-		if (strcmp(first->Name(), "name") == 0) {
-			enum_name = first->Value();
-
-			if (second) {
-				assert(strcmp(second->Name(), "comment") == 0);
-				assert(!second->Next());
-			}
-		}
-		else {
-			assert(strcmp(first->Name(), "comment") == 0);
-			assert(second && strcmp(second->Name(), "name") == 0 && !second->Next());
-			enum_name = second->Value();
-		}
-
-		// I think these should always be API constants. Actual enums are read
-		// as types. Unless of course a subset is required, in which case I would
-		// have to revise how I deal with enums. This would likely lead to adding
-		// an Enumeration item type so that I can find them individually and
-		// have enum members be objects of this type.
-		auto item_it = std::find_if(_api_constants.begin(), _api_constants.end(), [&enum_name](ApiConstant* a) -> bool {
-			return a->_name == enum_name;
-		});
-		assert(item_it != _api_constants.end());
-		f->_require_enum(*item_it);
-	}
-
 	void Registry::_build_dependency_chain() {
 		// First we build a naïve dependency chain that collects dependencies
 		// in the order they are used by functions. While this chain is likely
@@ -1600,7 +1501,122 @@ namespace vkspec {
 	}
 
 	void Registry::_build_feature(Feature * f) {
+		_parse_feature_definition(f);
 
+		// Feature definitions list the core items used
+		f->_mark_all_core();
+
+		for (auto e : _extensions) {
+			std::regex re("(^" + e->_supported + "$)");
+			auto it = std::sregex_iterator(f->_name.begin(), f->_name.end(), re);
+			auto end = std::sregex_iterator();
+
+			if (it != end) { // Matches api tag of feature
+				f->_use_extension(e);
+			}
+		}
+	}
+
+	void Registry::_parse_feature_definition(Feature * f) {
+		for (tinyxml2::XMLElement* child = f->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			assert(strcmp(child->Value(), "require") == 0);
+			assert(!child->Attribute("profile")); // Profiles are not used yet, so they are not implemented
+			assert(!child->Attribute("api")); // Not supported in feature tags
+
+			_read_feature_require(child, f);
+		}
+	}
+
+	void Registry::_read_feature_require(tinyxml2::XMLElement * element, Feature * f) {
+		for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			std::string value = child->Value();
+
+			if (value == "command") {
+				_read_feature_command(child, f);
+			}
+			else if (value == "type") {
+				_read_feature_type(child, f);
+			}
+			else {
+				assert(value == "enum");
+				_read_feature_enum(child, f);
+			}
+		}
+	}
+
+	void Registry::_read_feature_command(tinyxml2::XMLElement * element, Feature * f) {
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+		auto cmd_it = std::find_if(_commands.begin(), _commands.end(), [name](Command* c) -> bool {
+			return c->_name == name;
+		});
+		assert(cmd_it != _commands.end());
+		f->_require_command(*cmd_it);
+	}
+
+	void Registry::_read_feature_type(tinyxml2::XMLElement * element, Feature * f) {
+		// Mostly includes and defines that can be ignored manually I guess.
+		// Every now and then there is an actual type that should have been
+		// parsed before, and then it seems to be types not used directly by
+		// the API. Other types are picked up as dependencies of commands.
+
+		std::set<std::string> ignored = {
+			"vk_platform", // include type
+			"VK_API_VERSION", // C define to pack version number into a uint32_t (deprecated)
+			"VK_API_VERSION_1_0", // C define to pack this version
+			"VK_VERSION_MAJOR", // C define to extract major version from packed number
+			"VK_VERSION_MINOR", // C define to extract minor version from packed number
+			"VK_VERSION_PATCH", // C define to extract patch version from packed number
+			"VK_HEADER_VERSION", // I have read this separately and do not treat it as a type
+			"VK_NULL_HANDLE", // Defined to 0
+		};
+
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+
+		if (ignored.find(name) != ignored.end()) {
+			return;
+		}
+
+		auto type_it = _types.find(name);
+		assert(type_it != _types.end());
+		f->_require_type(type_it->second);
+	}
+
+	void Registry::_read_feature_enum(tinyxml2::XMLElement * element, Feature * f) {
+		// I have only ever seen reference enums here, that is, pulling in an
+		// already existing definition. It makes sense, since the extension enum
+		// information says it's an inline definition inside an extensions block.
+
+		const tinyxml2::XMLAttribute* first = element->FirstAttribute();
+		assert(first);
+		const tinyxml2::XMLAttribute* second = first->Next();
+
+		std::string enum_name;
+		if (strcmp(first->Name(), "name") == 0) {
+			enum_name = first->Value();
+
+			if (second) {
+				assert(strcmp(second->Name(), "comment") == 0);
+				assert(!second->Next());
+			}
+		}
+		else {
+			assert(strcmp(first->Name(), "comment") == 0);
+			assert(second && strcmp(second->Name(), "name") == 0 && !second->Next());
+			enum_name = second->Value();
+		}
+
+		// I think these should always be API constants. Actual enums are read
+		// as types. Unless of course a subset is required, in which case I would
+		// have to revise how I deal with enums. This would likely lead to adding
+		// an Enumeration item type so that I can find them individually and
+		// have enum members be objects of this type.
+		auto item_it = std::find_if(_api_constants.begin(), _api_constants.end(), [&enum_name](ApiConstant* a) -> bool {
+			return a->_name == enum_name;
+		});
+		assert(item_it != _api_constants.end());
+		f->_require_enum(*item_it);
 	}
 
 } // vkspec
