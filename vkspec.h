@@ -82,6 +82,7 @@ class Type : public Item {
 	friend class Struct;
 	friend class Enum;
 	friend class Bitmasks;
+	friend class Feature;
 
 protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
@@ -340,11 +341,25 @@ class Feature : public Item {
 
 private:
 	Feature(std::string const& api, std::string const& name, int major, int minor, tinyxml2::XMLElement* feature_element) : Item(api, feature_element), _version_name(name), _major(major), _minor(minor) {}
+	void _insert_type_with_dependencies(Type* t) {
+		std::vector<Type*> dependency_chain;
+		t->_build_dependency_chain(dependency_chain);
+		for (auto dep : dependency_chain) {
+			if (_types.insert(std::make_pair(dep->_name, dep)).second == true) {
+				_dependency_chain.push_back(dep);
+			}
+		}
+	}
+	void _require_type(Type* t) {
+		_insert_type_with_dependencies(t);
+	}
 
 private:
 	std::string _version_name;
 	int _major = 0;
 	int _minor = 0;
+	std::map<std::string, Type*> _types;
+	std::vector<Type*> _dependency_chain;
 };
 
 enum class PointerType {
@@ -463,6 +478,9 @@ private:
 	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
+	void _parse_feature_definition(Feature* f);
+	void _read_feature_require(tinyxml2::XMLElement* element, Feature* f);
+	void _read_feature_type(tinyxml2::XMLElement* element, Feature* f);
 
 	void _build_dependency_chain();
 	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);

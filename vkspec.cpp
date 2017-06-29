@@ -441,6 +441,10 @@ namespace vkspec {
 		for (auto e : _extensions) {
 			_parse_extension_definition(e);
 		}
+
+		for (auto f : _features) {
+			_parse_feature_definition(f);
+		}
 	}
 
 	void Registry::_parse_scalar_typedef_definition(ScalarTypedef* t) {
@@ -973,6 +977,8 @@ namespace vkspec {
 	// Defines what types, enumerants, and commands are used by an extension
 	void Registry::_read_extension_require(tinyxml2::XMLElement * element, Extension* e)
 	{
+		// TODO: api attribute (ch. 16.1).
+
 		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
 			std::string value = child->Value();
@@ -1119,6 +1125,62 @@ namespace vkspec {
 				assert(!att->Next());
 			}
 		}
+	}
+
+	void Registry::_parse_feature_definition(Feature * f) {
+		for (tinyxml2::XMLElement* child = f->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			assert(strcmp(child->Value(), "require") == 0);
+			assert(!child->Attribute("profile")); // Profiles are not used yet, so they are not implemented
+			assert(!child->Attribute("api")); // Not supported in feature tags
+
+			_read_feature_require(child, f);
+		}
+	}
+
+	void Registry::_read_feature_require(tinyxml2::XMLElement * element, Feature * f) {
+		for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
+			std::string value = child->Value();
+
+			/*if (value == "command") {
+				_read_extension_command(child, e);
+			}
+			else */if (value == "type") {
+				_read_feature_type(child, f);
+			}/*
+			else {
+				assert(value == "enum");
+				_read_extension_enum(child, e);
+			}*/
+		}
+	}
+
+	void Registry::_read_feature_type(tinyxml2::XMLElement * element, Feature * f) {
+		// Mostly includes and defines that can be ignored manually I guess.
+		// Every now and then there is an actual type that should have been
+		// parsed before, and then it seems to be types not used directly by
+		// the API. Other types are picked up as dependencies of commands.
+
+		std::set<std::string> ignored = {
+			"vk_platform", // include type
+			"VK_API_VERSION", // C define to pack version number into a uint32_t (deprecated)
+			"VK_API_VERSION_1_0", // C define to pack this version
+			"VK_VERSION_MAJOR", // C define to extract major version from packed number
+			"VK_VERSION_MINOR", // C define to extract minor version from packed number
+			"VK_VERSION_PATCH", // C define to extract patch version from packed number
+			"VK_HEADER_VERSION", // I have read this separately and do not treat it as a type
+			"VK_NULL_HANDLE", // Defined to 0
+		};
+
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+
+		if (ignored.find(name) != ignored.end()) {
+			return;
+		}
+
+		auto type_it = _types.find(name);
+		assert(type_it != _types.end());
+		f->_require_type(type_it->second);
 	}
 
 	void Registry::_build_dependency_chain() {
