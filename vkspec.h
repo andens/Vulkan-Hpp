@@ -24,6 +24,7 @@
 #include <cassert>
 #include <functional>
 #include <map>
+#include <regex>
 #include <set>
 #include <string>
 #include <vector>
@@ -509,6 +510,54 @@ private:
 			std::sort(e->_types.begin(), e->_types.end(), [](Type* t1, Type* t2) {
 				return t1->_dependency_order < t2->_dependency_order;
 			});
+		}
+	}
+	void _sanity_check(std::set<std::string>& tags, std::map<std::string, CType*>& c_types) {
+		for (auto e : _extensions) {
+			assert(e->_association != Association::Unspecified);
+			assert(tags.find(e->_tag) != tags.end());
+
+			for (auto c : e->_commands) {
+				assert(c->_api_part == ApiPart::Extension);
+				assert(c->_extension && c->_extension == e);
+
+				// All extension commands should match this pattern. This is a second
+				// safeguard to make sure the registry doesn't list core functions
+				// as extension commands (I have assumed the listed ones are the
+				// very commands added by the extension in question).
+				std::regex re(R"(^vk[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
+				auto it = std::sregex_iterator(c->_name.begin(), c->_name.end(), re);
+				auto end = std::sregex_iterator();
+				assert(it != end);
+				std::smatch match = *it;
+				assert(tags.find(match[1].str()) != tags.end());
+			}
+
+			for (auto t : e->_types) {
+				assert(t->_api_part == ApiPart::Extension);
+				assert(t->_extension && t->_extension == e);
+
+				// Some C types are only used by extensions, and that means it
+				// will be first used by some extension. While the extension
+				// does not actually add the C type, I'm leaving it be (when
+				// writing bindings we can just ignore C types) because it's of
+				// no harm, and the information (what extension first used it)
+				// just might be useful in the future. We still consider them
+				// here as a special case because they are ok, but won't match
+				// Vulkan naming conventions.
+				if (c_types.find(t->_name) != c_types.end()) {
+					continue;
+				}
+
+				// All extension types should match this pattern. This is a second
+				// safeguard to make sure no core types have been missed previously.
+				std::regex re(R"(^(PFN_v|V)k[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
+				auto it = std::sregex_iterator(t->_name.begin(), t->_name.end(), re);
+				auto end = std::sregex_iterator();
+				assert(it != end);
+				std::smatch match = *it;
+				assert(tags.find(match[2].str()) != tags.end());
+			}
 		}
 	}
 
