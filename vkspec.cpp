@@ -960,32 +960,6 @@ namespace vkspec {
 		return node;
 	}
 
-	void Registry::_sort_types() {
-		std::sort(_scalar_typedefs.begin(), _scalar_typedefs.end(), [](ScalarTypedef* t1, ScalarTypedef* t2) {
-			return t1->_dependency_order < t2->_dependency_order;
-		});
-
-		std::sort(_function_typedefs.begin(), _function_typedefs.end(), [](FunctionTypedef* t1, FunctionTypedef* t2) {
-			return t1->_dependency_order < t2->_dependency_order;
-		});
-
-		std::sort(_bitmasks.begin(), _bitmasks.end(), [](Bitmasks* t1, Bitmasks* t2) {
-			return t1->_dependency_order < t2->_dependency_order;
-		});
-
-		std::sort(_handle_typedefs.begin(), _handle_typedefs.end(), [](HandleTypedef* t1, HandleTypedef* t2) {
-			return t1->_dependency_order < t2->_dependency_order;
-		});
-
-		std::sort(_structs.begin(), _structs.end(), [](Struct* t1, Struct* t2) {
-			return t1->_dependency_order < t2->_dependency_order;
-		});
-
-		std::sort(_enums.begin(), _enums.end(), [](Enum* t1, Enum* t2) {
-			return t1->_dependency_order < t2->_dependency_order;
-		});
-	}
-
 	std::string Registry::_read_array_size(tinyxml2::XMLNode * node, std::string& name)
 	{
 		std::string arraySize;

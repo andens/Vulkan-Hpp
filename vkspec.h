@@ -513,10 +513,11 @@ private:
 		}
 	}
 	void _sanity_check(std::set<std::string>& tags, std::map<std::string, CType*>& c_types) {
+		// All types accounted for, and no duplicates
 		for (auto t : _dependency_chain) {
-			assert(_types.find(t->_name) != _types.end()); // chain subset of types
+			assert(_types.find(t->_name) != _types.end());
 		}
-		assert(_types.size() == _dependency_chain.size()); // catches duplicates
+		assert(_types.size() == _dependency_chain.size());
 
 		for (auto t : _types) {
 			assert(t.first == t.second->_name);
@@ -636,42 +637,6 @@ public:
 		return _version;
 	}
 
-	std::vector<ScalarTypedef*> const& get_scalar_typedefs(void) const {
-		return _scalar_typedefs;
-	}
-
-	std::vector<Bitmasks*> const& get_bitmasks(void) const {
-		return _bitmasks;
-	}
-
-	std::vector<FunctionTypedef*> const& get_function_typedefs(void) const {
-		return _function_typedefs;
-	}
-
-	std::vector<HandleTypedef*> const& get_handle_typedefs(void) const {
-		return _handle_typedefs;
-	}
-
-	std::vector<Struct*> const& get_structs(void) const {
-		return _structs;
-	}
-
-	std::vector<ApiConstant*> const& get_api_constants(void) const {
-		return _api_constants;
-	}
-
-	std::vector<Enum*> const& get_enums(void) const {
-		return _enums;
-	}
-
-	std::vector<Command*> const& get_commands(void) const {
-		return _commands;
-	}
-
-	std::vector<Extension*> const& get_extensions(void) const {
-		return _extensions;
-	}
-
 private:
 	void _parse_item_declarations(tinyxml2::XMLElement* registry_element);
 	void _read_comment(tinyxml2::XMLElement * element);
@@ -708,8 +673,6 @@ private:
 	void _read_command_params(tinyxml2::XMLElement* element, Command* c);
 	void _read_command_param(tinyxml2::XMLElement * element, Command* c);
 	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier);
-
-	void _sort_types();
 
 	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
 	std::string _trim_end(std::string const& input);
@@ -757,7 +720,6 @@ private:
 	std::vector<Command*> _commands;
 	std::vector<Extension*> _extensions;
 	std::vector<Feature*> _features;
-	std::vector<Type*> _dependency_chain; // The order in which dependencies are required
 
 	ITranslator* _translator;
 	std::string _version;

@@ -2228,19 +2228,19 @@ void writeVersionCheck(std::ostream & os, std::string const& version)
 }
 
 void writeEnums(std::ofstream& os, vkspec::Registry& reg) {
-	for (auto e : reg.get_enums()) {
-		os << std::endl;
-		os << "#[repr(C)]" << std::endl;
-		os << "pub enum " << e->name() << " {" << std::endl;
-		indent->increase();
+	//for (auto e : reg.get_enums()) {
+	//	os << std::endl;
+	//	os << "#[repr(C)]" << std::endl;
+	//	os << "pub enum " << e->name() << " {" << std::endl;
+	//	indent->increase();
 
-		/*for (auto& m : e->members) {
-			os << m.name << " = " << m.value << "," << std::endl;
-		}*/
+	//	/*for (auto& m : e->members) {
+	//		os << m.name << " = " << m.value << "," << std::endl;
+	//	}*/
 
-		indent->decrease();
-		os << "}" << std::endl;
-	}
+	//	indent->decrease();
+	//	os << "}" << std::endl;
+	//}
 }
 
 class RustTranslator : public vkspec::ITranslator {
@@ -2371,22 +2371,22 @@ pub mod core {
 
 		writeVersionCheck(ofs, reg.version());
 
-		ofs << std::endl;
-		for (auto tdef : reg.get_scalar_typedefs()) {
-			//ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
-		}
+		//ofs << std::endl;
+		//for (auto tdef : reg.get_scalar_typedefs()) {
+		//	//ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
+		//}
 
-		ofs << std::endl;
-		for (auto handle : reg.get_handle_typedefs()) {
-			/*if (!handle->extension) {
-				ofs << "type " << handle->actual << " = " << handle->alias << ";" << std::endl;
-			}*/
-		}
+		//ofs << std::endl;
+		//for (auto handle : reg.get_handle_typedefs()) {
+		//	/*if (!handle->extension) {
+		//		ofs << "type " << handle->actual << " = " << handle->alias << ";" << std::endl;
+		//	}*/
+		//}
 
-		ofs << std::endl;
-		for (auto c : reg.get_api_constants()) {
-			ofs << "const " << c->name() << ": " << "CONSTANT_DATATYPE" << " = " << "CONSTANT_VALUE" << ";" << std::endl;
-		}
+		//ofs << std::endl;
+		//for (auto c : reg.get_api_constants()) {
+		//	ofs << "const " << c->name() << ": " << "CONSTANT_DATATYPE" << " = " << "CONSTANT_VALUE" << ";" << std::endl;
+		//}
 
 		ofs << std::endl;
 		ofs << flags_macro_comment;
