@@ -2218,10 +2218,8 @@ bool containsUnion(std::string const& type, std::map<std::string, StructData> co
 //  }
 //}
 
-void writeVersionCheck(std::ostream & os, std::string const& version)
+void writeVersionCheck(std::ostream & os)
 {
-	os << "const VK_HEADER_VERSION: u32 = " << version << ";" << std::endl;
-	os << std::endl;
 	os << "pub fn VK_MAKE_VERSION(major: u32, minor: u32, patch: u32) -> u32 {" << std::endl;
 	os << "    (major << 22) | (minor << 12) | patch" << std::endl;
 	os << "}" << std::endl;
@@ -2354,8 +2352,11 @@ int main(int argc, char **argv)
 
 		std::ofstream ofs(VULKAN_HPP);
 		ofs << reg.license() << std::endl
-			<< R"(
-#![allow(non_camel_case_types)]
+			<< std::endl
+			<< "// Rust bindings for Vulkan " << feature->major() << "." << feature->minor() << "." << feature->patch() << ", generated from the Khronos Vulkan API XML Registry." << std::endl
+			<< "// See https://github.com/andens/Vulkan-Hpp for generator details." << std::endl
+			<< std::endl
+			<< R"(#![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
 pub mod core {
@@ -2369,7 +2370,7 @@ pub mod core {
 
 		indent = new IndentingOStreambuf(ofs);
 
-		writeVersionCheck(ofs, reg.version());
+		writeVersionCheck(ofs);
 
 		//ofs << std::endl;
 		//for (auto tdef : reg.get_scalar_typedefs()) {

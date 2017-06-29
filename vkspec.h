@@ -357,6 +357,11 @@ private:
 class Feature : public Item {
 	friend class Registry;
 
+public:
+	int major() { return _major; }
+	int minor() { return _minor; }
+	int patch() { return _patch; }
+
 private:
 	Feature(std::string const& api, std::string const& name, int major, int minor, tinyxml2::XMLElement* feature_element) : Item(api, feature_element), _version_name(name), _major(major), _minor(minor) {}
 	void _insert_type_with_dependencies(Type* t) {
@@ -591,6 +596,7 @@ private:
 	std::string _version_name;
 	int _major = 0;
 	int _minor = 0;
+	int _patch = 0;
 	std::map<std::string, Type*> _types;
 	std::vector<Type*> _dependency_chain;
 	std::vector<Command*> _commands;
@@ -631,10 +637,6 @@ public:
 
 	std::string const& license(void) const {
 		return _license_header;
-	}
-
-	std::string const& version(void) const {
-		return _version;
 	}
 
 private:
@@ -722,7 +724,7 @@ private:
 	std::vector<Feature*> _features;
 
 	ITranslator* _translator;
-	std::string _version;
+	int _patch;
 	std::string _license_header;
 	std::set<std::string> _tags;
 

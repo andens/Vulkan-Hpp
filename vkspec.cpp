@@ -141,9 +141,6 @@ namespace vkspec {
 		{
 			_license_header.replace(pos, 1, "\n// ");
 		}
-
-		// and add a little message on our own
-		_license_header += "\n\n// This header is generated from the Khronos Vulkan XML API Registry.";
 	}
 
 	void Registry::_read_tags(tinyxml2::XMLElement * element)
@@ -259,7 +256,7 @@ namespace vkspec {
 		tinyxml2::XMLElement * child = element->FirstChildElement();
 		if (child && (strcmp(child->GetText(), "VK_HEADER_VERSION") == 0))
 		{
-			_version = element->LastChild()->ToText()->Value();
+			_patch = std::stoi(element->LastChild()->ToText()->Value());
 		}
 
 		// ignore all the other defines
@@ -1027,6 +1024,8 @@ namespace vkspec {
 	}
 
 	void Registry::_build_feature(Feature * f) {
+		f->_patch = _patch;
+
 		_parse_feature_definition(f);
 
 		// Feature definitions list the core items used
