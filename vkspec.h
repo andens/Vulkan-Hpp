@@ -420,6 +420,7 @@ public:
 	// before parsing the spec.
 	void add_c_type(std::string const& c, std::string const& translation);
 	void parse(std::string const& spec);
+	Feature* build_feature(std::string const& feature);
 
 	std::string const& license(void) const {
 		return _license_header;
@@ -524,6 +525,8 @@ private:
 	std::string _extract_tag(std::string const& name);
 	std::string _bitpos_to_value(std::string const& bitpos);
 
+	void _build_feature(Feature* f);
+
 private:
 	/*
 	The base types themselves are only stored once and then their pointers are
@@ -557,6 +560,9 @@ private:
 	std::string _version;
 	std::string _license_header;
 	std::set<std::string> _tags;
+
+	bool _parsed = false;
+	bool _feature_acquired = false;
 };
 
 } // vkspec

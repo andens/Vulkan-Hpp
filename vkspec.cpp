@@ -17,6 +17,10 @@ namespace vkspec {
 	}
 
 	void Registry::parse(std::string const& spec) {
+		if (_parsed) {
+			throw std::runtime_error("The current instance has already parsed a registry. Please make another instance to parse again.");
+		}
+
 		std::cout << "Loading vk.xml from " << spec << std::endl;
 
 		tinyxml2::XMLDocument doc;
@@ -59,6 +63,28 @@ namespace vkspec {
 
 		// Sort type vectors according to dependency chain
 		_sort_types();
+
+		_parsed = true;
+	}
+
+	Feature * Registry::build_feature(std::string const& feature) {
+		if (!_feature_acquired) {
+			auto feature_it = std::find_if(_features.begin(), _features.end(), [&feature](Feature* f) -> bool {
+				return f->_name == feature;
+			});
+
+			if (feature_it == _features.end()) {
+				std::cout << "Feature '" + feature + "' not found" << std::endl;
+				return nullptr;
+			}
+
+			_feature_acquired = true;
+			_build_feature(*feature_it);
+			return *feature_it;
+		}
+		else {
+			throw std::runtime_error("A feature may only be built once as extensions modify internal data that may not be accurate for other features. Instead, parse a new registry and get the feature from that one.");
+		}
 	}
 
 	void Registry::_parse_item_declarations(tinyxml2::XMLElement* registry_element) {
@@ -1571,6 +1597,10 @@ namespace vkspec {
 		std::stringstream s;
 		s << "0x" << std::setfill('0') << std::setw(sizeof(uint32_t) * 2) << std::hex << flag;
 		return s.str();
+	}
+
+	void Registry::_build_feature(Feature * f) {
+
 	}
 
 } // vkspec
