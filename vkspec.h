@@ -393,7 +393,43 @@ private:
 		}
 	}
 	void _use_extension(Extension* e) {
+		assert(_extensions.end() == std::find_if(_extensions.begin(), _extensions.end(), [e](Extension* existing) -> bool { return existing->_name == e->_name; }));
+		_extensions.push_back(e);
 
+		std::vector<Type*> dependency_chain;
+
+		for (auto c : e->_commands) {
+			// Make sure command does not already exist, then add it.
+			assert(_commands.end() == std::find_if(_commands.begin(), _commands.end(), [c](Command* existing) -> bool { return existing->_name == c->_name; }));
+			assert(c->_api_part == ApiPart::Unspecified);
+			c->_api_part = ApiPart::Extension;
+			_commands.push_back(c);
+
+			// Add dependencies to dependency chain
+			c->_return_type_pure->_build_dependency_chain(dependency_chain);
+
+			for (auto& p : c->_params) {
+				p.pure_type->_build_dependency_chain(dependency_chain);
+			}
+		}
+
+		// Add all required types to dependency chain
+		for (auto t : e->_required_types) {
+			t->_build_dependency_chain(dependency_chain);
+		}
+
+		// For each dependency, we try to add it. If this turns out to be a new
+		// type, we assume that it was added by this extension.
+		for (auto dep : dependency_chain) {
+			if (_types.insert(std::make_pair(dep->_name, dep)).second == true) {
+				assert(dep->_api_part == ApiPart::Unspecified);
+				dep->_api_part = ApiPart::Extension;
+				assert(!dep->_extension);
+				dep->_extension = e;
+				e->_types.push_back(dep);
+				_dependency_chain.push_back(dep);
+			}
+		}
 	}
 
 private:
@@ -403,6 +439,7 @@ private:
 	std::map<std::string, Type*> _types;
 	std::vector<Type*> _dependency_chain;
 	std::vector<Command*> _commands;
+	std::vector<Extension*> _extensions;
 };
 
 enum class PointerType {
