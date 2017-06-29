@@ -103,7 +103,32 @@ public:
 protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) = 0;
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const = 0;
+	// The dependency condition is satisfied if all dependencies of a type have
+	// either already been added (present in added_set) or if the current set
+	// contains the dependency of a lower sort order. The latter case means that
+	// we can safely add the type because the lower sort order ensures that the
+	// dependency is satisfied when sorting. This is more relaxed than the
+	// original solution that only checked if all dependencies were complete.
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const = 0;
+	// Check individual dependency
+	bool _dependency_check(std::set<std::string> const& added_set, std::set<std::string> const& current_set, Type* dep) const {
+		// Already added? Succeed immediately
+		if (added_set.find(dep->_name) != added_set.end()) {
+			return true;
+		}
+
+		// Second wind if amongst the current set. In this case, a lower sort
+		// order of the dependency than the one we are adding is safe because
+		// sorting will place the dependency first. It's also ok with equal
+		// sort order because this will not change their relative order (stable
+		// sort), and since the dependency is present we are fine.
+		if (current_set.find(dep->_name) != current_set.end() && dep->_sort_order() <= _sort_order()) {
+			assert(dep->_dependency_order < _dependency_order);
+			return true;
+		}
+
+		return false;
+	}
 	virtual SortOrder _sort_order() const = 0;
 
 protected:
@@ -120,7 +145,7 @@ public:
 private:
 	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final { chain.push_back(this); }
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
 		return true; // No dependencies; always true
 	}
 	virtual SortOrder _sort_order() const override final {
@@ -144,8 +169,8 @@ private:
 		_actual_type->_build_dependency_chain(chain);
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
-		return set.find(_actual_type->_name) != set.end();
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
+		return _dependency_check(added_set, current_set, _actual_type);
 	}
 	virtual SortOrder _sort_order() const override final {
 		return SortOrder::ScalarTypedef;
@@ -176,13 +201,13 @@ private:
 		}
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
-		if (set.find(_return_type_pure->_name) == set.end()) {
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
+		if (!_dependency_check(added_set, current_set, _return_type_pure)) {
 			return false;
 		}
 
 		for (auto& p : _params) {
-			if (set.find(p.pure_type->_name) == set.end()) {
+			if (!_dependency_check(added_set, current_set, p.pure_type)) {
 				return false;
 			}
 		}
@@ -211,8 +236,8 @@ private:
 		_actual_type->_build_dependency_chain(chain);
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
-		return set.find(_actual_type->_name) != set.end();
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
+		return _dependency_check(added_set, current_set, _actual_type);
 	}
 	virtual SortOrder _sort_order() const override final {
 		return SortOrder::HandleTypedef;
@@ -242,9 +267,9 @@ private:
 		}
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
 		for (auto& m : _members) {
-			if (set.find(m.pure_type->_name) == set.end()) {
+			if (!_dependency_check(added_set, current_set, m.pure_type)) {
 				return false;
 			}
 		}
@@ -276,7 +301,7 @@ private:
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
 		return true; // No dependencies; always true
 	}
 	virtual SortOrder _sort_order() const override final {
@@ -303,13 +328,13 @@ private:
 		}
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
-		if (set.find(_actual_type->_name) == set.end()) {
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
+		if (!_dependency_check(added_set, current_set, _actual_type)) {
 			return false;
 		}
 
 		if (_flags) {
-			return set.find(_flags->_name) != set.end();
+			return _dependency_check(added_set, current_set, _flags);
 		}
 
 		return true;
@@ -335,8 +360,8 @@ private:
 		_data_type->_build_dependency_chain(chain);
 		chain.push_back(this);
 	}
-	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
-		return set.find(_data_type->_name) != set.end();
+	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
+		return _dependency_check(added_set, current_set, _data_type);
 	}
 	virtual SortOrder _sort_order() const override final {
 		return SortOrder::ApiConstant;
@@ -545,6 +570,15 @@ private:
 			}
 		}
 	}
+	// I guess another strategy that would be more comprehensible is to scan in
+	// the sort order. First push all scalar typedefs (first in the sort order)
+	// whose dependencies have been added. Then push all handles (second sort)
+	// with added dependencies. Do it for all types then start all over until
+	// all items have been added. What I do now use a few non-obvious properties
+	// for things to work. I have tried to name them where I have thought about
+	// it, but I am well aware that it is not trivial to understand why things
+	// work out. This method could very well be rewritten in the future, but
+	// for now I'll leave it since it seems to work.
 	void _group_dependencies(std::map<std::string, CType*>& c_types) {
 		// The dependency chain now contain dependencies in the order used by
 		// commands. It's likely a wild west of mixed types in there, so here
@@ -552,6 +586,12 @@ private:
 		// dependency chain, provided that all dependencies are satisfied.
 		std::vector<Type*> ungrouped_dependency_chain = _dependency_chain;
 		_dependency_chain.clear();
+
+		// In the dependency condition of the upcoming algorithm we can relax
+		// even more if we know the relative order of types (see the check)
+		for (int i = 0; i < ungrouped_dependency_chain.size(); ++i) {
+			ungrouped_dependency_chain[i]->_dependency_order = i;
+		}
 
 		std::set<std::string> all_added_dependencies;
 		std::set<std::string> current_added_dependencies;
@@ -581,7 +621,7 @@ private:
 					continue; // Added before
 				}
 
-				if (type->_all_dependencies_in_set(all_added_dependencies)) {
+				if (type->_dependency_condition(all_added_dependencies, current_added_dependencies)) {
 					assert(current_added_dependencies.insert(type->_name).second == true);
 					_dependency_chain.push_back(type);
 					new_types++;
