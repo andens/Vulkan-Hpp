@@ -2319,37 +2319,6 @@ int main(int argc, char **argv)
 
 		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
 
-		// I'm outputting stuff into three modules: types, core, and extensions.
-		// The latter two contain the dispatch tables whereas the first one has
-		// the various type definitions used by commands.
-
-		// I would have preferred to place the contents of types in the other
-		// modules as appropriate, but this turns out to not be straight forward.
-		// The reason is that extensions do not define all types they introduce,
-		// making it difficult to determine which types should be defined where.
-		// One example is VK_KHR_display, which defines VkDisplayKHR, but it's
-		// not listed in the registry. Apparently, the generators for the C API
-		// has this figured out somehow, but it doesn't help me because of the
-		// black magic that is Python. Still, the best solution would be if the
-		// registry could just stop being retarded and clearly list everything
-		// an extension introduces to the API instead of having others go easter
-		// egg hunting. Like it's presented in the documentation. But such fun
-		// is not meant for mortals. I have thought about analyzing dependencies
-		// to figure it out, though. In _type_reference I could pass along who
-		// makes the reference, and store two-way dependency sets. Using these
-		// maybe it would be possible to deduce who introduced some type. Even
-		// so, I can't just naïvely check exclusiveness because some types are
-		// used in multiple extensions such as VkSurfaceKHR which kind of kills
-		// that idea.
-
-		// Actually, what if I were to go through all extensions (in order) and
-		// cross-reference extension types (according to their names ending with
-		// a tag) not yet mapped to an extension with all types used by commands
-		// in the extension? The first match should reasonably be where the type
-		// was first introduced. This would have to be repeated until no more
-		// matches were found for the extension to accomodate recursive intro-
-		// ductions such as a struct with another new type as member.
-
 		std::ofstream ofs(VULKAN_HPP);
 		ofs << reg.license() << std::endl
 			<< std::endl

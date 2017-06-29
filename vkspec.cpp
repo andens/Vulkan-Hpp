@@ -47,10 +47,6 @@ namespace vkspec {
 		// since they were created in the pass before.
 		_parse_item_definitions(registryElement);
 
-		// TODO: When feature is parsed, commands will be sorted according to that
-		// list. Then my ordering of types will probably be like vulkan.h (as in
-		// VkFormat after VkInternalAllocationType and not much later)
-
 		_parsed = true;
 
 		if (_features.size() != 1) {
@@ -290,11 +286,6 @@ namespace vkspec {
 	{
 		assert(element->Attribute("name"));
 		std::string name = element->Attribute("name");
-
-		// Defined, but never used!
-		if (name == "VkRect3D") {
-			return;
-		}
 
 		Struct* s = new Struct(name, element, isUnion);
 		assert(_items.insert(std::make_pair(name, s)).second == true);
@@ -558,7 +549,6 @@ namespace vkspec {
 			nextParamConst = match[1].matched;
 		}
 
-		// Storage for parsed parameters (type, name)
 		std::vector<FunctionTypedef::Parameter> params;
 
 		// Start processing parameters.

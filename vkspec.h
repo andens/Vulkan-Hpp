@@ -696,19 +696,6 @@ private:
 private:
 	tinyxml2::XMLDocument _doc;
 
-	/*
-	The base types themselves are only stored once and then their pointers are
-	reused. This allows declaring Vulkan types before they are defined by
-	returning a type that is VulkanUndefined for the time being but later
-	updated when parsing its definition. Another benefit of this is that we can
-	define the limited set of C types manually up front instead of trying to
-	deduce it from the spec. They need some form of translation into Rust,
-	which is why we want to know which types are C and which ones are Vulkan.
-	Thus, if a type does not already exist, we assume that it's Vulkan. If it
-	turns out that it's not, then it will remain as undefined because the spec
-	never tells us what it is, thus indicating that it was C all the time.
-	*/
-
 	std::map<std::string, Item*> _items; // All items used in the registry
 	std::map<std::string, Type*> _types; // All types used in the registry (no commands, extensions, constants, etc)
 	std::map<std::string, CType*> _c_types; // Keeps the set of passed C types for easy existance checks
