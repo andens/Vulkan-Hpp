@@ -412,6 +412,22 @@ public:
 
 private:
 	void _parse_item_declarations(tinyxml2::XMLElement* registry_element);
+	void _read_comment(tinyxml2::XMLElement * element);
+	void _read_tags(tinyxml2::XMLElement * element);
+	void _read_types(tinyxml2::XMLElement * element);
+	void _read_type_basetype(tinyxml2::XMLElement * element);
+	void _read_type_bitmask(tinyxml2::XMLElement * element);
+	void _read_type_define(tinyxml2::XMLElement * element);
+	void _read_type_funcpointer(tinyxml2::XMLElement * element);
+	void _read_type_handle(tinyxml2::XMLElement * element);
+	void _read_type_struct(tinyxml2::XMLElement * element, bool isUnion);
+	void _read_enums(tinyxml2::XMLElement * element);
+	void _read_api_constants(tinyxml2::XMLElement* element);
+	void _read_commands(tinyxml2::XMLElement * element);
+	void _read_commands_command(tinyxml2::XMLElement * element);
+	void _read_extensions(tinyxml2::XMLElement * element);
+	void _read_extensions_extension(tinyxml2::XMLElement * element);
+	void _read_feature(tinyxml2::XMLElement* element);
 
 	void _sort_extensions();
 
@@ -421,52 +437,31 @@ private:
 	void _parse_function_typedef_definition(FunctionTypedef* f);
 	void _parse_handle_typedef_definition(HandleTypedef* h);
 	void _parse_struct_definition(Struct* s);
+	void _read_type_struct_member(Struct* theStruct, tinyxml2::XMLElement * element);
+	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& complete_type, Type*& pure_type);
 	void _parse_api_constant_definition(ApiConstant* a);
 	void _parse_enum_definition(Enum* e);
 	void _parse_command_definition(Command* c);
-	void _parse_extension_definition(Extension* e);
-
-	void _build_dependency_chain();
-	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
-
-	void _sort_types();
-
-	void _read_comment(tinyxml2::XMLElement * element);
-	void _read_tags(tinyxml2::XMLElement * element);
-
-	void _read_types(tinyxml2::XMLElement * element);
-	void _read_type_basetype(tinyxml2::XMLElement * element);
-	void _read_type_bitmask(tinyxml2::XMLElement * element);
-	void _read_type_define(tinyxml2::XMLElement * element);
-	void _read_type_funcpointer(tinyxml2::XMLElement * element);
-	void _read_type_handle(tinyxml2::XMLElement * element);
-	void _read_type_struct(tinyxml2::XMLElement * element, bool isUnion);
-	void _read_type_struct_member(Struct* theStruct, tinyxml2::XMLElement * element);
-	tinyxml2::XMLNode* _read_type_struct_member_type(tinyxml2::XMLNode* element, std::string& complete_type, Type*& pure_type);
-
-	void _read_enums(tinyxml2::XMLElement * element);
-	void _read_api_constants(tinyxml2::XMLElement* element);
-
-	void _read_commands(tinyxml2::XMLElement * element);
-	void _read_commands_command(tinyxml2::XMLElement * element);
 	void _read_command_proto(tinyxml2::XMLElement * element, Command* c);
 	void _read_command_params(tinyxml2::XMLElement* element, Command* c);
 	void _read_command_param(tinyxml2::XMLElement * element, Command* c);
 	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier);
-
-	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
-	std::string _trim_end(std::string const& input);
-	std::string _extract_tag(std::string const& name);
-
-	void _read_extensions(tinyxml2::XMLElement * element);
-	void _read_extensions_extension(tinyxml2::XMLElement * element);
+	void _parse_extension_definition(Extension* e);
 	void _read_extension_require(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
 	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
 
+	void _build_dependency_chain();
+	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
+
 	void _mark_extension_items();
 
+	void _sort_types();
+
+	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
+	std::string _trim_end(std::string const& input);
+	std::string _extract_tag(std::string const& name);
 	std::string _bitpos_to_value(std::string const& bitpos);
 
 private:

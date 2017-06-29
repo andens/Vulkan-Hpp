@@ -44,6 +44,10 @@ namespace vkspec {
 		// since they were created in the pass before.
 		_parse_item_definitions(registryElement);
 
+		// TODO: When feature is parsed, commands will be sorted according to that
+		// list. Then my ordering of types will probably be like vulkan.h (as in
+		// VkFormat after VkInternalAllocationType and not much later)
+
 		// Build dependency chain in order to sort types according to how
 		// early they are used by commands (I think this is the sorting used in
 		// vulkan.h). This pass also marks whether a type belongs to core or an
@@ -94,8 +98,11 @@ namespace vkspec {
 				// Extension interfaces
 				_read_extensions(child);
 			}
+			else if (value == "feature") {
+				_read_feature(child);
+			}
 			else {
-				assert((value == "feature") || (value == "vendorids"));
+				assert(value == "vendorids");
 			}
 		}
 	}
@@ -1096,64 +1103,6 @@ namespace vkspec {
 		}
 	}
 
-	std::string Registry::_read_array_size(tinyxml2::XMLNode * node, std::string& name)
-	{
-		std::string arraySize;
-		if (name.back() == ']') // Can happen for example [4] in unions
-		{
-			// if the parameter has '[' and ']' in its name, get the stuff inbetween those as the array size and erase that part from the parameter name
-			assert(!node->NextSibling());
-			size_t pos = name.find('[');
-			assert(pos != std::string::npos);
-			arraySize = name.substr(pos + 1, name.length() - 2 - pos);
-			name.erase(pos);
-		}
-		else
-		{
-			// otherwise look for a sibling of this node
-			node = node->NextSibling();
-			if (node && node->ToText())
-			{
-				std::string value = node->Value();
-				if (value == "[")
-				{
-					// if this node has '[' as its value, the next node holds the array size, and the node after that needs to hold ']', and there should be no more siblings
-					node = node->NextSibling();
-					assert(node && node->ToElement() && (strcmp(node->Value(), "enum") == 0));
-					arraySize = node->ToElement()->GetText();
-					node = node->NextSibling();
-					assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0) && !node->NextSibling());
-				}
-				else
-				{
-					// otherwise, the node holds '[' and ']', so get the stuff in between those as the array size
-					assert((value.front() == '[') && (value.back() == ']'));
-					arraySize = value.substr(1, value.length() - 2);
-					assert(!node->NextSibling());
-				}
-			}
-		}
-		return arraySize;
-	}
-
-	// trim from end
-	std::string Registry::_trim_end(std::string const& input)
-	{
-		std::string result = input;
-		result.erase(std::find_if(result.rbegin(), result.rend(), [](char c) { return !std::isspace(c); }).base(), result.end());
-		return result;
-	}
-
-	std::string Registry::_extract_tag(std::string const& name)
-	{
-		// the name is supposed to look like: VK_<tag>_<other>
-		size_t start = name.find('_');
-		assert((start != std::string::npos) && (name.substr(0, start) == "VK"));
-		size_t end = name.find('_', start + 1);
-		assert(end != std::string::npos);
-		return name.substr(start + 1, end - start - 1);
-	}
-
 	void Registry::_build_dependency_chain() {
 		// First we build a naïve dependency chain that collects dependencies
 		// in the order they are used by functions. While this chain is likely
@@ -1422,6 +1371,64 @@ namespace vkspec {
 		std::sort(_enums.begin(), _enums.end(), [](Enum* t1, Enum* t2) {
 			return t1->_dependency_order < t2->_dependency_order;
 		});
+	}
+
+	std::string Registry::_read_array_size(tinyxml2::XMLNode * node, std::string& name)
+	{
+		std::string arraySize;
+		if (name.back() == ']') // Can happen for example [4] in unions
+		{
+			// if the parameter has '[' and ']' in its name, get the stuff inbetween those as the array size and erase that part from the parameter name
+			assert(!node->NextSibling());
+			size_t pos = name.find('[');
+			assert(pos != std::string::npos);
+			arraySize = name.substr(pos + 1, name.length() - 2 - pos);
+			name.erase(pos);
+		}
+		else
+		{
+			// otherwise look for a sibling of this node
+			node = node->NextSibling();
+			if (node && node->ToText())
+			{
+				std::string value = node->Value();
+				if (value == "[")
+				{
+					// if this node has '[' as its value, the next node holds the array size, and the node after that needs to hold ']', and there should be no more siblings
+					node = node->NextSibling();
+					assert(node && node->ToElement() && (strcmp(node->Value(), "enum") == 0));
+					arraySize = node->ToElement()->GetText();
+					node = node->NextSibling();
+					assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0) && !node->NextSibling());
+				}
+				else
+				{
+					// otherwise, the node holds '[' and ']', so get the stuff in between those as the array size
+					assert((value.front() == '[') && (value.back() == ']'));
+					arraySize = value.substr(1, value.length() - 2);
+					assert(!node->NextSibling());
+				}
+			}
+		}
+		return arraySize;
+	}
+
+	// trim from end
+	std::string Registry::_trim_end(std::string const& input)
+	{
+		std::string result = input;
+		result.erase(std::find_if(result.rbegin(), result.rend(), [](char c) { return !std::isspace(c); }).base(), result.end());
+		return result;
+	}
+
+	std::string Registry::_extract_tag(std::string const& name)
+	{
+		// the name is supposed to look like: VK_<tag>_<other>
+		size_t start = name.find('_');
+		assert((start != std::string::npos) && (name.substr(0, start) == "VK"));
+		size_t end = name.find('_', start + 1);
+		assert(end != std::string::npos);
+		return name.substr(start + 1, end - start - 1);
 	}
 
 	std::string Registry::_bitpos_to_value(std::string const& bitpos) {
