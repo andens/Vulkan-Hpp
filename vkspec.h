@@ -499,6 +499,18 @@ private:
 
 		assert(_types.size() == _dependency_chain.size());
 	}
+	void _sort_extension_types() {
+		// Using the dependency order from when the dependency chain was grouped
+		// we can now easily sort the vectors of types added by each extension.
+		// These will essentially be filters of the dependency chain, respecting
+		// the dependency chain itself, while also grouping types using the same
+		// relative ordering of their usage in the API.
+		for (auto e : _extensions) {
+			std::sort(e->_types.begin(), e->_types.end(), [](Type* t1, Type* t2) {
+				return t1->_dependency_order < t2->_dependency_order;
+			});
+		}
+	}
 
 private:
 	std::string _version_name;

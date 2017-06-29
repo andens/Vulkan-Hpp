@@ -1072,6 +1072,9 @@ namespace vkspec {
 		// By now all types have been added and a dependency chain has been
 		// built, and we can clean it up a bit.
 		f->_group_dependencies(_c_types);
+
+		// Sorts the types added by each extension to match the dependency chain
+		f->_sort_extension_types();
 	}
 
 	void Registry::_parse_feature_definition(Feature * f) {
