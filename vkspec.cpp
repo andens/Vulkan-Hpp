@@ -13,7 +13,7 @@ namespace vkspec {
 		CType* c_type = new CType(c, translation);
 		assert(_items.insert(std::make_pair(c, c_type)).second == true);
 		assert(_types.insert(std::make_pair(c, c_type)).second == true);
-		assert(_c_types.insert(c).second == true);
+		assert(_c_types.insert(std::make_pair(c, c_type)).second == true);
 	}
 
 	void Registry::parse(std::string const& spec) {
@@ -50,22 +50,6 @@ namespace vkspec {
 		// TODO: When feature is parsed, commands will be sorted according to that
 		// list. Then my ordering of types will probably be like vulkan.h (as in
 		// VkFormat after VkInternalAllocationType and not much later)
-
-		// Build dependency chain in order to sort types according to how
-		// early they are used by commands (I think this is the sorting used in
-		// vulkan.h). This pass also marks whether a type belongs to core or an
-		// extension, albeit not which extension. That is done in the next pass.
-		// TODO: Dependency chain is no longer needed because it's generated as
-		// a feature is built. Marking API part should be done when building feature.
-		//_build_dependency_chain();
-
-		// Find out what extension adds what types.
-		// TODO: Should be done in the process of building feature
-		//_mark_extension_items();
-
-		// Sort type vectors according to dependency chain
-		// TODO: These vectors will not be returned to the user
-		//_sort_types();
 
 		_parsed = true;
 
@@ -976,258 +960,6 @@ namespace vkspec {
 		return node;
 	}
 
-	void Registry::_build_dependency_chain() {
-		// First we build a naïve dependency chain that collects dependencies
-		// in the order they are used by functions. While this chain is likely
-		// a mess of interleaved types, it allows us to scan the types in the
-		// order used by the API and have the same relative order within groups
-		// produced here. This is also where stuff is marked if they are core
-		// or extension.
-		std::vector<Type*> ungrouped_dependency_chain;
-		_build_ungrouped_dependency_chain(ungrouped_dependency_chain);
-
-		std::set<std::string> all_added_dependencies;
-		std::set<std::string> current_added_dependencies;
-		int new_types = 0;
-
-		// Ultimately, everything depend on C types which are expected to have
-		// no dependencies themselves, so we begin by adding those.
-		for (auto& c : _c_types) {
-			auto type_it = _types.find(c);
-			assert(type_it != _types.end());
-			_dependency_chain.push_back(type_it->second);
-			assert(all_added_dependencies.insert(c).second == true);
-		}
-
-		// Now the algorithm is as follows. Several iterations is done. We push
-		// all types that only depend on types added in previous iterations,
-		// that is, we don't consider those added in the current iteration when
-		// matching. If a type has a dependency that has not been added, we
-		// ignore it until the dependency have been added. This also means that
-		// nested dependencies are dealt with automatically; we only need to
-		// check that the direct dependencies have been added. When there are
-		// no more possible types, the added set is sorted on type (they don't
-		// depend on each other). This continues until all types have been
-		// added to the dependency chain.
-		while (all_added_dependencies.size() != ungrouped_dependency_chain.size()) {
-			for (auto& type : ungrouped_dependency_chain) {
-				if (all_added_dependencies.find(type->_name) != all_added_dependencies.end()) {
-					continue; // Added before
-				}
-
-				if (type->_all_dependencies_in_set(all_added_dependencies)) {
-					assert(current_added_dependencies.insert(type->_name).second == true);
-					_dependency_chain.push_back(type);
-					new_types++;
-				}
-			}
-
-			// Some new type must have been added (every type ultimately depend
-			// on C types)
-			assert(!current_added_dependencies.empty());
-
-			// Stable sort to preserve the relative order of types as used in
-			// commands.
-			std::stable_sort(_dependency_chain.end() - new_types, _dependency_chain.end(), [](Type* t1, Type* t2) -> bool {
-				return t1->_sort_order() < t2->_sort_order();
-			});
-
-			all_added_dependencies.insert(current_added_dependencies.begin(), current_added_dependencies.end());
-			current_added_dependencies.clear();
-			new_types = 0;
-		}
-
-		// With the dependency chain built, we set dependency orders on types
-		// that are used to sort subsets in the same fashion. While at it we
-		// check that all types are accounted for.
-		for (int i = 0; i < _dependency_chain.size(); ++i) {
-			_dependency_chain[i]->_dependency_order = i;
-			assert(_types.find(_dependency_chain[i]->_name) != _types.end());
-		}
-
-		assert(_types.size() == _dependency_chain.size());
-	}
-
-	// TODO: These dependency chain things (one other method as well) should be
-	// fairly unnecesary with features, as the dependency chain is built when
-	// items are added to the feature. I do however want to mark things as core
-	// or extension, so I probably want to be able to call _for_each_item with
-	// a lambda on dependencies of core functions.
-	void Registry::_build_ungrouped_dependency_chain(std::vector<Type*>& chain) {
-		std::vector<Type*> current_sub_chain;
-		std::set<std::string> added_dependencies;
-
-		for (auto c : _commands) {
-			c->_return_type_pure->_build_dependency_chain(current_sub_chain);
-			for (auto t : current_sub_chain) {
-				if (added_dependencies.insert(t->_name).second == true) {
-					chain.push_back(t);
-				}
-
-				// If core function, all dependencies also belong in core. Note
-				// that an extension function does not imply that dependencies
-				// are also in extension. Core types can of course be used!
-				assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
-				if (!c->_extension) {
-					t->_api_part = ApiPart::Core;
-				}
-			}
-			current_sub_chain.clear();
-
-			for (auto& p : c->_params) {
-				p.pure_type->_build_dependency_chain(current_sub_chain);
-				for (auto t : current_sub_chain) {
-					if (added_dependencies.insert(t->_name).second == true) {
-						chain.push_back(t);
-					}
-
-					// Like above
-					assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
-					if (!c->_extension) {
-						t->_api_part = ApiPart::Core;
-					}
-				}
-				current_sub_chain.clear();
-			}
-		}
-
-		// Some types are never used directly and will thus not be collected in
-		// the dependency chain. This could be VkDispatchIndirectCommand which
-		// defines elements used in raw buffers of indirect calls or structs
-		// used as extension structs (pNext). These are all present in require
-		// tags of feature, which could be included in the future. When that
-		// happens, this piece of code should not be required.
-		std::vector<std::string> manual_dependencies = {
-			"VkDispatchIndirectCommand",
-			"VkDrawIndexedIndirectCommand",
-			"VkDrawIndirectCommand",
-			"VkPipelineCacheHeaderVersion",
-		};
-		for (auto a : _api_constants) {
-			manual_dependencies.push_back(a->_name);
-		}
-		for (auto& dep : manual_dependencies) {
-			auto type_it = _types.find(dep);
-			assert(type_it != _types.end());
-			type_it->second->_build_dependency_chain(current_sub_chain);
-			for (auto t : current_sub_chain) {
-				if (added_dependencies.insert(t->_name).second == true) {
-					chain.push_back(t);
-				}
-
-				// Like above
-				assert(t->_api_part == ApiPart::Unspecified || t->_api_part == ApiPart::Core);
-				t->_api_part = ApiPart::Core;
-			}
-			current_sub_chain.clear();
-		}
-
-		// All commands have been processed, and as such everything used in the
-		// core API has been marked. As a consequence, every unspecified type
-		// can now be marked as belonging to an extension.
-		for (auto& t : _types) {
-			if (t.second->_api_part == ApiPart::Core) {
-				continue;
-			}
-
-			assert(t.second->_api_part == ApiPart::Unspecified);
-			t.second->_api_part = ApiPart::Extension;
-		}
-
-		// Finish off dependency chain generation by adding types not used
-		// directly (they have not been covered in the previous step) but still
-		// required. These types were parsed during extension definitions.
-		for (auto e : _extensions) {
-			for (auto t : e->_required_types) {
-				t->_build_dependency_chain(current_sub_chain);
-				for (auto t : current_sub_chain) {
-					if (added_dependencies.insert(t->_name).second == true) {
-						chain.push_back(t);
-					}
-				}
-				current_sub_chain.clear();
-			}
-		}
-
-		// Check that all types are represented in the dependency chain
-		for (auto t : chain) {
-			assert(_types.find(t->_name) != _types.end());
-		}
-		assert(_types.size() == chain.size());
-	}
-
-	void Registry::_mark_extension_items() {
-		// Get all extension types. The idea is to successively erase elements
-		// of the map as they are depended on by some extension. The first time
-		// a type is used is assumed to be the extension that added it.
-		std::map<std::string, Type*> extension_types;
-		for (auto& t : _types) {
-			assert(t.second->_extension == nullptr); // not yet added
-
-			if (t.second->_api_part == ApiPart::Core) {
-				continue;
-			}
-
-			assert(t.second->_api_part == ApiPart::Extension);
-
-			// C types only used by extensions will have the same API part and
-			// will reach here. We are not interested in those as no extension
-			// actually adds them.
-			if (_c_types.find(t.first) != _c_types.end()) {
-				continue;
-			}
-
-			// All extension types should match this pattern. This is a second
-			// safeguard to make sure no core types have been missed previously.
-			std::regex re(R"(^(PFN_v|V)k[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
-			auto it = std::sregex_iterator(t.first.begin(), t.first.end(), re);
-			auto end = std::sregex_iterator();
-			assert(it != end);
-			std::smatch match = *it;
-			assert(_tags.find(match[2].str()) != _tags.end());
-
-			assert(extension_types.insert(t).second == true);
-		}
-
-		// For each extension iterated in order, its dependency set is built
-		// and matched against extension types. If any type is found, that type
-		// is removed from remaining extension types and marked as being added
-		// by the extension in question.
-		std::vector<Type*> current_dep_chain;
-		for (auto e : _extensions) {
-			assert(e->_types.empty());
-
-			for (auto c : e->_commands) {
-				c->_return_type_pure->_build_dependency_chain(current_dep_chain);
-				for (auto& p : c->_params) {
-					p.pure_type->_build_dependency_chain(current_dep_chain);
-				}
-			}
-
-			for (auto t : e->_required_types) {
-				t->_build_dependency_chain(current_dep_chain);
-			}
-
-			for (auto t : current_dep_chain) {
-				assert(t->_api_part == ApiPart::Core || t->_api_part == ApiPart::Extension);
-
-				// If we could remove one of the dependencies from the map, it
-				// means we have found the first extension where it's used and
-				// we indicate that this extension adds the type.
-				if (extension_types.erase(t->_name) > 0) {
-					assert(t->_extension == nullptr);
-					t->_extension = e;
-					e->_types.push_back(t);
-				}
-			}
-
-			current_dep_chain.clear();
-		}
-
-		// By now all extension types should have been added to some extension.
-		assert(extension_types.empty());
-	}
-
 	void Registry::_sort_types() {
 		std::sort(_scalar_typedefs.begin(), _scalar_typedefs.end(), [](ScalarTypedef* t1, ScalarTypedef* t2) {
 			return t1->_dependency_order < t2->_dependency_order;
@@ -1336,6 +1068,10 @@ namespace vkspec {
 				f->_use_extension(e);
 			}
 		}
+
+		// By now all types have been added and a dependency chain has been
+		// built, and we can clean it up a bit.
+		f->_group_dependencies(_c_types);
 	}
 
 	void Registry::_parse_feature_definition(Feature * f) {

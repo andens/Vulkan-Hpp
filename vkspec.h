@@ -431,6 +431,74 @@ private:
 			}
 		}
 	}
+	void _group_dependencies(std::map<std::string, CType*>& c_types) {
+		// The dependency chain now contain dependencies in the order used by
+		// commands. It's likely a wild west of mixed types in there, so here
+		// we group types together using the same relative order as the
+		// dependency chain, provided that all dependencies are satisfied.
+		std::vector<Type*> ungrouped_dependency_chain = _dependency_chain;
+		_dependency_chain.clear();
+
+		std::set<std::string> all_added_dependencies;
+		std::set<std::string> current_added_dependencies;
+		int new_types = 0;
+
+		// Ultimately, everything depend on C types which are expected to have
+		// no dependencies themselves, so we begin by adding those.
+		for (auto& c : c_types) {
+			_types.insert(c); // Just to make sure it is here
+			_dependency_chain.push_back(c.second);
+			assert(all_added_dependencies.insert(c.first).second == true);
+		}
+
+		// Now the algorithm is as follows. Several iterations is done. We push
+		// all types that only depend on types added in previous iterations,
+		// that is, we don't consider those added in the current iteration when
+		// matching. If a type has a dependency that has not been added, we
+		// ignore it until the dependency have been added. This also means that
+		// nested dependencies are dealt with automatically; we only need to
+		// check that the direct dependencies have been added. When there are
+		// no more possible types, the added set is sorted on type (they don't
+		// depend on each other). This continues until all types have been
+		// added to the dependency chain.
+		while (all_added_dependencies.size() != ungrouped_dependency_chain.size()) {
+			for (auto& type : ungrouped_dependency_chain) {
+				if (all_added_dependencies.find(type->_name) != all_added_dependencies.end()) {
+					continue; // Added before
+				}
+
+				if (type->_all_dependencies_in_set(all_added_dependencies)) {
+					assert(current_added_dependencies.insert(type->_name).second == true);
+					_dependency_chain.push_back(type);
+					new_types++;
+				}
+			}
+
+			// Some new type must have been added (every type ultimately depend
+			// on C types)
+			assert(!current_added_dependencies.empty());
+
+			// Stable sort to preserve the relative order of types as used in
+			// commands.
+			std::stable_sort(_dependency_chain.end() - new_types, _dependency_chain.end(), [](Type* t1, Type* t2) -> bool {
+				return t1->_sort_order() < t2->_sort_order();
+			});
+
+			all_added_dependencies.insert(current_added_dependencies.begin(), current_added_dependencies.end());
+			current_added_dependencies.clear();
+			new_types = 0;
+		}
+
+		// With the dependency chain built, we set dependency orders on types
+		// that are used to sort subsets in the same fashion. While at it we
+		// check that all types are accounted for.
+		for (int i = 0; i < _dependency_chain.size(); ++i) {
+			_dependency_chain[i]->_dependency_order = i;
+			assert(_types.find(_dependency_chain[i]->_name) != _types.end());
+		}
+
+		assert(_types.size() == _dependency_chain.size());
+	}
 
 private:
 	std::string _version_name;
@@ -555,11 +623,6 @@ private:
 	void _read_command_param(tinyxml2::XMLElement * element, Command* c);
 	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier);
 
-	void _build_dependency_chain();
-	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
-
-	void _mark_extension_items();
-
 	void _sort_types();
 
 	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
@@ -597,7 +660,7 @@ private:
 
 	std::map<std::string, Item*> _items; // All items used in the registry
 	std::map<std::string, Type*> _types; // All types used in the registry (no commands, extensions, constants, etc)
-	std::set<std::string> _c_types; // Keeps the set of passed C types for easy existance checks
+	std::map<std::string, CType*> _c_types; // Keeps the set of passed C types for easy existance checks
 	std::vector<ScalarTypedef*> _scalar_typedefs;
 	std::vector<FunctionTypedef*> _function_typedefs;
 	std::vector<Bitmasks*> _bitmasks;
