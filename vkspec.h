@@ -513,6 +513,31 @@ private:
 		}
 	}
 	void _sanity_check(std::set<std::string>& tags, std::map<std::string, CType*>& c_types) {
+		for (auto t : _dependency_chain) {
+			assert(_types.find(t->_name) != _types.end()); // chain subset of types
+		}
+		assert(_types.size() == _dependency_chain.size()); // catches duplicates
+
+		for (auto t : _types) {
+			assert(t.first == t.second->_name);
+
+			if (!t.second->_extension) {
+				assert(t.second->_api_part == ApiPart::Core);
+			}
+			else {
+				assert(t.second->_api_part == ApiPart::Extension);
+			}
+		}
+
+		for (auto c : _commands) {
+			if (!c->_extension) {
+				assert(c->_api_part == ApiPart::Core);
+			}
+			else {
+				assert(c->_api_part == ApiPart::Extension);
+			}
+		}
+
 		for (auto e : _extensions) {
 			assert(e->_association != Association::Unspecified);
 			assert(tags.find(e->_tag) != tags.end());
