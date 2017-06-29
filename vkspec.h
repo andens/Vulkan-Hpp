@@ -90,11 +90,21 @@ class Type : public Item {
 	friend class Bitmasks;
 	friend class Feature;
 
+public:
+	virtual CType* to_c() { return nullptr; }
+	virtual ScalarTypedef* to_scalar_typedef() { return nullptr; }
+	virtual FunctionTypedef* to_function_typedef() { return nullptr; }
+	virtual HandleTypedef* to_handle_typedef() { return nullptr; }
+	virtual Struct* to_struct() { return nullptr; }
+	virtual Enum* to_enum() { return nullptr; }
+	virtual ApiConstant* to_api_constant() { return nullptr; }
+	virtual Bitmasks* to_bitmasks() { return nullptr; }
+
 protected:
 	Type(std::string const& name, tinyxml2::XMLElement* type_element) : Item(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) = 0;
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const = 0;
-	virtual uint32_t _sort_order() const = 0;
+	virtual SortOrder _sort_order() const = 0;
 
 protected:
 	int _dependency_order = 0; // Used when sorting
@@ -105,6 +115,7 @@ class CType : public Type {
 
 public:
 	virtual std::string const& name(void) const { return _translation; }
+	virtual CType* to_c() { return this; }
 
 private:
 	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
@@ -112,8 +123,8 @@ private:
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return true; // No dependencies; always true
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::CType);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::CType;
 	}
 
 private:
@@ -122,6 +133,10 @@ private:
 
 class ScalarTypedef : public Type {
 	friend class Registry;
+
+public:
+	virtual ScalarTypedef* to_scalar_typedef() { return this; }
+	Type* actual_type() { return _actual_type; }
 
 private:
 	ScalarTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
@@ -132,8 +147,8 @@ private:
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return set.find(_actual_type->_name) != set.end();
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::ScalarTypedef);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::ScalarTypedef;
 	}
 
 private:
@@ -149,6 +164,8 @@ public:
 		Type* pure_type;
 		std::string name;
 	};
+
+	virtual FunctionTypedef* to_function_typedef() { return this; }
 
 private:
 	FunctionTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
@@ -172,8 +189,8 @@ private:
 
 		return true;
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::FunctionTypedef);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::FunctionTypedef;
 	}
 
 private:
@@ -185,6 +202,9 @@ private:
 class HandleTypedef : public Type {
 	friend class Registry;
 
+public:
+	virtual HandleTypedef* to_handle_typedef() { return this; }
+
 private:
 	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
@@ -194,8 +214,8 @@ private:
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return set.find(_actual_type->_name) != set.end();
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::HandleTypedef);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::HandleTypedef;
 	}
 
 private:
@@ -211,6 +231,8 @@ public:
 		Type* pure_type;
 		std::string name;
 	};
+
+	virtual Struct* to_struct() { return this; }
 
 private:
 	Struct(std::string const& name, tinyxml2::XMLElement* type_element, bool is_union) : Type(name, type_element), _is_union(is_union) {}
@@ -229,8 +251,8 @@ private:
 
 		return true;
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::Struct);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::Struct;
 	}
 
 private:
@@ -247,6 +269,8 @@ public:
 		std::string value;
 	};
 
+	virtual Enum* to_enum() { return this; }
+
 private:
 	Enum(std::string const& name, tinyxml2::XMLElement* type_element, bool bitmask) : Type(name, type_element), _bitmask(bitmask) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
@@ -255,8 +279,8 @@ private:
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return true; // No dependencies; always true
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::Enum);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::Enum;
 	}
 
 private:
@@ -266,6 +290,9 @@ private:
 
 class Bitmasks : public Type {
 	friend class Registry;
+
+public:
+	virtual Bitmasks* to_bitmasks() { return this; }
 
 private:
 	Bitmasks(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
@@ -287,8 +314,8 @@ private:
 
 		return true;
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::Bitmasks);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::Bitmasks;
 	}
 
 private:
@@ -299,6 +326,9 @@ private:
 class ApiConstant : public Type {
 	friend class Registry;
 
+public:
+	virtual ApiConstant* to_api_constant() { return this; }
+
 private:
 	ApiConstant(std::string const& name, tinyxml2::XMLElement* enum_element) : Type(name, enum_element) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
@@ -308,8 +338,8 @@ private:
 	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
 		return set.find(_data_type->_name) != set.end();
 	}
-	virtual uint32_t _sort_order() const override final {
-		return static_cast<uint32_t>(SortOrder::ApiConstant);
+	virtual SortOrder _sort_order() const override final {
+		return SortOrder::ApiConstant;
 	}
 
 private:
@@ -358,6 +388,7 @@ class IGenerator {
 public:
 	virtual void begin_core() = 0;
 	virtual void end_core() = 0;
+	virtual void scalar_typedef(ScalarTypedef* t) = 0;
 };
 
 class Feature : public Item {
@@ -369,6 +400,43 @@ public:
 	int patch() { return _patch; }
 	void generate(IGenerator* generator) {
 		generator->begin_core();
+
+		for (auto t : _dependency_chain) {
+			switch (t->_sort_order()) {
+				case SortOrder::CType: {
+					break; // Only for internal tracking
+				}
+				case SortOrder::ScalarTypedef: {
+					if (!t->_extension) {
+						assert(t->to_scalar_typedef());
+						generator->scalar_typedef(t->to_scalar_typedef());
+					}
+					break;
+				}
+				case SortOrder::FunctionTypedef: {
+					break;
+				}
+				case SortOrder::HandleTypedef: {
+					break;
+				}
+				case SortOrder::Struct: {
+					break;
+				}
+				case SortOrder::Enum: {
+					break;
+				}
+				case SortOrder::ApiConstant: {
+					break;
+				}
+				case SortOrder::Bitmasks: {
+					break;
+				}
+				default: {
+					assert(false);
+				}
+			}
+		}
+
 		generator->end_core();
 	}
 

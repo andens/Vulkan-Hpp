@@ -2285,9 +2285,31 @@ public:
 		_file << "} // mod core" << std::endl;
 	}
 
+	virtual void RustGenerator::scalar_typedef(vkspec::ScalarTypedef* t) override final {
+		if (_previous_type != Type::ScalarTypedef) {
+			_file << std::endl;
+		}
+
+		_file << "type " << t->name() << " = " << t->actual_type()->name() << ";" << std::endl;
+		_previous_type = Type::ScalarTypedef;
+	}
+
+private:
+	enum class Type {
+		Unknown,
+		ScalarTypedef,
+		FunctionTypedef,
+		HandleTypedef,
+		Struct,
+		Enum,
+		ApiConstant,
+		Bitmasks,
+	};
+
 private:
 	std::ofstream _file;
 	IndentingOStreambuf* _indent = nullptr;
+	Type _previous_type = Type::Unknown;
 };
 
 class RustTranslator : public vkspec::ITranslator {
@@ -2372,11 +2394,6 @@ int main(int argc, char **argv)
 			RustGenerator generator(VULKAN_HPP, reg.license(), feature->major(), feature->minor(), feature->patch());
 			feature->generate(&generator);
 		}
-
-		//ofs << std::endl;
-		//for (auto tdef : reg.get_scalar_typedefs()) {
-		//	//ofs << "type " << tdef->actual << " = " << tdef->alias << ";" << std::endl;
-		//}
 
 		//ofs << std::endl;
 		//for (auto handle : reg.get_handle_typedefs()) {
