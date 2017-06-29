@@ -35,6 +35,7 @@ namespace vkspec {
 enum class Association {
 	Instance,
 	Device,
+	Disabled,
 	Unspecified,
 };
 
@@ -350,7 +351,6 @@ private:
 	std::vector<Command*> _commands;
 	std::vector<Type*> _required_types; // Provided explicitly by registry
 	std::vector<Type*> _types; // Types introduced by this extension
-	bool _disabled = false;
 };
 
 class Feature : public Item {
@@ -517,11 +517,6 @@ private:
 	void _read_command_params(tinyxml2::XMLElement* element, Command* c);
 	void _read_command_param(tinyxml2::XMLElement * element, Command* c);
 	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier);
-	void _parse_extension_definition(Extension* e);
-	void _read_extension_require(tinyxml2::XMLElement * element, Extension* e);
-	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
-	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
-	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
 
 	void _build_dependency_chain();
 	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
@@ -541,6 +536,11 @@ private:
 	void _read_feature_command(tinyxml2::XMLElement* element, Feature* f);
 	void _read_feature_type(tinyxml2::XMLElement* element, Feature* f);
 	void _read_feature_enum(tinyxml2::XMLElement* element, Feature* f);
+	void _parse_extension_definition(Extension* e);
+	void _read_extension_require(tinyxml2::XMLElement * element, Extension* e);
+	void _read_extension_command(tinyxml2::XMLElement * element, Extension* e);
+	void _read_extension_type(tinyxml2::XMLElement * element, Extension* e);
+	void _read_extension_enum(tinyxml2::XMLElement * element, Extension* e);
 
 private:
 	tinyxml2::XMLDocument _doc;

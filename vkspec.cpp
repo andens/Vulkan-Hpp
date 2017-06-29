@@ -976,186 +976,6 @@ namespace vkspec {
 		return node;
 	}
 
-	void Registry::_parse_extension_definition(Extension* e) {
-		e->_tag = _extract_tag(e->_name);
-		assert(_tags.find(e->_tag) != _tags.end());
-
-		if (strcmp(e->_xml_node->Attribute("supported"), "disabled") == 0) {
-			e->_disabled = true;
-		}
-
-		if (e->_xml_node->Attribute("type")) {
-			std::string extension_type = e->_xml_node->Attribute("type");
-			assert(extension_type == "instance" || extension_type == "device");
-			e->_association = extension_type == "instance" ? Association::Instance : Association::Device;
-		}
-		else {
-			assert(e->_disabled);
-		}
-
-		// The original code used protect, which is a preprocessor define that must be
-		// present for the definition. This could be for example VK_USE_PLATFORM_WIN32
-		// in order to use Windows surface or external semaphores.
-
-		tinyxml2::XMLElement * child = e->_xml_node->FirstChildElement();
-		assert(child && (strcmp(child->Value(), "require") == 0) && !child->NextSiblingElement());
-		
-		_read_extension_require(child, e);
-	}
-
-	// Defines what types, enumerants, and commands are used by an extension
-	void Registry::_read_extension_require(tinyxml2::XMLElement * element, Extension* e)
-	{
-		// TODO: api attribute (ch. 16.1).
-
-		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
-		{
-			std::string value = child->Value();
-
-			if (value == "command")
-			{
-				_read_extension_command(child, e);
-			}
-			else if (value == "type")
-			{
-				_read_extension_type(child, e);
-			}
-			else
-			{
-				assert(value == "enum");
-				// For disabled extensions, there is nothing to do for enum
-				// because these are new definitions that have not been used
-				// anywhere else so there is nothing to remove.
-				if (!e->_disabled) {
-					_read_extension_enum(child, e);
-				}
-			}
-		}
-	}
-
-	void Registry::_read_extension_command(tinyxml2::XMLElement * element, Extension* e)
-	{
-		char const* name = element->Attribute("name");
-		assert(name);
-		auto cmd_it = std::find_if(_commands.begin(), _commands.end(), [name](Command* c) -> bool {
-			return c->_name == name;
-		});
-		assert(cmd_it != _commands.end());
-		Command* c = *cmd_it;
-		e->_commands.push_back(c);
-		assert(!c->_extension);
-		c->_extension = e;
-	}
-
-	void Registry::_read_extension_type(tinyxml2::XMLElement * element, Extension* e)
-	{
-		// Some types are not found by analyzing dependencies, but the extension
-		// may still require some types. These are provided explicitly. One of
-		// these is VkBindImageMemorySwapchainInfoKHX which is an extension struct
-		// to VkBindImageMemoryInfoKHX and thus is never a direct dependency of
-		// another type. However, the extension (VK_KHX_device_group) still adds
-		// it, so we collect these types here for when analyzing dependencies.
-		assert(element->Attribute("name"));
-		auto type_it = _types.find(element->Attribute("name"));
-		assert(type_it != _types.end());
-		e->_required_types.push_back(type_it->second);
-	}
-
-	void Registry::_read_extension_enum(tinyxml2::XMLElement * element, Extension* e)
-	{
-		assert(element->Attribute("name"));
-		std::string name = element->Attribute("name");
-
-		if (element->Attribute("extends"))
-		{
-			assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
-			if (element->Attribute("bitpos")) {
-				// Find the extended enum so we can add the member to it.
-				std::string extends = element->Attribute("extends");
-				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
-					return extends == e->_name;
-				});
-				assert(enum_it != _enums.end());
-				assert((*enum_it)->_bitmask);
-
-				Enum::Member m;
-				m.name = name;
-				m.value = _bitpos_to_value(element->Attribute("bitpos"));
-
-				(*enum_it)->_members.push_back(m);
-			}
-			else if (element->Attribute("offset")) {
-				// The value depends on extension number and offset. See
-				// https://www.khronos.org/registry/vulkan/specs/1.0/styleguide.html#_assigning_extension_token_values
-				// for calculation.
-				int value = 1000000000 + (e->_number - 1) * 1000 + std::stoi(element->Attribute("offset"));
-
-				if (element->Attribute("dir") && strcmp(element->Attribute("dir"), "-") == 0) {
-					value = -value;
-				}
-
-				std::string value_string = std::to_string(value);
-
-				// Like above, find extended enum to add value
-				std::string extends = element->Attribute("extends");
-				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
-					return extends == e->_name;
-				});
-				assert(enum_it != _enums.end());
-				assert(!(*enum_it)->_bitmask);
-
-				Enum::Member m;
-				m.name = name;
-				m.value = value_string;
-				
-				(*enum_it)->_members.push_back(m);
-			}
-			else {
-				assert(element->Attribute("value"));
-				// This is a special case for an enum variant that used to be core.
-				// It uses value instead of offset.
-				std::string extends = element->Attribute("extends");
-				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
-					return extends == e->_name;
-				});
-				assert(enum_it != _enums.end());
-				assert(!(*enum_it)->_bitmask);
-
-				Enum::Member m;
-				m.name = name;
-				m.value = element->Attribute("value");
-				
-				(*enum_it)->_members.push_back(m);
-			}
-		}
-		// Inline definition of extension-specific constant.
-		else if (element->Attribute("value")) {
-			// Unimplemented.
-			// All extensions have a constant for spec version and one for the extension
-			// name as a string literal. Other than that, some have redefines. I guess
-			// I could read the redefines, determine its enum, and mark a variant to
-			// use the new name instead.
-			//std::cout << "Unimplemented: extension enum with inline constants" << std::endl;
-		}
-		// Inline definition of extension-specific bitmask value.
-		else if (element->Attribute("bitpos")) {
-			assert(false); // Not implemented
-		}
-		// Should be a reference enum, which only supports name and comment. These
-		// pull in already existing definitions from other enums blocks. They only
-		// seem to be used for purposes of listing items the extension depends on,
-		// and since they are defined elsewhere I ignore them.
-		else {
-			const tinyxml2::XMLAttribute* att = element->FirstAttribute();
-			assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
-			att = att->Next();
-			if (att) {
-				assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
-				assert(!att->Next());
-			}
-		}
-	}
-
 	void Registry::_build_dependency_chain() {
 		// First we build a naïve dependency chain that collects dependencies
 		// in the order they are used by functions. While this chain is likely
@@ -1512,6 +1332,7 @@ namespace vkspec {
 			auto end = std::sregex_iterator();
 
 			if (it != end) { // Matches api tag of feature
+				_parse_extension_definition(e);
 				f->_use_extension(e);
 			}
 		}
@@ -1617,6 +1438,180 @@ namespace vkspec {
 		});
 		assert(item_it != _api_constants.end());
 		f->_require_enum(*item_it);
+	}
+
+	void Registry::_parse_extension_definition(Extension* e) {
+		e->_tag = _extract_tag(e->_name);
+		assert(_tags.find(e->_tag) != _tags.end());
+
+		if (e->_xml_node->Attribute("type")) {
+			std::string extension_type = e->_xml_node->Attribute("type");
+			assert(extension_type == "instance" || extension_type == "device");
+			e->_association = extension_type == "instance" ? Association::Instance : Association::Device;
+		}
+		else {
+			// Omission of type attribute only seems to happen for disabled extensions
+			assert(strcmp(e->_xml_node->Attribute("supported"), "disabled") == 0);
+			e->_association = Association::Disabled;
+		}
+
+		// The original code used protect, which is a preprocessor define that must be
+		// present for the definition. This could be for example VK_USE_PLATFORM_WIN32
+		// in order to use Windows surface or external semaphores.
+
+		tinyxml2::XMLElement * child = e->_xml_node->FirstChildElement();
+		assert(child && (strcmp(child->Value(), "require") == 0) && !child->NextSiblingElement());
+
+		_read_extension_require(child, e);
+	}
+
+	// Defines what types, enumerants, and commands are used by an extension
+	void Registry::_read_extension_require(tinyxml2::XMLElement * element, Extension* e)
+	{
+		// Not used at the moment
+		assert(!element->Attribute("api"));
+
+		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
+		{
+			std::string value = child->Value();
+
+			if (value == "command")
+			{
+				_read_extension_command(child, e);
+			}
+			else if (value == "type")
+			{
+				_read_extension_type(child, e);
+			}
+			else
+			{
+				assert(value == "enum");
+				_read_extension_enum(child, e);
+			}
+		}
+	}
+
+	void Registry::_read_extension_command(tinyxml2::XMLElement * element, Extension* e)
+	{
+		char const* name = element->Attribute("name");
+		assert(name);
+		auto cmd_it = std::find_if(_commands.begin(), _commands.end(), [name](Command* c) -> bool {
+			return c->_name == name;
+		});
+		assert(cmd_it != _commands.end());
+		Command* c = *cmd_it;
+		e->_commands.push_back(c);
+		assert(!c->_extension);
+		c->_extension = e;
+	}
+
+	void Registry::_read_extension_type(tinyxml2::XMLElement * element, Extension* e)
+	{
+		// Some types are not found by analyzing dependencies, but the extension
+		// may still require some types. These are provided explicitly. One of
+		// these is VkBindImageMemorySwapchainInfoKHX which is an extension struct
+		// to VkBindImageMemoryInfoKHX and thus is never a direct dependency of
+		// another type. However, the extension (VK_KHX_device_group) still adds
+		// it, so we collect these types here for when analyzing dependencies.
+		assert(element->Attribute("name"));
+		auto type_it = _types.find(element->Attribute("name"));
+		assert(type_it != _types.end());
+		e->_required_types.push_back(type_it->second);
+	}
+
+	void Registry::_read_extension_enum(tinyxml2::XMLElement * element, Extension* e)
+	{
+		assert(element->Attribute("name"));
+		std::string name = element->Attribute("name");
+
+		if (element->Attribute("extends"))
+		{
+			assert(!!element->Attribute("bitpos") + !!element->Attribute("offset") + !!element->Attribute("value") == 1);
+			if (element->Attribute("bitpos")) {
+				// Find the extended enum so we can add the member to it.
+				std::string extends = element->Attribute("extends");
+				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
+					return extends == e->_name;
+				});
+				assert(enum_it != _enums.end());
+				assert((*enum_it)->_bitmask);
+
+				Enum::Member m;
+				m.name = name;
+				m.value = _bitpos_to_value(element->Attribute("bitpos"));
+
+				(*enum_it)->_members.push_back(m);
+			}
+			else if (element->Attribute("offset")) {
+				// The value depends on extension number and offset. See
+				// https://www.khronos.org/registry/vulkan/specs/1.0/styleguide.html#_assigning_extension_token_values
+				// for calculation.
+				int value = 1000000000 + (e->_number - 1) * 1000 + std::stoi(element->Attribute("offset"));
+
+				if (element->Attribute("dir") && strcmp(element->Attribute("dir"), "-") == 0) {
+					value = -value;
+				}
+
+				std::string value_string = std::to_string(value);
+
+				// Like above, find extended enum to add value
+				std::string extends = element->Attribute("extends");
+				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
+					return extends == e->_name;
+				});
+				assert(enum_it != _enums.end());
+				assert(!(*enum_it)->_bitmask);
+
+				Enum::Member m;
+				m.name = name;
+				m.value = value_string;
+
+				(*enum_it)->_members.push_back(m);
+			}
+			else {
+				assert(element->Attribute("value"));
+				// This is a special case for an enum variant that used to be core.
+				// It uses value instead of offset.
+				std::string extends = element->Attribute("extends");
+				auto enum_it = std::find_if(_enums.begin(), _enums.end(), [&extends](Enum* e) -> bool {
+					return extends == e->_name;
+				});
+				assert(enum_it != _enums.end());
+				assert(!(*enum_it)->_bitmask);
+
+				Enum::Member m;
+				m.name = name;
+				m.value = element->Attribute("value");
+
+				(*enum_it)->_members.push_back(m);
+			}
+		}
+		// Inline definition of extension-specific constant.
+		else if (element->Attribute("value")) {
+			// Unimplemented.
+			// All extensions have a constant for spec version and one for the extension
+			// name as a string literal. Other than that, some have redefines. I guess
+			// I could read the redefines, determine its enum, and mark a variant to
+			// use the new name instead.
+			//std::cout << "Unimplemented: extension enum with inline constants" << std::endl;
+		}
+		// Inline definition of extension-specific bitmask value.
+		else if (element->Attribute("bitpos")) {
+			assert(false); // Not implemented
+		}
+		// Should be a reference enum, which only supports name and comment. These
+		// pull in already existing definitions from other enums blocks. They only
+		// seem to be used for purposes of listing items the extension depends on,
+		// and since they are defined elsewhere I ignore them.
+		else {
+			const tinyxml2::XMLAttribute* att = element->FirstAttribute();
+			assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
+			att = att->Next();
+			if (att) {
+				assert(strcmp(att->Name(), "name") == 0 || strcmp(att->Name(), "comment") == 0);
+				assert(!att->Next());
+			}
+		}
 	}
 
 } // vkspec
