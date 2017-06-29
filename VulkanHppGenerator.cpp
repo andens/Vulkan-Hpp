@@ -77,6 +77,13 @@ public:
 	}
 } *indent;
 
+const std::string use_statements = R"(extern crate libloading;
+use ::std::{mem, ptr};
+use ::std::os::raw::{c_void, c_char, c_int};
+use ::std::ffi::CString;
+use ::std::ops::{BitOr, BitAnd};
+use ::std::fmt;)";
+
 const std::string flags_macro_comment = R"(/*
 For regular enums, a repr(C) enum is used, which seems to be the way to go.
 Things become a bit more difficult for flags because Rust requires enum values
@@ -2218,13 +2225,6 @@ bool containsUnion(std::string const& type, std::map<std::string, StructData> co
 //  }
 //}
 
-void writeVersionCheck(std::ostream & os)
-{
-	os << "pub fn VK_MAKE_VERSION(major: u32, minor: u32, patch: u32) -> u32 {" << std::endl;
-	os << "    (major << 22) | (minor << 12) | patch" << std::endl;
-	os << "}" << std::endl;
-}
-
 void writeEnums(std::ofstream& os, vkspec::Registry& reg) {
 	//for (auto e : reg.get_enums()) {
 	//	os << std::endl;
@@ -2240,6 +2240,55 @@ void writeEnums(std::ofstream& os, vkspec::Registry& reg) {
 	//	os << "}" << std::endl;
 	//}
 }
+
+class RustGenerator : public vkspec::IGenerator {
+public:
+	RustGenerator(std::string const& out_file, std::string const& license, int major, int minor, int patch) {
+		_file.open(out_file);
+		if (!_file.is_open()) {
+			throw std::runtime_error("Failed to open file for output");
+		}
+
+		_indent = new IndentingOStreambuf(_file, 0);
+
+		_file << license << std::endl;
+		_file << std::endl;
+		_file << "// Rust bindings for Vulkan " << major << "." << minor << "." << patch << ", generated from the Khronos Vulkan API XML Registry." << std::endl;
+		_file << "// See https://github.com/andens/Vulkan-Hpp for generator details." << std::endl;
+		_file << std::endl;
+	}
+
+	~RustGenerator() {
+		delete _indent;
+		_file.close();
+	}
+
+	virtual void RustGenerator::begin_core() override final {
+		_file << "#![allow(non_camel_case_types)]" << std::endl;
+		_file << "#![allow(non_snake_case)]" << std::endl;
+		_file << std::endl;
+		_file << "pub mod core {" << std::endl;
+
+		_indent->increase();
+
+		_file << use_statements << std::endl;
+
+		_file << std::endl;
+
+		_file << "pub fn VK_MAKE_VERSION(major: u32, minor: u32, patch: u32) -> u32 {" << std::endl;
+		_file << "    (major << 22) | (minor << 12) | patch" << std::endl;
+		_file << "}" << std::endl;
+	}
+
+	virtual void RustGenerator::end_core() override final {
+		_indent->decrease();
+		_file << "} // mod core" << std::endl;
+	}
+
+private:
+	std::ofstream _file;
+	IndentingOStreambuf* _indent = nullptr;
+};
 
 class RustTranslator : public vkspec::ITranslator {
 	virtual std::string pointer_to(std::string const& type, vkspec::PointerType pointer_type) override final {
@@ -2319,27 +2368,10 @@ int main(int argc, char **argv)
 
 		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
 
-		std::ofstream ofs(VULKAN_HPP);
-		ofs << reg.license() << std::endl
-			<< std::endl
-			<< "// Rust bindings for Vulkan " << feature->major() << "." << feature->minor() << "." << feature->patch() << ", generated from the Khronos Vulkan API XML Registry." << std::endl
-			<< "// See https://github.com/andens/Vulkan-Hpp for generator details." << std::endl
-			<< std::endl
-			<< R"(#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-
-pub mod core {
-    extern crate libloading;
-    use ::std::{mem, ptr};
-    use ::std::os::raw::{c_void, c_char, c_int};
-    use ::std::ffi::CString;
-    use ::std::ops::{BitOr, BitAnd};
-    use ::std::fmt;
-)" << std::endl;
-
-		indent = new IndentingOStreambuf(ofs);
-
-		writeVersionCheck(ofs);
+		{
+			RustGenerator generator(VULKAN_HPP, reg.license(), feature->major(), feature->minor(), feature->patch());
+			feature->generate(&generator);
+		}
 
 		//ofs << std::endl;
 		//for (auto tdef : reg.get_scalar_typedefs()) {
@@ -2358,15 +2390,11 @@ pub mod core {
 		//	ofs << "const " << c->name() << ": " << "CONSTANT_DATATYPE" << " = " << "CONSTANT_VALUE" << ";" << std::endl;
 		//}
 
-		ofs << std::endl;
-		ofs << flags_macro_comment;
-		ofs << flags_macro << std::endl;
+		//ofs << std::endl;
+		//ofs << flags_macro_comment;
+		//ofs << flags_macro << std::endl;
 
-		writeEnums(ofs, reg);
-
-		indent->decrease();
-
-		ofs << "} // mod core" << std::endl;
+		//writeEnums(ofs, reg);
 	}
 	catch (std::exception const& e)
 	{

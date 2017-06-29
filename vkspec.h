@@ -354,6 +354,12 @@ private:
 	std::vector<Type*> _types; // Types introduced by this extension
 };
 
+class IGenerator {
+public:
+	virtual void begin_core() = 0;
+	virtual void end_core() = 0;
+};
+
 class Feature : public Item {
 	friend class Registry;
 
@@ -361,6 +367,10 @@ public:
 	int major() { return _major; }
 	int minor() { return _minor; }
 	int patch() { return _patch; }
+	void generate(IGenerator* generator) {
+		generator->begin_core();
+		generator->end_core();
+	}
 
 private:
 	Feature(std::string const& api, std::string const& name, int major, int minor, tinyxml2::XMLElement* feature_element) : Item(api, feature_element), _version_name(name), _major(major), _minor(minor) {}
