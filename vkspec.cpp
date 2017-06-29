@@ -327,7 +327,7 @@ namespace vkspec {
 
 			ApiConstant* c = new ApiConstant(constant, child);
 			assert(_items.insert(std::make_pair(constant, c)).second == true);
-			// Note: Not a type, so no insertion to _types
+			assert(_types.insert(std::make_pair(constant, c)).second == true);
 			_api_constants.push_back(c);
 		}
 	}
@@ -1141,16 +1141,16 @@ namespace vkspec {
 		for (tinyxml2::XMLElement* child = element->FirstChildElement(); child; child = child->NextSiblingElement()) {
 			std::string value = child->Value();
 
-			/*if (value == "command") {
-				_read_extension_command(child, e);
+			if (value == "command") {
+				//_read_extension_command(child, e);
 			}
-			else */if (value == "type") {
+			else if (value == "type") {
 				_read_feature_type(child, f);
-			}/*
+			}
 			else {
 				assert(value == "enum");
-				_read_extension_enum(child, e);
-			}*/
+				_read_feature_enum(child, f);
+			}
 		}
 	}
 
@@ -1181,6 +1181,42 @@ namespace vkspec {
 		auto type_it = _types.find(name);
 		assert(type_it != _types.end());
 		f->_require_type(type_it->second);
+	}
+
+	void Registry::_read_feature_enum(tinyxml2::XMLElement * element, Feature * f) {
+		// I have only ever seen reference enums here, that is, pulling in an
+		// already existing definition. It makes sense, since the extension enum
+		// information says it's an inline definition inside an extensions block.
+
+		const tinyxml2::XMLAttribute* first = element->FirstAttribute();
+		assert(first);
+		const tinyxml2::XMLAttribute* second = first->Next();
+
+		std::string enum_name;
+		if (strcmp(first->Name(), "name") == 0) {
+			enum_name = first->Value();
+
+			if (second) {
+				assert(strcmp(second->Name(), "comment") == 0);
+				assert(!second->Next());
+			}
+		}
+		else {
+			assert(strcmp(first->Name(), "comment") == 0);
+			assert(second && strcmp(second->Name(), "name") == 0 && !second->Next());
+			enum_name = second->Value();
+		}
+
+		// I think these should always be API constants. Actual enums are read
+		// as types. Unless of course a subset is required, in which case I would
+		// have to revise how I deal with enums. This would likely lead to adding
+		// an Enumeration item type so that I can find them individually and
+		// have enum members be objects of this type.
+		auto item_it = std::find_if(_api_constants.begin(), _api_constants.end(), [&enum_name](ApiConstant* a) -> bool {
+			return a->_name == enum_name;
+		});
+		assert(item_it != _api_constants.end());
+		f->_require_enum(*item_it);
 	}
 
 	void Registry::_build_dependency_chain() {
@@ -1255,6 +1291,11 @@ namespace vkspec {
 		assert(_types.size() == _dependency_chain.size());
 	}
 
+	// TODO: These dependency chain things (one other method as well) should be
+	// fairly unnecesary with features, as the dependency chain is built when
+	// items are added to the feature. I do however want to mark things as core
+	// or extension, so I probably want to be able to call _for_each_item with
+	// a lambda on dependencies of core functions.
 	void Registry::_build_ungrouped_dependency_chain(std::vector<Type*>& chain) {
 		std::vector<Type*> current_sub_chain;
 		std::set<std::string> added_dependencies;
@@ -1305,6 +1346,9 @@ namespace vkspec {
 			"VkDrawIndirectCommand",
 			"VkPipelineCacheHeaderVersion",
 		};
+		for (auto a : _api_constants) {
+			manual_dependencies.push_back(a->_name);
+		}
 		for (auto& dep : manual_dependencies) {
 			auto type_it = _types.find(dep);
 			assert(type_it != _types.end());

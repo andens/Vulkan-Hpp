@@ -46,6 +46,7 @@ enum class SortOrder {
 	CType = 0,
 	ScalarTypedef,
 	HandleTypedef,
+	ApiConstant,
 	Enum,
 	Bitmasks,
 	FunctionTypedef,
@@ -81,6 +82,7 @@ class Type : public Item {
 	friend class HandleTypedef;
 	friend class Struct;
 	friend class Enum;
+	friend class ApiConstant;
 	friend class Bitmasks;
 	friend class Feature;
 
@@ -290,11 +292,21 @@ private:
 	Enum* _flags = nullptr; // Enum containing flag definitions
 };
 
-class ApiConstant : public Item {
+class ApiConstant : public Type {
 	friend class Registry;
 
 private:
-	ApiConstant(std::string const& name, tinyxml2::XMLElement* enum_element) : Item(name, enum_element) {}
+	ApiConstant(std::string const& name, tinyxml2::XMLElement* enum_element) : Type(name, enum_element) {}
+	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
+		_data_type->_build_dependency_chain(chain);
+		chain.push_back(this);
+	}
+	virtual bool _all_dependencies_in_set(std::set<std::string> const& set) const {
+		return set.find(_data_type->_name) != set.end();
+	}
+	virtual uint32_t _sort_order() const override final {
+		return static_cast<uint32_t>(SortOrder::ApiConstant);
+	}
 
 private:
 	Type* _data_type = nullptr;
@@ -352,6 +364,9 @@ private:
 	}
 	void _require_type(Type* t) {
 		_insert_type_with_dependencies(t);
+	}
+	void _require_enum(ApiConstant* a) {
+		_insert_type_with_dependencies(a);
 	}
 
 private:
@@ -481,6 +496,7 @@ private:
 	void _parse_feature_definition(Feature* f);
 	void _read_feature_require(tinyxml2::XMLElement* element, Feature* f);
 	void _read_feature_type(tinyxml2::XMLElement* element, Feature* f);
+	void _read_feature_enum(tinyxml2::XMLElement* element, Feature* f);
 
 	void _build_dependency_chain();
 	void _build_ungrouped_dependency_chain(std::vector<Type*>& chain);
