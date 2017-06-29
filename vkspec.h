@@ -388,7 +388,13 @@ class IGenerator {
 public:
 	virtual void begin_core() = 0;
 	virtual void end_core() = 0;
-	virtual void scalar_typedef(ScalarTypedef* t) = 0;
+	virtual void gen_scalar_typedef(ScalarTypedef* t) = 0;
+	virtual void gen_function_typedef(FunctionTypedef* t) = 0;
+	virtual void gen_handle_typedef(HandleTypedef* t) = 0;
+	virtual void gen_struct(Struct* t) = 0;
+	virtual void gen_enum(Enum* t) = 0;
+	virtual void gen_api_constant(ApiConstant* t) = 0;
+	virtual void gen_bitmasks(Bitmasks* t) = 0;
 };
 
 class Feature : public Item {
@@ -409,26 +415,50 @@ public:
 				case SortOrder::ScalarTypedef: {
 					if (!t->_extension) {
 						assert(t->to_scalar_typedef());
-						generator->scalar_typedef(t->to_scalar_typedef());
+						generator->gen_scalar_typedef(t->to_scalar_typedef());
 					}
 					break;
 				}
 				case SortOrder::FunctionTypedef: {
+					if (!t->_extension) {
+						assert(t->to_function_typedef());
+						generator->gen_function_typedef(t->to_function_typedef());
+					}
 					break;
 				}
 				case SortOrder::HandleTypedef: {
+					if (!t->_extension) {
+						assert(t->to_handle_typedef());
+						generator->gen_handle_typedef(t->to_handle_typedef());
+					}
 					break;
 				}
 				case SortOrder::Struct: {
+					if (!t->_extension) {
+						assert(t->to_struct());
+						generator->gen_struct(t->to_struct());
+					}
 					break;
 				}
 				case SortOrder::Enum: {
+					if (!t->_extension) {
+						assert(t->to_enum());
+						generator->gen_enum(t->to_enum());
+					}
 					break;
 				}
 				case SortOrder::ApiConstant: {
+					if (!t->_extension) {
+						assert(t->to_api_constant());
+						generator->gen_api_constant(t->to_api_constant());
+					}
 					break;
 				}
 				case SortOrder::Bitmasks: {
+					if (!t->_extension) {
+						assert(t->to_bitmasks());
+						generator->gen_bitmasks(t->to_bitmasks());
+					}
 					break;
 				}
 				default: {

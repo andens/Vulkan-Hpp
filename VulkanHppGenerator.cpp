@@ -2285,13 +2285,67 @@ public:
 		_file << "} // mod core" << std::endl;
 	}
 
-	virtual void RustGenerator::scalar_typedef(vkspec::ScalarTypedef* t) override final {
+	virtual void RustGenerator::gen_scalar_typedef(vkspec::ScalarTypedef* t) override final {
 		if (_previous_type != Type::ScalarTypedef) {
 			_file << std::endl;
 		}
 
 		_file << "type " << t->name() << " = " << t->actual_type()->name() << ";" << std::endl;
 		_previous_type = Type::ScalarTypedef;
+	}
+
+	virtual void RustGenerator::gen_function_typedef(vkspec::FunctionTypedef* t) {
+		if (_previous_type != Type::FunctionTypedef) {
+			_file << std::endl;
+		}
+
+		_file << "[Not implemented] Function typedef '" + t->name() + "'" << std::endl;
+		_previous_type = Type::FunctionTypedef;
+	}
+
+	virtual void RustGenerator::gen_handle_typedef(vkspec::HandleTypedef* t) {
+		if (_previous_type != Type::HandleTypedef) {
+			_file << std::endl;
+		}
+
+		_file << "[Not implemented] Handle typedef '" + t->name() + "'" << std::endl;
+		_previous_type = Type::HandleTypedef;
+	}
+
+	virtual void RustGenerator::gen_struct(vkspec::Struct* t) {
+		if (_previous_type != Type::Struct) {
+			_file << std::endl;
+		}
+
+		_file << "[Not implemented] Struct '" + t->name() + "'" << std::endl;
+		_previous_type = Type::Struct;
+	}
+
+	virtual void RustGenerator::gen_enum(vkspec::Enum* t) {
+		if (_previous_type != Type::Enum) {
+			_file << std::endl;
+		}
+
+		_file << "[Not implemented] Enum '" + t->name() + "'" << std::endl;
+		_previous_type = Type::Enum;
+	}
+
+	virtual void RustGenerator::gen_api_constant(vkspec::ApiConstant* t) {
+		if (_previous_type != Type::ApiConstant) {
+			_file << std::endl;
+		}
+
+		_file << "[Not implemented] API constant '" + t->name() + "'" << std::endl;
+		_previous_type = Type::ApiConstant;
+	}
+
+	virtual void RustGenerator::gen_bitmasks(vkspec::Bitmasks* t) {
+		if (_previous_type != Type::Bitmasks) {
+			_file << std::endl;
+		}
+
+		_file << "[Not implemented] Bitmasks '" + t->name() + "'" << std::endl;
+		_previous_type = Type::Bitmasks;
 	}
 
 private:
