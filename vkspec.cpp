@@ -381,6 +381,24 @@ namespace vkspec {
 		_extensions.push_back(e);
 	}
 
+	void Registry::_read_feature(tinyxml2::XMLElement * element) {
+		assert(element->Attribute("api") && element->Attribute("name") && element->Attribute("number"));
+		std::string api = element->Attribute("api");
+		std::string name = element->Attribute("name");
+		std::string number = element->Attribute("number");
+		std::regex re(R"(^([0-9]+)\.([0-9]+)$)");
+		auto it = std::sregex_iterator(number.begin(), number.end(), re);
+		auto end = std::sregex_iterator();
+		assert(it != end);
+		std::smatch match = *it;
+		int major = std::stoi(match[1].str());
+		int minor = std::stoi(match[2].str());
+
+		Feature* f = new Feature(api, name, major, minor, element);
+		assert(_items.insert(std::make_pair(api, f)).second == true);
+		_features.push_back(f);
+	}
+
 	void Registry::_sort_extensions() {
 		std::sort(_extensions.begin(), _extensions.end(), [](Extension* e1, Extension* e2) -> bool {
 			return e1->_number < e2->_number;

@@ -335,6 +335,18 @@ private:
 	bool _disabled = false;
 };
 
+class Feature : public Item {
+	friend class Registry;
+
+private:
+	Feature(std::string const& api, std::string const& name, int major, int minor, tinyxml2::XMLElement* feature_element) : Item(api, feature_element), _version_name(name), _major(major), _minor(minor) {}
+
+private:
+	std::string _version_name;
+	int _major = 0;
+	int _minor = 0;
+};
+
 enum class PointerType {
 	T_P,
 	T_PP,
@@ -490,6 +502,7 @@ private:
 	std::vector<Enum*> _enums;
 	std::vector<Command*> _commands;
 	std::vector<Extension*> _extensions;
+	std::vector<Feature*> _features;
 	std::vector<Type*> _dependency_chain; // The order in which dependencies are required
 
 	ITranslator* _translator;
