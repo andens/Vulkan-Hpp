@@ -259,6 +259,8 @@ public:
 	};
 
 	virtual Struct* to_struct() { return this; }
+	bool is_union() { return _is_union; }
+	std::vector<Member> const& members() { return _members; }
 
 private:
 	Struct(std::string const& name, tinyxml2::XMLElement* type_element, bool is_union) : Type(name, type_element), _is_union(is_union) {}

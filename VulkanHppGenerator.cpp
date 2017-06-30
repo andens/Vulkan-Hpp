@@ -2313,11 +2313,16 @@ public:
 	}
 
 	virtual void RustGenerator::gen_struct(vkspec::Struct* t) {
-		if (_previous_type != Type::Struct) {
-			_file << std::endl;
+		_file << std::endl;
+		_file << "#[repr(C)]" << std::endl;
+		
+		if (t->is_union()) {
+			_write_union(t);
+		}
+		else {
+			_write_struct(t);
 		}
 
-		_file << "[Not implemented] Struct '" + t->name() + "'" << std::endl;
 		_previous_type = Type::Struct;
 	}
 
@@ -2359,6 +2364,64 @@ private:
 		ApiConstant,
 		Bitmasks,
 	};
+
+private:
+	void _write_union(vkspec::Struct* t) {
+		_file << "pub struct " << t->name() << " {" << std::endl;
+		_indent->increase();
+
+		// Since people involved in development of Rust prefer to discuss for
+		// years instead of actually just doing things, Rust still don't have
+		// proper FFI support for unions. That's why we deal with these manually.
+		if (t->name() == "VkClearColorValue") {
+			_file << "data: [u32; 4]," << std::endl;
+		}
+		else {
+			assert(t->name() == "VkClearValue");
+			_file << "data: VkClearColorValue," << std::endl;
+		}
+
+		_indent->decrease();
+		_file << "}" << std::endl;
+
+		_file << "impl " << t->name() << " {" << std::endl;
+		_indent->increase();
+
+		for (auto& m : t->members()) {
+			_file << "#[inline]" << std::endl;
+			_file << "pub unsafe fn " << m.name << "(&self) -> &" << m.complete_type << " {" << std::endl;
+			_indent->increase();
+			//_file << "let p = self as *const _ as *const " << m.complete_type << ";" << std::endl;
+			//_file << "&*p" << std::endl;
+			_file << "::std::mem::transmute(&self.data)" << std::endl;
+			_indent->decrease();
+			_file << "}" << std::endl;
+
+			_file << "#[inline]" << std::endl;
+			_file << "pub unsafe fn " << m.name << "_mut(&mut self) -> &mut " << m.complete_type << " {" << std::endl;
+			_indent->increase();
+			//_file << "let p = self as *mut _ as *mut " << m.complete_type << ";" << std::endl;
+			//_file << "&mut *p" << std::endl;
+			_file << "::std::mem::transmute(&mut self.data)" << std::endl;
+			_indent->decrease();
+			_file << "}" << std::endl;
+		}
+
+		_indent->decrease();
+		_file << "}" << std::endl;
+	}
+
+	void _write_struct(vkspec::Struct* t) {
+		_file << "pub struct " << t->name() << " {" << std::endl;
+		_indent->increase();
+
+		for (auto& m : t->members()) {
+			_file << "pub " << m.name << ": " << m.complete_type << "," << std::endl;
+		}
+
+		_indent->decrease();
+		_file << "}" << std::endl;
+	}
 
 private:
 	std::ofstream _file;
