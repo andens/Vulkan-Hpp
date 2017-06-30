@@ -1163,12 +1163,12 @@ namespace vkspec {
 		if (e->_xml_node->Attribute("type")) {
 			std::string extension_type = e->_xml_node->Attribute("type");
 			assert(extension_type == "instance" || extension_type == "device");
-			e->_association = extension_type == "instance" ? Association::Instance : Association::Device;
+			e->_classification = extension_type == "instance" ? ExtensionClassification::Instance : ExtensionClassification::Device;
 		}
 		else {
 			// Omission of type attribute only seems to happen for disabled extensions
 			assert(strcmp(e->_xml_node->Attribute("supported"), "disabled") == 0);
-			e->_association = Association::Disabled;
+			e->_classification = ExtensionClassification::Disabled;
 		}
 
 		// The original code used protect, which is a preprocessor define that must be

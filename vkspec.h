@@ -33,7 +33,7 @@
 
 namespace vkspec {
 
-enum class Association {
+enum class ExtensionClassification {
 	Instance,
 	Device,
 	Disabled,
@@ -413,7 +413,7 @@ private:
 	int _number = 0;
 	std::string _supported;
 	std::string _tag;
-	Association _association = Association::Unspecified;
+	ExtensionClassification _classification = ExtensionClassification::Unspecified;
 	std::vector<Command*> _commands;
 	std::vector<Type*> _required_types; // Provided explicitly by registry
 	std::vector<Type*> _types; // Types introduced by this extension
@@ -709,7 +709,7 @@ private:
 		}
 
 		for (auto e : _extensions) {
-			assert(e->_association != Association::Unspecified);
+			assert(e->_classification != ExtensionClassification::Unspecified);
 			assert(tags.find(e->_tag) != tags.end());
 
 			for (auto c : e->_commands) {
