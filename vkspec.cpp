@@ -670,7 +670,8 @@ namespace vkspec {
 		std::string member_name = child->ToElement()->GetText();
 
 		// Some members have more information about array size
-		std::string array_size = _read_array_size(child, member_name);
+		ApiConstant* c = nullptr;
+		std::string array_size = _read_array_size(child, member_name, c);
 		if (array_size != "") {
 			assert(complete_type == pure_type->name());
 			complete_type = _translator->array_member(complete_type, array_size);
@@ -680,6 +681,7 @@ namespace vkspec {
 		m.complete_type = complete_type;
 		m.pure_type = pure_type;
 		m.name = member_name;
+		m.array_dependency = c;
 
 		theStruct->_members.push_back(m);
 	}
@@ -883,7 +885,8 @@ namespace vkspec {
 		assert(after_type->ToElement() && (strcmp(after_type->Value(), "name") == 0) && after_type->ToElement()->GetText());
 		std::string name = after_type->ToElement()->GetText();
 
-		std::string array_size = _read_array_size(after_type, name);
+		ApiConstant* a = nullptr;
+		std::string array_size = _read_array_size(after_type, name, a);
 		if (array_size != "") {
 			assert(complete_type == pure_type->name());
 			complete_type = _translator->array_param(complete_type, array_size, const_modifier);
@@ -893,6 +896,7 @@ namespace vkspec {
 		p.complete_type = complete_type;
 		p.pure_type = pure_type;
 		p.name = name;
+		p.array_dependency = a;
 
 		c->_params.push_back(p);
 	}
@@ -947,8 +951,10 @@ namespace vkspec {
 		return node;
 	}
 
-	std::string Registry::_read_array_size(tinyxml2::XMLNode * node, std::string& name)
+	std::string Registry::_read_array_size(tinyxml2::XMLNode * node, std::string& name, ApiConstant*& api_constant)
 	{
+		api_constant = nullptr;
+
 		std::string arraySize;
 		if (name.back() == ']') // Can happen for example [4] in unions
 		{
@@ -957,6 +963,7 @@ namespace vkspec {
 			size_t pos = name.find('[');
 			assert(pos != std::string::npos);
 			arraySize = name.substr(pos + 1, name.length() - 2 - pos);
+			assert(!arraySize.empty() && arraySize.find_first_not_of("0123456789") == std::string::npos); // should be unsigned int
 			name.erase(pos);
 		}
 		else
@@ -972,6 +979,10 @@ namespace vkspec {
 					node = node->NextSibling();
 					assert(node && node->ToElement() && (strcmp(node->Value(), "enum") == 0));
 					arraySize = node->ToElement()->GetText();
+					auto enum_it = _types.find(arraySize);
+					assert(enum_it != _types.end());
+					api_constant = enum_it->second->to_api_constant();
+					assert(api_constant);
 					node = node->NextSibling();
 					assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0) && !node->NextSibling());
 				}
@@ -980,6 +991,7 @@ namespace vkspec {
 					// otherwise, the node holds '[' and ']', so get the stuff in between those as the array size
 					assert((value.front() == '[') && (value.back() == ']'));
 					arraySize = value.substr(1, value.length() - 2);
+					assert(!arraySize.empty() && arraySize.find_first_not_of("0123456789") == std::string::npos); // should be unsigned int
 					assert(!node->NextSibling());
 				}
 			}

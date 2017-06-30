@@ -255,6 +255,7 @@ public:
 		std::string complete_type;
 		Type* pure_type;
 		std::string name;
+		ApiConstant* array_dependency;
 	};
 
 	virtual Struct* to_struct() { return this; }
@@ -263,12 +264,18 @@ private:
 	Struct(std::string const& name, tinyxml2::XMLElement* type_element, bool is_union) : Type(name, type_element), _is_union(is_union) {}
 	virtual void _build_dependency_chain(std::vector<Type*>& chain) override final {
 		for (auto& m : _members) {
+			if (m.array_dependency) {
+				((Type*)m.array_dependency)->_build_dependency_chain(chain);
+			}
 			m.pure_type->_build_dependency_chain(chain);
 		}
 		chain.push_back(this);
 	}
 	virtual bool _dependency_condition(std::set<std::string> const& added_set, std::set<std::string> const& current_set) const {
 		for (auto& m : _members) {
+			if (m.array_dependency && !_dependency_check(added_set, current_set, (Type*)m.array_dependency)) {
+				return false;
+			}
 			if (!_dependency_check(added_set, current_set, m.pure_type)) {
 				return false;
 			}
@@ -381,6 +388,7 @@ public:
 		std::string complete_type;
 		Type* pure_type;
 		std::string name;
+		ApiConstant* array_dependency;
 	};
 
 private:
@@ -511,6 +519,9 @@ private:
 		_commands.push_back(c);
 		_insert_type_with_dependencies(c->_return_type_pure);
 		for (auto& p : c->_params) {
+			if (p.array_dependency) {
+				_insert_type_with_dependencies(p.array_dependency);
+			}
 			_insert_type_with_dependencies(p.pure_type);
 		}
 	}
@@ -548,6 +559,9 @@ private:
 			c->_return_type_pure->_build_dependency_chain(dependency_chain);
 
 			for (auto& p : c->_params) {
+				if (p.array_dependency) {
+					((Type*)p.array_dependency)->_build_dependency_chain(dependency_chain);
+				}
 				p.pure_type->_build_dependency_chain(dependency_chain);
 			}
 		}
@@ -728,14 +742,24 @@ private:
 					continue;
 				}
 
-				// All extension types should match this pattern. This is a second
+				// Extension types should match these patterns. This is a second
 				// safeguard to make sure no core types have been missed previously.
-				std::regex re(R"(^(PFN_v|V)k[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
+				std::regex re;
+				if (t->to_api_constant()) {
+					re = std::regex(R"(^VK_[A-Z_]+_([A-Z]+)$)");
+				}
+				else if (t->to_function_typedef()) {
+					re = std::regex(R"(^PFN_vk[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
+				}
+				else {
+					re = std::regex(R"(^Vk[A-Z][a-zA-Z0-9]+[a-z0-9]([A-Z][A-Z]+)$)");
+				}
+
 				auto it = std::sregex_iterator(t->_name.begin(), t->_name.end(), re);
 				auto end = std::sregex_iterator();
 				assert(it != end);
 				std::smatch match = *it;
-				assert(tags.find(match[2].str()) != tags.end());
+				assert(tags.find(match[1].str()) != tags.end());
 			}
 		}
 	}
@@ -824,7 +848,7 @@ private:
 	void _read_command_param(tinyxml2::XMLElement * element, Command* c);
 	tinyxml2::XMLNode* _read_command_param_type(tinyxml2::XMLNode* node, std::string& complete_type, Type*& pure_type, bool& const_modifier);
 
-	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name);
+	std::string _read_array_size(tinyxml2::XMLNode * node, std::string& name, ApiConstant*& api_constant);
 	std::string _trim_end(std::string const& input);
 	std::string _extract_tag(std::string const& name);
 	std::string _bitpos_to_value(std::string const& bitpos);
