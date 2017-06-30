@@ -33,6 +33,14 @@
 
 namespace vkspec {
 
+enum class CommandClassification {
+	Entry,
+	Global,
+	Instance,
+	Device,
+	Unspecified,
+};
+
 enum class ExtensionClassification {
 	Instance,
 	Device,
@@ -242,9 +250,24 @@ private:
 	virtual SortOrder _sort_order() const override final {
 		return SortOrder::HandleTypedef;
 	}
+	bool _device_object() const {
+		if (_name == "VkDevice") {
+			return true;
+		}
+
+		for (auto p : _parents) {
+			if (p->_device_object()) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 
 private:
 	Type* _actual_type = nullptr;
+	std::vector<HandleTypedef*> _parents;
+	bool _dispatchable = false;
 };
 
 class Struct : public Type {
@@ -393,6 +416,10 @@ public:
 		ApiConstant* array_dependency;
 	};
 
+	CommandClassification classification() {
+		return _classification;
+	}
+
 private:
 	Command(std::string const& name, tinyxml2::XMLElement* command_element) : Item(name, command_element) {}
 
@@ -400,6 +427,7 @@ private:
 	std::string _return_type_complete;
 	Type* _return_type_pure = nullptr;
 	std::vector<Parameter> _params;
+	CommandClassification _classification = CommandClassification::Unspecified;
 };
 
 class Extension : public Item {
@@ -726,6 +754,14 @@ private:
 				assert(it != end);
 				std::smatch match = *it;
 				assert(tags.find(match[1].str()) != tags.end());
+
+				if (e->_classification == ExtensionClassification::Instance) {
+					assert(c->classification() == CommandClassification::Instance);
+				}
+				else if (e->_classification == ExtensionClassification::Device) {
+					// Instance-level commands can be added by device extensions
+					assert(c->classification() == CommandClassification::Device || c->classification() == CommandClassification::Instance);
+				}
 			}
 
 			for (auto t : e->_types) {
@@ -854,6 +890,8 @@ private:
 	std::string _trim_end(std::string const& input);
 	std::string _extract_tag(std::string const& name);
 	std::string _bitpos_to_value(std::string const& bitpos);
+
+	void _mark_command_classifications();
 
 	void _build_feature(Feature* f);
 	void _parse_feature_definition(Feature* f);

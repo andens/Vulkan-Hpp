@@ -47,6 +47,8 @@ namespace vkspec {
 		// since they were created in the pass before.
 		_parse_item_definitions(registryElement);
 
+		_mark_command_classifications();
+
 		_parsed = true;
 
 		if (_features.size() != 1) {
@@ -631,15 +633,32 @@ namespace vkspec {
 			auto type_it = _types.find("size_t");
 			assert(type_it != _types.end());
 			actual_type = type_it->second;
+			h->_dispatchable = true;
 		}
 		else {
 			assert(type == "VK_DEFINE_NON_DISPATCHABLE_HANDLE"); // Pointer on 64-bit and uint64_t otherwise -> always 64 bit
 			auto type_it = _types.find("uint64_t");
 			assert(type_it != _types.end());
 			actual_type = type_it->second;
+			h->_dispatchable = false;
 		}
 
 		h->_actual_type = actual_type;
+
+		if (h->_xml_node->Attribute("parent")) {
+			std::string parents = h->_xml_node->Attribute("parent");
+
+			auto begin = parents.begin();
+			auto pos = parents.end();
+			do {
+				pos = std::find(begin, parents.end(), ',');
+				std::string p(begin, pos);
+				begin = (pos == parents.end()) ? pos : pos + 1;
+				auto it = _types.find(p);
+				assert(it != _types.end() && it->second->to_handle_typedef());
+				h->_parents.push_back(it->second->to_handle_typedef());
+			} while (pos != parents.end());
+		}
 	}
 
 	void Registry::_parse_struct_definition(Struct* s) {
@@ -1023,6 +1042,28 @@ namespace vkspec {
 		std::stringstream s;
 		s << "0x" << std::setfill('0') << std::setw(sizeof(uint32_t) * 2) << std::hex << flag;
 		return s.str();
+	}
+
+	void Registry::_mark_command_classifications() {
+		for (auto c : _commands) {
+			assert(!c->_params.empty());
+
+			if (c->_name == "vkGetInstanceProcAddr") { // Special case (loaded by platform)
+				c->_classification = CommandClassification::Entry;
+			}
+			else if (c->_name == "vkGetDeviceProcAddr") { // Special case (loaded by an instance function)
+				c->_classification = CommandClassification::Instance;
+			}
+			else if (!c->_params[0].pure_type->to_handle_typedef()) { // Not a handle? Global
+				c->_classification = CommandClassification::Global;
+			}
+			else {
+				HandleTypedef* dispatchable_object = c->_params[0].pure_type->to_handle_typedef();
+				assert(dispatchable_object->_dispatchable);
+
+				c->_classification = dispatchable_object->_device_object() ? CommandClassification::Device : CommandClassification::Instance;
+			}
+		}
 	}
 
 	void Registry::_build_feature(Feature * f) {
