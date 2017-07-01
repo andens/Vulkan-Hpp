@@ -321,6 +321,7 @@ private:
 
 class Enum : public Type {
 	friend class Registry;
+	friend class Feature;
 
 public:
 	struct Member {
@@ -506,8 +507,8 @@ public:
 					break;
 				}
 				case SortOrder::Enum: {
-					if (!t->_extension) {
-						assert(t->to_enum());
+					assert(t->to_enum());
+					if (!t->_extension && !t->to_enum()->_bitmask) {
 						generator->gen_enum(t->to_enum());
 					}
 					break;
