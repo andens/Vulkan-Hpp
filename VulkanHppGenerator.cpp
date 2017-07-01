@@ -223,6 +223,41 @@ macro_rules! global_dispatch_table {
     )
 })";
 
+const std::string instance_dispatch_table_macro = R"(
+// Similar to the global_dispatch_table! macro, but creating the table additionally
+// requires a VkInstance to pass as parameter to vkGetInstanceProcAddr.
+macro_rules! instance_dispatch_table {
+    { $($fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } => (
+        pub struct InstanceDispatchTable {
+            $(
+                $fun: vk_fun!(($($param_id: $param_type),*) -> $return_type),
+            )*
+        }
+
+        impl InstanceDispatchTable {
+            pub fn new(vulkan_entry: &VulkanEntry, instance: VkInstance) -> Result<InstanceDispatchTable, String> {
+                unsafe {
+                    Ok(InstanceDispatchTable {
+                        $(
+                            $fun: match vulkan_entry.vkGetInstanceProcAddr(instance, CString::new(stringify!($fun)).unwrap().as_ptr()) {
+                                Some(f) => mem::transmute(f),
+                                None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
+                            },
+                        )*
+                    })
+                }
+            }
+
+            $(
+                #[inline]
+                pub unsafe fn $fun(&self $(, $param_id: $param_type)*) -> $return_type {
+                    (self.$fun)($($param_id),*)
+                }
+            )*
+        }
+    )
+})";
+
 //std::string replaceWithMap(std::string const &input, std::map<std::string, std::string> replacements)
 //{
 //  // This will match ${someVariable} and contain someVariable in match group 1
@@ -2600,6 +2635,7 @@ private:
 		_file << flags_macro << std::endl;
 		_file << function_macro << std::endl;
 		_file << global_dispatch_table_macro << std::endl;
+		_file << instance_dispatch_table_macro << std::endl;
 
 		_indent->decrease();
 
