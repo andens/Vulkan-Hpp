@@ -2371,7 +2371,7 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "[Not implemented] API constant '" + t->name() + "'" << std::endl;
+		_file << "const " << t->name() << ": " << t->data_type()->name() << " = " << t->value() << ";" << std::endl;
 		_previous_type = Type::ApiConstant;
 	}
 

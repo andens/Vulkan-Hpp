@@ -390,6 +390,8 @@ class ApiConstant : public Type {
 
 public:
 	virtual ApiConstant* to_api_constant() { return this; }
+	Type* data_type() { return _data_type; }
+	std::string const& value() { return _value; }
 
 private:
 	ApiConstant(std::string const& name, tinyxml2::XMLElement* enum_element) : Type(name, enum_element) {}
