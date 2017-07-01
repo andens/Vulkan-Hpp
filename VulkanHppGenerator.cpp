@@ -2396,6 +2396,111 @@ public:
 		_previous_type = Type::Bitmasks;
 	}
 
+	virtual void RustGenerator::begin_entry() override final {
+
+	}
+
+	virtual void RustGenerator::gen_entry_command(vkspec::Command* c) override final {
+		// There should only ever be one entry command. If not, I will need to
+		// adapt the bindings accordingly.
+		assert(!_entry_command);
+		_entry_command = c;
+	}
+
+	virtual void RustGenerator::end_entry() override final {
+		assert(_entry_command);
+
+		_file << R"(
+/*
+ * ------------------------------------------------------------------------
+ * Entry dispatch table. Represents the Vulkan entry point that can be used
+ * to get other Vulkan functions. Holds the library handle so that it does
+ * not get unloaded.
+ * ------------------------------------------------------------------------
+*/
+)";
+		_file << "type PFN_" << _entry_command->name() << " = vk_fun!((";
+		if (!_entry_command->params().empty()) {
+			_file << _entry_command->params()[0].name << ": " << _entry_command->params()[0].complete_type;
+			for (auto it = _entry_command->params().begin() + 1; it != _entry_command->params().end(); ++it) {
+				_file << ", " << it->name << ": " << it->complete_type;
+			}
+		}
+		_file << ") -> " << _entry_command->complete_return_type() << ");" << std::endl;
+
+		_file << "pub struct VulkanEntry {" << std::endl;
+		_indent->increase();
+		_file << "#[allow(dead_code)]" << std::endl;
+		_file << "vulkan_lib: libloading::Library," << std::endl;
+		_file << _entry_command->name() << ": PFN_" << _entry_command->name() << "," << std::endl;
+		_indent->decrease();
+		_file << "}" << std::endl;
+		
+		_file << std::endl;
+
+		_file << "impl VulkanEntry {" << std::endl;
+		_indent->increase();
+		_file << "pub fn new(loader_path: &str) -> Result<VulkanEntry, String> {" << std::endl;
+		_indent->increase();
+		_file << R"(let lib = match libloading::Library::new(loader_path) {
+    Ok(lib) => lib,
+    Err(_) => return Err(String::from("Failed to open Vulkan loader")),
+};)" << std::endl;
+
+		_file << std::endl;
+
+		_file << "let " << _entry_command->name() << ": PFN_" << _entry_command->name() << " = unsafe {" << std::endl;
+		_indent->increase();
+		_file << "match lib.get::<PFN_" << _entry_command->name() << ">(b\"" << _entry_command->name() << "\\0\") {" << std::endl;
+		_indent->increase();
+		_file << "Ok(symbol) => *symbol, // Deref Symbol, not function pointer" << std::endl;
+		_file << "Err(_) => return Err(String::from(\"Could not load " << _entry_command->name() << "\"))," << std::endl;
+		_indent->decrease();
+		_file << "}" << std::endl;
+		_indent->decrease();
+		_file << "};" << std::endl;
+
+		_file << std::endl;
+
+		_file << R"(// Since I can't keep the library and the loaded function in the
+// same struct (Rust would then not be able to drop it because of
+// the symbol references into itself via the library) I have opted
+// to just storing the raw loaded function. This should be fine as
+// long as the library is also saved to prevent unloading it. Since
+// I return a Result, Rust makes sure that the struct can only be
+// used if properly initialized.)" << std::endl;
+		_file << "Ok(VulkanEntry {" << std::endl;
+		_indent->increase();
+		_file << "vulkan_lib: lib, // Save this so that the library is not freed" << std::endl;
+		_file << _entry_command->name() << ": " << _entry_command->name() << "," << std::endl;
+		_indent->decrease();
+		_file << "})" << std::endl;
+		_indent->decrease();
+		_file << "}" << std::endl;
+
+		_file << std::endl;
+
+		_file << "#[inline]" << std::endl;
+		_file << "pub unsafe fn " << _entry_command->name() << "(&self";
+		for (auto& p : _entry_command->params()) {
+			_file << ", " << p.name << ": " << p.complete_type;
+		}
+		_file << ") -> " << _entry_command->complete_return_type() << " {" << std::endl;
+		_indent->increase();
+		_file << "(self." << _entry_command->name() << ")(";
+		if (!_entry_command->params().empty()) {
+			_file << _entry_command->params()[0].name;
+			for (auto it = _entry_command->params().begin() + 1; it != _entry_command->params().end(); ++it) {
+				_file << ", " << it->name;
+			}
+		}
+		_file << ")" << std::endl;
+		_indent->decrease();
+		_file << "}" << std::endl;
+		_indent->decrease();
+		_file << "}" << std::endl;
+	}
+
 private:
 	enum class Type {
 		Unknown,
@@ -2487,6 +2592,7 @@ private:
 	std::ofstream _file;
 	IndentingOStreambuf* _indent = nullptr;
 	Type _previous_type = Type::Unknown;
+	vkspec::Command* _entry_command = nullptr;
 };
 
 class RustTranslator : public vkspec::ITranslator {

@@ -427,6 +427,8 @@ public:
 	CommandClassification classification() {
 		return _classification;
 	}
+	std::vector<Parameter> const& params() { return _params; }
+	std::string const& complete_return_type() { return _return_type_complete; }
 
 private:
 	Command(std::string const& name, tinyxml2::XMLElement* command_element) : Item(name, command_element) {}
@@ -466,6 +468,9 @@ public:
 	virtual void gen_enum(Enum* t) = 0;
 	virtual void gen_api_constant(ApiConstant* t) = 0;
 	virtual void gen_bitmasks(Bitmasks* t) = 0;
+	virtual void begin_entry() = 0;
+	virtual void gen_entry_command(Command* c) = 0;
+	virtual void end_entry() = 0;
 };
 
 class Feature : public Item {
@@ -537,6 +542,14 @@ public:
 				}
 			}
 		}
+
+		generator->begin_entry();
+		for (auto c : _commands) {
+			if (c->classification() == CommandClassification::Entry) {
+				generator->gen_entry_command(c);
+			}
+		}
+		generator->end_entry();
 
 		generator->end_core();
 	}
