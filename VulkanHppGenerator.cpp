@@ -2353,11 +2353,16 @@ public:
 	}
 
 	virtual void RustGenerator::gen_enum(vkspec::Enum* t) {
-		if (_previous_type != Type::Enum) {
-			_file << std::endl;
+		_file << std::endl;
+		_file << "#[repr(C)]" << std::endl;
+		_file << "pub enum " << t->name() << " {" << std::endl;
+		_indent->increase();
+		for (auto& m : t->members()) {
+			_file << m.name << " = " << m.value << "," << std::endl;
 		}
-
-		_file << "[Not implemented] Enum '" + t->name() + "'" << std::endl;
+		_indent->decrease();
+		_file << "}" << std::endl;
+		
 		_previous_type = Type::Enum;
 	}
 
