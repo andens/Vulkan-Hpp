@@ -477,6 +477,9 @@ public:
 	virtual void begin_instance_commands() = 0;
 	virtual void gen_instance_command(Command* c) = 0;
 	virtual void end_instance_commands() = 0;
+	virtual void begin_device_commands() = 0;
+	virtual void gen_device_command(Command* c) = 0;
+	virtual void end_device_commands() = 0;
 };
 
 class Feature : public Item {
@@ -572,6 +575,14 @@ public:
 			}
 		}
 		generator->end_instance_commands();
+
+		generator->begin_device_commands();
+		for (auto c : _commands) {
+			if (!c->_extension && c->classification() == CommandClassification::Device) {
+				generator->gen_device_command(c);
+			}
+		}
+		generator->end_device_commands();
 
 		generator->end_core();
 	}

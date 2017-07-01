@@ -2673,6 +2673,33 @@ public:
 		_file << "}" << std::endl;
 	}
 
+
+	virtual void RustGenerator::begin_device_commands() {
+
+	}
+
+	virtual void RustGenerator::gen_device_command(vkspec::Command* c) {
+		_device_commands.push_back(c);
+	}
+
+	virtual void RustGenerator::end_device_commands() {
+		_file << std::endl;
+		_file << "device_dispatch_table!{" << std::endl;
+		_indent->increase();
+		for (auto c : _device_commands) {
+			_file << c->name() << " => (";
+			if (!c->params().empty()) {
+				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
+				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
+					_file << ", " << it->name << ": " << it->complete_type;
+				}
+			}
+			_file << ") -> " << c->complete_return_type() << "," << std::endl;
+		}
+		_indent->decrease();
+		_file << "}" << std::endl;
+	}
+
 private:
 	enum class Type {
 		Unknown,
@@ -2769,6 +2796,7 @@ private:
 	vkspec::Command* _entry_command = nullptr;
 	std::vector<vkspec::Command*> _global_commands;
 	std::vector<vkspec::Command*> _instance_commands;
+	std::vector<vkspec::Command*> _device_commands;
 };
 
 class RustTranslator : public vkspec::ITranslator {
