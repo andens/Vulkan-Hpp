@@ -2320,6 +2320,10 @@ public:
 		_file << "// Rust bindings for Vulkan " << major << "." << minor << "." << patch << ", generated from the Khronos Vulkan API XML Registry." << std::endl;
 		_file << "// See https://github.com/andens/Vulkan-Hpp for generator details." << std::endl;
 		_file << std::endl;
+		_file << "#![allow(non_camel_case_types)]" << std::endl;
+		_file << "#![allow(non_snake_case)]" << std::endl;
+		_file << std::endl;
+		_write_macros();
 	}
 
 	~RustGenerator() {
@@ -2328,10 +2332,6 @@ public:
 	}
 
 	virtual void RustGenerator::begin_core() override final {
-		_file << "#![allow(non_camel_case_types)]" << std::endl;
-		_file << "#![allow(non_snake_case)]" << std::endl;
-		_file << std::endl;
-		_write_macros();
 		_file << std::endl;
 		_file << "pub mod core {" << std::endl;
 
