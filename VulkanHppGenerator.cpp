@@ -2334,7 +2334,7 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "[Not implemented] Handle typedef '" + t->name() + "'" << std::endl;
+		_file << "pub type " << t->name() << " = " << t->actual_type()->name() << ";" << std::endl;
 		_previous_type = Type::HandleTypedef;
 	}
 

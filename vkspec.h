@@ -239,6 +239,7 @@ class HandleTypedef : public Type {
 
 public:
 	virtual HandleTypedef* to_handle_typedef() { return this; }
+	Type* actual_type() { return _actual_type; }
 
 private:
 	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}
