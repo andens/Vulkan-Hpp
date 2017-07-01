@@ -199,6 +199,8 @@ public:
 	};
 
 	virtual FunctionTypedef* to_function_typedef() { return this; }
+	std::vector<Parameter>& params() { return _params; }
+	std::string const& complete_return_type() { return _return_type_complete; }
 
 private:
 	FunctionTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}

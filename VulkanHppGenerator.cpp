@@ -2318,7 +2318,14 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "[Not implemented] Function typedef '" + t->name() + "'" << std::endl;
+		_file << "type " << t->name() << " = vk_fun!((";
+		if (!t->params().empty()) {
+			_file << t->params()[0].name << ": " << t->params()[0].complete_type;
+			for (auto it = t->params().begin() + 1; it != t->params().end(); ++it) {
+				_file << ", " << it->name << ": " << it->complete_type;
+			}
+		}
+		_file << ") -> " << t->complete_return_type() << ");" << std::endl;
 		_previous_type = Type::FunctionTypedef;
 	}
 
