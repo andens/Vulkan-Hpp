@@ -77,12 +77,29 @@ public:
 	}
 } *indent;
 
-const std::string use_statements = R"(extern crate libloading;
-use ::std::{mem, ptr};
-use ::std::os::raw::{c_void, c_char, c_int};
+const std::string macro_use = R"(extern crate libloading;
 use ::std::ffi::CString;
 use ::std::ops::{BitOr, BitAnd};
 use ::std::fmt;)";
+
+const std::string function_macro = R"(// I don't think I can use "system" as that translates into "C" for
+// 64 bit Windows, but Vulkan always uses "stdcall" on Windows.
+#[cfg(windows)]
+macro_rules! vk_fun {
+    (($($param_id:ident: $param_type:ty),*) -> $return_type:ty) => (
+        unsafe extern "stdcall" fn($($param_id: $param_type),*) -> $return_type
+    );
+}
+
+#[cfg(not(windows))]
+macro_rules! vk_fun {
+    (($($param_id:ident: $param_type:ty),*) -> $return_type:ty) => (
+        unsafe extern "C" fn($($param_id: $param_type),*) -> $return_type
+    );
+})";
+
+const std::string use_statements = R"(use ::std::{mem, ptr};
+use ::std::os::raw::{c_void, c_char, c_int};)";
 
 const std::string flags_macro_comment = R"(/*
 For regular enums, a repr(C) enum is used, which seems to be the way to go.
@@ -2267,6 +2284,8 @@ public:
 		_file << "#![allow(non_camel_case_types)]" << std::endl;
 		_file << "#![allow(non_snake_case)]" << std::endl;
 		_file << std::endl;
+		_write_macros();
+		_file << std::endl;
 		_file << "pub mod core {" << std::endl;
 
 		_indent->increase();
@@ -2366,6 +2385,20 @@ private:
 	};
 
 private:
+	void _write_macros() {
+		_file << "mod macros {" << std::endl;
+
+		_indent->increase();
+
+		_file << macro_use << std::endl;
+		_file << std::endl;
+		_file << function_macro << std::endl;
+
+		_indent->decrease();
+
+		_file << "} // macros" << std::endl;
+	}
+
 	void _write_union(vkspec::Struct* t) {
 		_file << "pub struct " << t->name() << " {" << std::endl;
 		_indent->increase();
