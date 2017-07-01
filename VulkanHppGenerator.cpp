@@ -2399,6 +2399,9 @@ private:
 
 		_file << macro_use << std::endl;
 		_file << std::endl;
+		_file << flags_macro_comment;
+		_file << flags_macro << std::endl;
+		_file << std::endl;
 		_file << function_macro << std::endl;
 
 		_indent->decrease();
