@@ -82,7 +82,8 @@ use ::std::ffi::CString;
 use ::std::ops::{BitOr, BitAnd};
 use ::std::fmt;)";
 
-const std::string function_macro = R"(// I don't think I can use "system" as that translates into "C" for
+const std::string function_macro = R"(
+// I don't think I can use "system" as that translates into "C" for
 // 64 bit Windows, but Vulkan always uses "stdcall" on Windows.
 #[cfg(windows)]
 macro_rules! vk_fun {
@@ -174,6 +175,52 @@ macro_rules! vulkan_flags {
             }
         }
     );
+})";
+
+const std::string global_dispatch_table_macro = R"(
+// Generates a global dispatch table consisting of the provided member
+// functions. This table uses the entry function to load commands not
+// depending on an instance. For each function pointer an inline method
+// is generated to hide function pointer syntax.
+macro_rules! global_dispatch_table {
+    { $($fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } => (
+        // Define member function pointers
+        pub struct GlobalDispatchTable {
+            $(
+                $fun: vk_fun!(($($param_id: $param_type),*) -> $return_type),
+            )*
+        }
+
+        impl GlobalDispatchTable {
+            pub fn new(vulkan_entry: &VulkanEntry) -> Result<GlobalDispatchTable, String> {
+                unsafe {
+                    Ok(GlobalDispatchTable {
+                        // Attempt to load provided function pointers into
+                        // their corresponding variables. Early exits in case
+                        // of failure assures that success means that all
+                        // pointers are valid to call.
+                        $(
+                            $fun: match vulkan_entry.vkGetInstanceProcAddr(ptr::null_mut(), CString::new(stringify!($fun)).unwrap().as_ptr()) {
+                                Some(f) => mem::transmute(f),
+                                None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
+                            },
+                        )*
+                    })
+                }
+            }
+
+            // Generate unsafe methods that simply wraps an internal function
+            // pointer. Note that creation of this struct ensures pointers
+            // are valid, but unsafe is used here to indicate to the caller
+            // that the method is a raw C-function behind the scenes.
+            $(
+                #[inline]
+                pub unsafe fn $fun(&self $(, $param_id: $param_type)*) -> $return_type {
+                    (self.$fun)($($param_id),*)
+                }
+            )*
+        }
+    )
 })";
 
 //std::string replaceWithMap(std::string const &input, std::map<std::string, std::string> replacements)
@@ -2415,7 +2462,9 @@ public:
  * ------------------------------------------------------------------------
  * Entry dispatch table. Represents the Vulkan entry point that can be used
  * to get other Vulkan functions. Holds the library handle so that it does
- * not get unloaded.
+ * not get unloaded. This is very similar to the macros used for generating
+ * global-, instance-, and dispatch tables, except explicit since the entry
+ * is just a single function.
  * ------------------------------------------------------------------------
 */
 )";
@@ -2523,8 +2572,8 @@ private:
 		_file << std::endl;
 		_file << flags_macro_comment;
 		_file << flags_macro << std::endl;
-		_file << std::endl;
 		_file << function_macro << std::endl;
+		_file << global_dispatch_table_macro << std::endl;
 
 		_indent->decrease();
 
