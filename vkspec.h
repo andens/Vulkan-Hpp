@@ -330,6 +330,7 @@ public:
 	};
 
 	virtual Enum* to_enum() { return this; }
+	std::vector<Member> const& members() { return _members; }
 
 private:
 	Enum(std::string const& name, tinyxml2::XMLElement* type_element, bool bitmask) : Type(name, type_element), _bitmask(bitmask) {}
@@ -353,6 +354,7 @@ class Bitmasks : public Type {
 
 public:
 	virtual Bitmasks* to_bitmasks() { return this; }
+	Enum* flags() { return _flags; }
 
 private:
 	Bitmasks(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}

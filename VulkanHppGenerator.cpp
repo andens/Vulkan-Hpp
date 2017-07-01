@@ -2375,7 +2375,19 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "[Not implemented] Bitmasks '" + t->name() + "'" << std::endl;
+		vkspec::Enum* flags = t->flags();
+		if (!flags) {
+			_file << "vulkan_flags!(" << t->name() << ", {});" << std::endl;
+		}
+		else {
+			_file << "vulkan_flags!(" << t->name() << ", {" << std::endl;
+			_indent->increase();
+			for (auto& m : flags->members()) {
+				_file << m.name << " = " << m.value << "," << std::endl;
+			}
+			_indent->decrease();
+			_file << "});" << std::endl;
+		}
 		_previous_type = Type::Bitmasks;
 	}
 
