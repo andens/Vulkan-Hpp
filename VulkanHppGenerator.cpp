@@ -2550,6 +2550,32 @@ public:
 		_file << "}" << std::endl;
 	}
 
+	virtual void RustGenerator::begin_global_commands() {
+
+	}
+
+	virtual void RustGenerator::gen_global_command(vkspec::Command* c) {
+		_global_commands.push_back(c);
+	}
+
+	virtual void RustGenerator::end_global_commands() {
+		_file << std::endl;
+		_file << "global_dispatch_table!{" << std::endl;
+		_indent->increase();
+		for (auto c : _global_commands) {
+			_file << c->name() << " => (";
+			if (!c->params().empty()) {
+				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
+				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
+					_file << ", " << it->name << ": " << it->complete_type;
+				}
+			}
+			_file << ") -> " << c->complete_return_type() << "," << std::endl;
+		}
+		_indent->decrease();
+		_file << "}" << std::endl;
+	}
+
 private:
 	enum class Type {
 		Unknown,
@@ -2642,6 +2668,7 @@ private:
 	IndentingOStreambuf* _indent = nullptr;
 	Type _previous_type = Type::Unknown;
 	vkspec::Command* _entry_command = nullptr;
+	std::vector<vkspec::Command*> _global_commands;
 };
 
 class RustTranslator : public vkspec::ITranslator {

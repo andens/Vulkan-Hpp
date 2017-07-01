@@ -471,6 +471,9 @@ public:
 	virtual void begin_entry() = 0;
 	virtual void gen_entry_command(Command* c) = 0;
 	virtual void end_entry() = 0;
+	virtual void begin_global_commands() = 0;
+	virtual void gen_global_command(Command* c) = 0;
+	virtual void end_global_commands() = 0;
 };
 
 class Feature : public Item {
@@ -550,6 +553,14 @@ public:
 			}
 		}
 		generator->end_entry();
+
+		generator->begin_global_commands();
+		for (auto c : _commands) {
+			if (c->classification() == CommandClassification::Global) {
+				generator->gen_global_command(c);
+			}
+		}
+		generator->end_global_commands();
 
 		generator->end_core();
 	}
