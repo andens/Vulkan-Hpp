@@ -474,6 +474,9 @@ public:
 	virtual void begin_global_commands() = 0;
 	virtual void gen_global_command(Command* c) = 0;
 	virtual void end_global_commands() = 0;
+	virtual void begin_instance_commands() = 0;
+	virtual void gen_instance_command(Command* c) = 0;
+	virtual void end_instance_commands() = 0;
 };
 
 class Feature : public Item {
@@ -548,7 +551,7 @@ public:
 
 		generator->begin_entry();
 		for (auto c : _commands) {
-			if (c->classification() == CommandClassification::Entry) {
+			if (!c->_extension && c->classification() == CommandClassification::Entry) {
 				generator->gen_entry_command(c);
 			}
 		}
@@ -556,11 +559,19 @@ public:
 
 		generator->begin_global_commands();
 		for (auto c : _commands) {
-			if (c->classification() == CommandClassification::Global) {
+			if (!c->_extension && c->classification() == CommandClassification::Global) {
 				generator->gen_global_command(c);
 			}
 		}
 		generator->end_global_commands();
+
+		generator->begin_instance_commands();
+		for (auto c : _commands) {
+			if (!c->_extension && c->classification() == CommandClassification::Instance) {
+				generator->gen_instance_command(c);
+			}
+		}
+		generator->end_instance_commands();
 
 		generator->end_core();
 	}

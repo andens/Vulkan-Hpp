@@ -2611,6 +2611,32 @@ public:
 		_file << "}" << std::endl;
 	}
 
+	virtual void RustGenerator::begin_instance_commands() {
+
+	}
+
+	virtual void RustGenerator::gen_instance_command(vkspec::Command* c) {
+		_instance_commands.push_back(c);
+	}
+
+	virtual void RustGenerator::end_instance_commands() {
+		_file << std::endl;
+		_file << "instance_dispatch_table!{" << std::endl;
+		_indent->increase();
+		for (auto c : _instance_commands) {
+			_file << c->name() << " => (";
+			if (!c->params().empty()) {
+				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
+				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
+					_file << ", " << it->name << ": " << it->complete_type;
+				}
+			}
+			_file << ") -> " << c->complete_return_type() << "," << std::endl;
+		}
+		_indent->decrease();
+		_file << "}" << std::endl;
+	}
+
 private:
 	enum class Type {
 		Unknown,
@@ -2705,6 +2731,7 @@ private:
 	Type _previous_type = Type::Unknown;
 	vkspec::Command* _entry_command = nullptr;
 	std::vector<vkspec::Command*> _global_commands;
+	std::vector<vkspec::Command*> _instance_commands;
 };
 
 class RustTranslator : public vkspec::ITranslator {
