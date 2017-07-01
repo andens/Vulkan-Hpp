@@ -2780,7 +2780,31 @@ public:
 	}
 
 	virtual void RustGenerator::end_extension(vkspec::Extension* e) override final {
+		std::string type;
+		switch (e->classification()) {
+			case vkspec::ExtensionClassification::Instance:
+				type = "instance"; break;
+			case vkspec::ExtensionClassification::Device:
+				type = "device"; break;
+			default:
+				throw std::runtime_error("This generator do not support extensions that are neither instance nor device kinds.");
+		}
 
+		_file << "extension_dispatch_table!{" << e->name() << " | \"" << type << "\", {" << std::endl;
+		_indent->increase();
+		for (auto c : e->commands()) {
+			_file << ((c->classification() == vkspec::CommandClassification::Instance) ? "\"instance\"" : "\"device\"");
+			_file << " | " << c->name() << " => (";
+			if (!c->params().empty()) {
+				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
+				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
+					_file << ", " << it->name << ": " << it->complete_type;
+				}
+			}
+			_file << ") -> " << c->complete_return_type() << "," << std::endl;
+		}
+		_indent->decrease();
+		_file << "}};" << std::endl;
 	}
 
 private:

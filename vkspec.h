@@ -444,6 +444,10 @@ class Extension : public Item {
 	friend class Registry;
 	friend class Feature;
 
+public:
+	ExtensionClassification classification() { return _classification; }
+	std::vector<Command*> const& commands() { return _commands; }
+
 private:
 	Extension(std::string const& name, int number, std::string const& supported, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number), _supported(supported) {}
 
