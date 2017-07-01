@@ -258,6 +258,42 @@ macro_rules! instance_dispatch_table {
     )
 })";
 
+const std::string device_dispatch_table_macro = R"(
+// Similar to the other dispatch table macros, but this time we need the
+// instance dispatch table for vkGetDeviceProcAddr and a Device object to
+// generate the table for.
+macro_rules! device_dispatch_table {
+    { $($fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } => (
+        pub struct DeviceDispatchTable {
+            $(
+                $fun: vk_fun!(($($param_id: $param_type),*) -> $return_type),
+            )*
+        }
+
+        impl DeviceDispatchTable {
+            pub fn new(instance_table: &InstanceDispatchTable, device: VkDevice) -> Result<DeviceDispatchTable, String> {
+                unsafe {
+                    Ok(DeviceDispatchTable {
+                        $(
+                            $fun: match instance_table.vkGetDeviceProcAddr(device, CString::new(stringify!($fun)).unwrap().as_ptr()) {
+                                Some(f) => mem::transmute(f),
+                                None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
+                            },
+                        )*
+                    })
+                }
+            }
+
+            $(
+                #[inline]
+                pub unsafe fn $fun(&self $(, $param_id: $param_type)*) -> $return_type {
+                    (self.$fun)($($param_id),*)
+                }
+            )*
+        }
+    )
+})";
+
 //std::string replaceWithMap(std::string const &input, std::map<std::string, std::string> replacements)
 //{
 //  // This will match ${someVariable} and contain someVariable in match group 1
@@ -2662,6 +2698,7 @@ private:
 		_file << function_macro << std::endl;
 		_file << global_dispatch_table_macro << std::endl;
 		_file << instance_dispatch_table_macro << std::endl;
+		_file << device_dispatch_table_macro << std::endl;
 
 		_indent->decrease();
 
