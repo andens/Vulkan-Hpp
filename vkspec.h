@@ -480,6 +480,10 @@ public:
 	virtual void begin_device_commands() = 0;
 	virtual void gen_device_command(Command* c) = 0;
 	virtual void end_device_commands() = 0;
+	virtual void begin_extensions() = 0;
+	virtual void end_extensions() = 0;
+	virtual void begin_extension(Extension* e) = 0;
+	virtual void end_extension(Extension* e) = 0;
 };
 
 class Feature : public Item {
@@ -585,6 +589,16 @@ public:
 		generator->end_device_commands();
 
 		generator->end_core();
+
+		generator->begin_extensions();
+
+		for (auto e : _extensions) {
+			generator->begin_extension(e);
+
+			generator->end_extension(e);
+		}
+
+		generator->end_extensions();
 	}
 
 private:

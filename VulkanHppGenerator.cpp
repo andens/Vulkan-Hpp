@@ -2431,7 +2431,7 @@ public:
 		_previous_type = Type::ScalarTypedef;
 	}
 
-	virtual void RustGenerator::gen_function_typedef(vkspec::FunctionTypedef* t) {
+	virtual void RustGenerator::gen_function_typedef(vkspec::FunctionTypedef* t) override final {
 		if (_previous_type != Type::FunctionTypedef) {
 			_file << std::endl;
 		}
@@ -2447,7 +2447,7 @@ public:
 		_previous_type = Type::FunctionTypedef;
 	}
 
-	virtual void RustGenerator::gen_handle_typedef(vkspec::HandleTypedef* t) {
+	virtual void RustGenerator::gen_handle_typedef(vkspec::HandleTypedef* t) override final {
 		if (_previous_type != Type::HandleTypedef) {
 			_file << std::endl;
 		}
@@ -2456,7 +2456,7 @@ public:
 		_previous_type = Type::HandleTypedef;
 	}
 
-	virtual void RustGenerator::gen_struct(vkspec::Struct* t) {
+	virtual void RustGenerator::gen_struct(vkspec::Struct* t) override final {
 		_file << std::endl;
 		_file << "#[repr(C)]" << std::endl;
 		
@@ -2470,7 +2470,7 @@ public:
 		_previous_type = Type::Struct;
 	}
 
-	virtual void RustGenerator::gen_enum(vkspec::Enum* t) {
+	virtual void RustGenerator::gen_enum(vkspec::Enum* t) override final {
 		_file << std::endl;
 		_file << "#[repr(C)]" << std::endl;
 		_file << "pub enum " << t->name() << " {" << std::endl;
@@ -2484,7 +2484,7 @@ public:
 		_previous_type = Type::Enum;
 	}
 
-	virtual void RustGenerator::gen_api_constant(vkspec::ApiConstant* t) {
+	virtual void RustGenerator::gen_api_constant(vkspec::ApiConstant* t) override final {
 		if (_previous_type != Type::ApiConstant) {
 			_file << std::endl;
 		}
@@ -2493,7 +2493,7 @@ public:
 		_previous_type = Type::ApiConstant;
 	}
 
-	virtual void RustGenerator::gen_bitmasks(vkspec::Bitmasks* t) {
+	virtual void RustGenerator::gen_bitmasks(vkspec::Bitmasks* t) override final {
 		if (_previous_type != Type::Bitmasks) {
 			_file << std::endl;
 		}
@@ -2621,11 +2621,11 @@ public:
 		_file << "}" << std::endl;
 	}
 
-	virtual void RustGenerator::begin_global_commands() {
+	virtual void RustGenerator::begin_global_commands() override final {
 
 	}
 
-	virtual void RustGenerator::gen_global_command(vkspec::Command* c) {
+	virtual void RustGenerator::gen_global_command(vkspec::Command* c) override final {
 		_global_commands.push_back(c);
 	}
 
@@ -2647,15 +2647,15 @@ public:
 		_file << "}" << std::endl;
 	}
 
-	virtual void RustGenerator::begin_instance_commands() {
+	virtual void RustGenerator::begin_instance_commands() override final {
 
 	}
 
-	virtual void RustGenerator::gen_instance_command(vkspec::Command* c) {
+	virtual void RustGenerator::gen_instance_command(vkspec::Command* c) override final {
 		_instance_commands.push_back(c);
 	}
 
-	virtual void RustGenerator::end_instance_commands() {
+	virtual void RustGenerator::end_instance_commands() override final {
 		_file << std::endl;
 		_file << "instance_dispatch_table!{" << std::endl;
 		_indent->increase();
@@ -2674,15 +2674,15 @@ public:
 	}
 
 
-	virtual void RustGenerator::begin_device_commands() {
+	virtual void RustGenerator::begin_device_commands() override final {
 
 	}
 
-	virtual void RustGenerator::gen_device_command(vkspec::Command* c) {
+	virtual void RustGenerator::gen_device_command(vkspec::Command* c) override final {
 		_device_commands.push_back(c);
 	}
 
-	virtual void RustGenerator::end_device_commands() {
+	virtual void RustGenerator::end_device_commands() override final {
 		_file << std::endl;
 		_file << "device_dispatch_table!{" << std::endl;
 		_indent->increase();
@@ -2698,6 +2698,30 @@ public:
 		}
 		_indent->decrease();
 		_file << "}" << std::endl;
+	}
+
+	virtual void RustGenerator::begin_extensions() override final {
+		_file << std::endl;
+		_file << "pub mod extensions {";
+		_indent->increase();
+	}
+
+	virtual void RustGenerator::end_extensions() override final {
+		_indent->decrease();
+		_file << "} // mod extensions" << std::endl;
+	}
+
+	virtual void RustGenerator::begin_extension(vkspec::Extension* e) override final {
+		_file << std::endl;
+		_file << "/*" << std::endl;
+		_file << " * ------------------------------------------------------" << std::endl;
+		_file << " * " << e->name() << std::endl;
+		_file << " * ------------------------------------------------------" << std::endl;
+		_file << "*/" << std::endl;
+	}
+
+	virtual void RustGenerator::end_extension(vkspec::Extension* e) override final {
+
 	}
 
 private:
@@ -2729,7 +2753,7 @@ private:
 
 		_indent->decrease();
 
-		_file << "} // macros" << std::endl;
+		_file << "} // mod macros" << std::endl;
 	}
 
 	void _write_union(vkspec::Struct* t) {
