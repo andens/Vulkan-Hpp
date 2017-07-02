@@ -100,7 +100,7 @@ macro_rules! vk_fun {
 })";
 
 const std::string use_statements = R"(use ::std::{mem, ptr};
-use ::std::os::raw::{c_void, c_char, c_int};)";
+pub use ::std::os::raw::{c_void, c_char, c_int};)";
 
 const std::string flags_macro_comment = R"(/*
 For regular enums, a repr(C) enum is used, which seems to be the way to go.
@@ -681,6 +681,7 @@ public:
 		_file << std::endl;
 		_file << "pub mod extensions {";
 		_indent->increase();
+		_file << "use super::core::*;" << std::endl;
 	}
 
 	virtual void RustGenerator::end_extensions() override final {
