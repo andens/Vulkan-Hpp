@@ -78,9 +78,9 @@ public:
 } *indent;
 
 const std::string macro_use = R"(extern crate libloading;
-use ::std::ffi::CString;
-use ::std::ops::{BitOr, BitAnd};
-use ::std::fmt;)";
+pub use ::std::ffi::CString;
+pub use ::std::ops::{BitOr, BitAnd};
+pub use ::std::fmt;)";
 
 const std::string function_macro = R"(
 // I don't think I can use "system" as that translates into "C" for
@@ -296,27 +296,49 @@ macro_rules! device_dispatch_table {
 
 const std::string load_function_macro = R"(
 macro_rules! load_function {
-    ("instance", $fun:ident) => (
-        match vulkan_entry.vkGetInstanceProcAddr(instance, CString::new(stringify!($fun)).unwrap().as_ptr()) {
+    (instance, $fun:ident, $vulkan_entry:ident, $instance:ident) => (
+        match $vulkan_entry.vkGetInstanceProcAddr($instance, CString::new(stringify!($fun)).unwrap().as_ptr()) {
             Some(f) => mem::transmute(f),
             None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
         }
     );
-    ("device", $fun:ident) => (
-        match instance_table.vkGetDeviceProcAddr(device, CString::new(stringify!($fun)).unwrap().as_ptr()) {
+    (instance, $fun:ident, $vulkan_entry:ident, $instance:ident, $instance_table:ident, $device:ident) => (
+        match $vulkan_entry.vkGetInstanceProcAddr($instance, CString::new(stringify!($fun)).unwrap().as_ptr()) {
+            Some(f) => mem::transmute(f),
+            None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
+        }
+    );
+    (device, $fun:ident, $vulkan_entry:ident, $instance:ident, $instance_table:ident, $device:ident) => (
+        match $instance_table.vkGetDeviceProcAddr($device, CString::new(stringify!($fun)).unwrap().as_ptr()) {
             Some(f) => mem::transmute(f),
             None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
         }
     );
 })";
 
-const std::string extension_table_parameters_macro = R"(
-macro_rules! extension_table_parameters {
-    ("instance") => (
-        vulkan_entry: &VulkanEntry, instance: VkInstance
+const std::string extension_table_ctor_macro = R"(
+macro_rules! table_ctor {
+    (instance, $table_name:ident $(, $fun_type:ident, $fun:ident)*) => (
+        pub fn new(vulkan_entry: &VulkanEntry, instance: VkInstance) -> Result<$table_name, String> {
+            unsafe {
+                Ok($table_name {
+                    $(
+                        $fun: load_function!($fun_type, $fun, vulkan_entry, instance),
+                    )*
+                })
+            }
+        }
     );
-    ("device") => (
-        vulkan_entry: &VulkanEntry, instance: VkInstance, instance_table: &InstanceDispatchTable, device: VkDevice
+    (device, $table_name:ident $(, $fun_type:ident, $fun:ident)*) => (
+        pub fn new(vulkan_entry: &VulkanEntry, instance: VkInstance, instance_table: &InstanceDispatchTable, device: VkDevice) -> Result<$table_name, String> {
+            unsafe {
+                Ok($table_name {
+                    $(
+                        $fun: load_function!($fun_type, $fun, vulkan_entry, instance, instance_table, device),
+                    )*
+                })
+            }
+        }
     );
 })";
 
@@ -325,7 +347,7 @@ const std::string extension_dispatch_table_macro = R"(
 // complex because we invoke it for multiple tables, and commands can be
 // either instance or device commands, which are loaded differently.
 macro_rules! extension_dispatch_table {
-    { $table_name:ident | $ext_type:expr, { $([$fun_type:expr] $fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } } => (
+    { $table_name:ident | $ext_type:ident, { $([$fun_type:ident] $fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } } => (
         pub struct $table_name {
             $(
                 $fun: vk_fun!(($($param_id: $param_type),*) -> $return_type),
@@ -333,15 +355,7 @@ macro_rules! extension_dispatch_table {
         }
 
         impl $table_name {
-            pub fn new(extension_table_parameters!(stringify!($ext_type))) -> Result<$table_name, String> {
-                unsafe {
-                    Ok($table_name {
-                        $(
-                            $fun: load_function!(stringify!($fun_type), $fun),
-                        )*
-                    })
-                }
-            }
+            table_ctor!($ext_type, $table_name $(,$fun_type, $fun)*);
 
             $(
                 #[inline]
@@ -685,6 +699,7 @@ public:
 		_file << std::endl;
 		_file << "pub mod extensions {" << std::endl;
 		_indent->increase();
+		_file << "use super::macros::*;" << std::endl;
 		_file << "use super::core::*;" << std::endl;
 	}
 
@@ -715,15 +730,19 @@ public:
 				throw std::runtime_error("This generator do not support extensions that are neither instance nor device kinds.");
 		}
 
-		_file << "extension_dispatch_table!{" << e->name() << " | \"" << type << "\", {" << std::endl;
+		_file << "extension_dispatch_table!{" << e->name() << " | " << type << ", {" << std::endl;
 		_indent->increase();
 		for (auto c : e->commands()) {
-			_file << "[\"" << ((c->classification() == vkspec::CommandClassification::Instance) ? "instance" : "device") << "\"] ";
+			_file << "[" << ((c->classification() == vkspec::CommandClassification::Instance) ? "instance" : "device") << "] ";
 			_file << c->name() << " => (";
 			if (!c->params().empty()) {
-				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
+				std::string name = c->params()[0].name;
+				if (name == "type") { name = "type_"; }
+				_file << name << ": " << c->params()[0].complete_type;
 				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
-					_file << ", " << it->name << ": " << it->complete_type;
+					name = it->name;
+					if (name == "type") { name = "type_"; }
+					_file << ", " << name << ": " << it->complete_type;
 				}
 			}
 			_file << ") -> " << c->complete_return_type() << "," << std::endl;
@@ -760,7 +779,7 @@ private:
 		_file << instance_dispatch_table_macro << std::endl;
 		_file << device_dispatch_table_macro << std::endl;
 		_file << load_function_macro << std::endl;
-		_file << extension_table_parameters_macro << std::endl;
+		_file << extension_table_ctor_macro << std::endl;
 		_file << extension_dispatch_table_macro << std::endl;
 
 		_indent->decrease();
