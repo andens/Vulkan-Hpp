@@ -77,10 +77,9 @@ public:
 	}
 } *indent;
 
-const std::string macro_use = R"(extern crate libloading;
-pub use ::std::ffi::CString;
+const std::string macro_use = R"(pub use ::std::ffi::CString;
 pub use ::std::ops::{BitOr, BitAnd};
-pub use ::std::fmt;)";
+pub use ::std::{fmt, mem};)";
 
 const std::string function_macro = R"(
 // I don't think I can use "system" as that translates into "C" for
@@ -99,7 +98,9 @@ macro_rules! vk_fun {
     );
 })";
 
-const std::string use_statements = R"(use ::std::{mem, ptr};
+const std::string use_statements = R"(use super::macros::*;
+extern crate libloading;
+use ::std::{ptr};
 pub use ::std::os::raw::{c_void, c_char, c_int};)";
 
 const std::string flags_macro_comment = R"(/*
