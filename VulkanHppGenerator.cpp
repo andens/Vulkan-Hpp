@@ -125,56 +125,101 @@ the 1.20 version of the compiler which could replace the functions.
 */)";
 
 const std::string flags_macro = R"(
-macro_rules! vulkan_flags {
-    ($type_name:ident, { $($flag:ident = $flag_val:expr,)* }) => (
+macro_rules! flag_definitions {
+    ($bit_definitions:ident, { $($flag:ident = $flag_val:expr,)* }) => (
+        #[repr(C)]
+        pub enum $bit_definitions {
+            $(
+                $flag = $flag_val,
+            )*
+        }
+    )
+}
+
+macro_rules! bitmask {
+    ($bitmask:ident) => (
         #[repr(C)]
         #[derive(Debug, Copy, Clone, PartialEq)]
-        pub struct $type_name {
+        pub struct $bitmask {
             flags: VkFlags,
         }
 
-        impl $type_name {
+        impl $bitmask {
             #[allow(dead_code)] // Don't know why this one warns... it's public
-            pub fn none() -> $type_name {
-                $type_name { flags: 0 }
-            }
-
-            $(
-                pub fn $flag() -> $type_name {
-                    $type_name { flags: $flag_val }
-                }
-            )*
-        }
-
-        impl BitOr for $type_name {
-            type Output = $type_name;
-
-            fn bitor(self, rhs: $type_name) -> $type_name {
-                $type_name { flags: self.flags | rhs.flags }
+            pub fn none() -> $bitmask {
+                $bitmask { flags: 0 }
             }
         }
+    )
+}
 
-        impl BitAnd for $type_name {
+macro_rules! flag_traits {
+    ($bitmask:ident) => (
+        impl fmt::Display for $bitmask {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, concat!(stringify!($bitmask), " {{\n}}"))
+            }
+        }
+    );
+    ($bitmask:ident, $bit_definitions:ident, { $($flag:ident = $flag_val:expr,)* }) => (
+        impl BitOr for $bitmask {
+            type Output = Self;
+
+            fn bitor(self, rhs: Self) -> Self {
+                $bitmask { flags: self.flags | rhs.flags }
+            }
+        }
+
+        impl BitOr<$bit_definitions> for $bitmask {
+            type Output = Self;
+
+            fn bitor(self, rhs: $bit_definitions) -> Self {
+                $bitmask { flags: self.flags | (rhs as VkFlags) }
+            }
+        }
+
+        impl BitAnd for $bitmask {
             type Output = Self;
 
             fn bitand(self, rhs: Self) -> Self {
-                $type_name { flags: self.flags & rhs.flags }
+                $bitmask { flags: self.flags & rhs.flags }
             }
         }
 
-        impl fmt::Display for $type_name {
+        impl BitAnd<$bit_definitions> for $bitmask {
+            type Output = Self;
+
+            fn bitand(self, rhs: $bit_definitions) -> Self {
+                $bitmask { flags: self.flags & (rhs as VkFlags) }
+            }
+        }
+
+        impl fmt::Display for $bitmask {
             fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
                 write!(f, concat!(
-                    stringify!($type_name), " {{\n",
+                    stringify!($bitmask), " {{\n",
                         $(
                             "    [{}] ", stringify!($flag), "\n",
                         )* "}}"
                     )
                     //$(, if *self & $type_name::$flag() == $type_name::$flag() { if self.flags != 0 && $type_name::$flag().flags == 0 { " " } else { "x" } } else { " " } )*
-                    $(, if *self & $type_name::$flag() == $type_name::$flag() { "x" } else { " " } )*
+                    //$(, if *self & $type_name::$flag() == $type_name::$flag() { "x" } else { " " } )*
+                    $(, if self.flags & ($bit_definitions::$flag as VkFlags) == ($bit_definitions::$flag as VkFlags) { "x" } else { " " } )*
                 )
             }
         }
+    )
+}
+
+macro_rules! vulkan_flags {
+    ($bitmask:ident) => (
+        bitmask!($bitmask);
+        flag_traits!($bitmask);
+    );
+    ($bitmask:ident, $bit_definitions:ident, { $($flag:ident = $flag_val:expr,)* }) => (
+        flag_definitions!($bit_definitions, {$($flag = $flag_val,)*});
+        bitmask!($bitmask);
+        flag_traits!($bitmask, $bit_definitions, {$($flag = $flag_val,)*});
     );
 })";
 
@@ -498,10 +543,10 @@ public:
 
 		vkspec::Enum* flags = t->flags();
 		if (!flags) {
-			_file << "vulkan_flags!(" << t->name() << ", {});" << std::endl;
+			_file << "vulkan_flags!(" << t->name() << ");" << std::endl;
 		}
 		else {
-			_file << "vulkan_flags!(" << t->name() << ", {" << std::endl;
+			_file << "vulkan_flags!(" << t->name() << ", " << flags->name() << ", {" << std::endl;
 			_indent->increase();
 			for (auto& m : flags->members()) {
 				_file << m.name << " = " << m.value << "," << std::endl;
