@@ -698,6 +698,8 @@ public:
 	}
 
 	virtual void RustGenerator::end_extension(vkspec::Extension* e) override final {
+		_file << std::endl;
+
 		std::string type;
 		switch (e->classification()) {
 			case vkspec::ExtensionClassification::Instance:

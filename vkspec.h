@@ -598,7 +598,52 @@ public:
 
 		for (auto e : _extensions) {
 			generator->begin_extension(e);
-
+			for (auto t : e->_types) {
+				switch (t->_sort_order()) {
+					case SortOrder::CType: {
+						break; // Only for internal tracking
+					}
+					case SortOrder::ScalarTypedef: {
+						assert(t->to_scalar_typedef());
+						generator->gen_scalar_typedef(t->to_scalar_typedef());
+						break;
+					}
+					case SortOrder::FunctionTypedef: {
+						assert(t->to_function_typedef());
+						generator->gen_function_typedef(t->to_function_typedef());
+						break;
+					}
+					case SortOrder::HandleTypedef: {
+						assert(t->to_handle_typedef());
+						generator->gen_handle_typedef(t->to_handle_typedef());
+						break;
+					}
+					case SortOrder::Struct: {
+						assert(t->to_struct());
+						generator->gen_struct(t->to_struct());
+						break;
+					}
+					case SortOrder::Enum: {
+						if (!t->to_enum()->_bitmask) {
+							generator->gen_enum(t->to_enum());
+						}
+						break;
+					}
+					case SortOrder::ApiConstant: {
+						assert(t->to_api_constant());
+						generator->gen_api_constant(t->to_api_constant());
+						break;
+					}
+					case SortOrder::Bitmasks: {
+						assert(t->to_bitmasks());
+						generator->gen_bitmasks(t->to_bitmasks());
+						break;
+					}
+					default: {
+						assert(false);
+					}
+				}
+			}
 			generator->end_extension(e);
 		}
 
