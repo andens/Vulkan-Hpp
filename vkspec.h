@@ -944,6 +944,7 @@ public:
 	virtual std::string pointer_to(std::string const& type_name, PointerType pointer_type) = 0;
 	virtual std::string array_member(std::string const& type_name, std::string const& array_size) = 0;
 	virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) = 0;
+	virtual std::string bitwise_not(std::string const& value) = 0;
 };
 
 class Registry {

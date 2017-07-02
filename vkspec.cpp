@@ -802,20 +802,20 @@ namespace vkspec {
 			auto type_it = _types.find("uint32_t");
 			assert(type_it != _types.end());
 			a->_data_type = type_it->second;
-			a->_value = "~0";
+			a->_value = _translator->bitwise_not("0");
 		}
 		else if (value == "(~0ULL)") {
 			auto type_it = _types.find("uint64_t");
 			assert(type_it != _types.end());
 			a->_data_type = type_it->second;
-			a->_value = "~0";
+			a->_value = _translator->bitwise_not("0");
 		}
 		else {
 			assert(value == "(~0U-1)");
 			auto type_it = _types.find("uint32_t");
 			assert(type_it != _types.end());
 			a->_data_type = type_it->second;
-			a->_value = "(~0) - 1";
+			a->_value = "(" + _translator->bitwise_not("0") + ") - 1";
 		}
 	}
 
