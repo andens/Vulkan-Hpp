@@ -481,7 +481,7 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "const " << t->name() << ": " << t->data_type()->name() << " = " << t->value() << ";" << std::endl;
+		_file << "pub const " << t->name() << ": " << t->data_type()->name() << " = " << t->value() << ";" << std::endl;
 		_previous_type = Type::ApiConstant;
 	}
 
@@ -886,7 +886,7 @@ class RustTranslator : public vkspec::ITranslator {
 	}
 
 	virtual std::string array_member(std::string const& type_name, std::string const& array_size) override final {
-		return "[" + type_name + "; " + array_size + "]";
+		return "[" + type_name + "; " + array_size + " as usize]";
 	}
 
 	virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) override final {
