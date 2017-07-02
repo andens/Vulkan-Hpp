@@ -404,7 +404,7 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "type " << t->name() << " = " << t->actual_type()->name() << ";" << std::endl;
+		_file << "pub type " << t->name() << " = " << t->actual_type()->name() << ";" << std::endl;
 		_previous_type = Type::ScalarTypedef;
 	}
 
@@ -413,7 +413,7 @@ public:
 			_file << std::endl;
 		}
 
-		_file << "type " << t->name() << " = vk_fun!((";
+		_file << "pub type " << t->name() << " = vk_fun!((";
 		if (!t->params().empty()) {
 			_file << t->params()[0].name << ": " << t->params()[0].complete_type;
 			for (auto it = t->params().begin() + 1; it != t->params().end(); ++it) {
