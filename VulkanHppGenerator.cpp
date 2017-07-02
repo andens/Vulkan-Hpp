@@ -435,7 +435,13 @@ public:
 				_file << ", " << it->name << ": " << it->complete_type;
 			}
 		}
-		_file << ") -> " << t->complete_return_type() << ");" << std::endl;
+
+		std::string return_type = t->complete_return_type();
+		if (t->pure_return_type()->to_function_typedef()) {
+			return_type = "Option<" + t->complete_return_type() + ">";
+		}
+
+		_file << ") -> " << return_type << ");" << std::endl;
 		_previous_type = Type::FunctionTypedef;
 	}
 
@@ -538,7 +544,11 @@ public:
 				_file << ", " << it->name << ": " << it->complete_type;
 			}
 		}
-		_file << ") -> " << _entry_command->complete_return_type() << ");" << std::endl;
+		std::string return_type = _entry_command->complete_return_type();
+		if (_entry_command->pure_return_type()->to_function_typedef()) {
+			return_type = "Option<" + _entry_command->complete_return_type() + ">";
+		}
+		_file << ") -> " << return_type << ");" << std::endl;
 
 		_file << "pub struct VulkanEntry {" << std::endl;
 		_indent->increase();
@@ -597,7 +607,7 @@ public:
 		for (auto& p : _entry_command->params()) {
 			_file << ", " << p.name << ": " << p.complete_type;
 		}
-		_file << ") -> " << _entry_command->complete_return_type() << " {" << std::endl;
+		_file << ") -> " << return_type << " {" << std::endl;
 		_indent->increase();
 		_file << "(self." << _entry_command->name() << ")(";
 		if (!_entry_command->params().empty()) {
@@ -633,7 +643,11 @@ public:
 					_file << ", " << it->name << ": " << it->complete_type;
 				}
 			}
-			_file << ") -> " << c->complete_return_type() << "," << std::endl;
+			std::string return_type = c->complete_return_type();
+			if (c->pure_return_type()->to_function_typedef()) {
+				return_type = "Option<" + c->complete_return_type() + ">";
+			}
+			_file << ") -> " << return_type << "," << std::endl;
 		}
 		_indent->decrease();
 		_file << "}" << std::endl;
@@ -663,7 +677,11 @@ public:
 					_file << ", " << name << ": " << it->complete_type;
 				}
 			}
-			_file << ") -> " << c->complete_return_type() << "," << std::endl;
+			std::string return_type = c->complete_return_type();
+			if (c->pure_return_type()->to_function_typedef()) {
+				return_type = "Option<" + c->complete_return_type() + ">";
+			}
+			_file << ") -> " << return_type << "," << std::endl;
 		}
 		_indent->decrease();
 		_file << "}" << std::endl;
@@ -840,7 +858,11 @@ private:
 		for (auto& m : t->members()) {
 			std::string field = m.name;
 			if (field == "type") { field.push_back('_'); }
-			_file << "pub " << field << ": " << m.complete_type << "," << std::endl;
+			std::string type = m.complete_type;
+			if (m.pure_type->to_function_typedef()) {
+				type = "Option<" + m.complete_type + ">";
+			}
+			_file << "pub " << field << ": " << type << "," << std::endl;
 		}
 
 		_indent->decrease();
