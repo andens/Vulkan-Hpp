@@ -812,7 +812,9 @@ private:
 		_indent->increase();
 
 		for (auto& m : t->members()) {
-			_file << "pub " << m.name << ": " << m.complete_type << "," << std::endl;
+			std::string field = m.name;
+			if (field == "type") { field.push_back('_'); }
+			_file << "pub " << field << ": " << m.complete_type << "," << std::endl;
 		}
 
 		_indent->decrease();
