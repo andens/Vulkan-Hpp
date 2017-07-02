@@ -325,7 +325,7 @@ const std::string extension_dispatch_table_macro = R"(
 // complex because we invoke it for multiple tables, and commands can be
 // either instance or device commands, which are loaded differently.
 macro_rules! extension_dispatch_table {
-    { $table_name:ident | $ext_type:expr, { $($fun_type:expr | $fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } } => (
+    { $table_name:ident | $ext_type:expr, { $([$fun_type:expr] $fun:ident => ($($param_id:ident: $param_type:ty),*) -> $return_type:ty,)* } } => (
         pub struct $table_name {
             $(
                 $fun: vk_fun!(($($param_id: $param_type),*) -> $return_type),
@@ -639,9 +639,13 @@ public:
 		for (auto c : _instance_commands) {
 			_file << c->name() << " => (";
 			if (!c->params().empty()) {
-				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
+				std::string name = c->params()[0].name;
+				if (name == "type") { name = "type_"; }
+				_file << name << ": " << c->params()[0].complete_type;
 				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
-					_file << ", " << it->name << ": " << it->complete_type;
+					name = it->name;
+					if (name == "type") { name = "type_"; }
+					_file << ", " << name << ": " << it->complete_type;
 				}
 			}
 			_file << ") -> " << c->complete_return_type() << "," << std::endl;
@@ -679,7 +683,7 @@ public:
 
 	virtual void RustGenerator::begin_extensions() override final {
 		_file << std::endl;
-		_file << "pub mod extensions {";
+		_file << "pub mod extensions {" << std::endl;
 		_indent->increase();
 		_file << "use super::core::*;" << std::endl;
 	}
@@ -714,8 +718,8 @@ public:
 		_file << "extension_dispatch_table!{" << e->name() << " | \"" << type << "\", {" << std::endl;
 		_indent->increase();
 		for (auto c : e->commands()) {
-			_file << ((c->classification() == vkspec::CommandClassification::Instance) ? "\"instance\"" : "\"device\"");
-			_file << " | " << c->name() << " => (";
+			_file << "[\"" << ((c->classification() == vkspec::CommandClassification::Instance) ? "instance" : "device") << "\"] ";
+			_file << c->name() << " => (";
 			if (!c->params().empty()) {
 				_file << c->params()[0].name << ": " << c->params()[0].complete_type;
 				for (auto it = c->params().begin() + 1; it != c->params().end(); ++it) {
@@ -742,6 +746,7 @@ private:
 
 private:
 	void _write_macros() {
+		_file << "#[macro_use]" << std::endl;
 		_file << "mod macros {" << std::endl;
 
 		_indent->increase();
