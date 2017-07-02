@@ -724,7 +724,7 @@ public:
 			_file << ") -> " << c->complete_return_type() << "," << std::endl;
 		}
 		_indent->decrease();
-		_file << "}};" << std::endl;
+		_file << "}}" << std::endl;
 	}
 
 private:
