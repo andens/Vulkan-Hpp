@@ -12,3 +12,22 @@ Contains the subset of the API that bindings will be generated for. Types are so
 
 # RustGenerator
 The provided Rust generator outputs mostly raw bindings (although one could of course generate higher-level bindings if need be), using the type system for some free additional type safety regarding enums and bitmasks. Other than that, in this particular generator there is no intention of making a safe API; correct Vulkan usage is still expected from the user. Two modules ```core``` and ```extensions``` are used for various parts of the API, with a third one called ```macros``` which is contains the macros used to generate function pointers, dispatch tables, and bitmask types. Function pointers are collected in dispatch tables, and code is generated to make sure all commands have been properly loaded before successfully returning the table. Due to extensions being optional, they each have their own dispatch table for commands added by them, allowing loading extensions individually while still making sure all commands are loaded correctly.
+
+Using the bindings would look something like this:
+```rust
+let vulkan_entry = vulkan::core::VulkanEntry::new("vulkan-1.dll")?;
+let vkg = vulkan::core::GlobalDispatchTable::new(&vulkan_entry)?;
+
+let mut property_count = 0;
+unsafe {
+    vkg.vkEnumerateInstanceLayerProperties(&mut property_count, std::ptr::null_mut());
+}
+
+// Do stuff, including creating instance
+
+let vki = vulkan::core::InstanceDispatchTable::new(&vulkan_entry, instance)?;
+
+// Call instance functions on vki. Create device and get its dispatch table next.
+```
+
+For now, I have only tested enumerating instance layers which seems to work. One thing to keep in mind is that flags (as in *Flags, not *FlagBits) is a struct wrapping an integer, so I don't know right now whether it works when passed to functions or not.
