@@ -376,6 +376,7 @@ macro_rules! table_ctor {
         }
     );
     (device, $table_name:ident $(, $fun_type:ident, $fun:ident)*) => (
+        #[allow(unused_variables)] // For device extensions, instance and device functions use different parameters
         pub fn new(vulkan_entry: &VulkanEntry, instance: VkInstance, instance_table: &InstanceDispatchTable, device: VkDevice) -> Result<$table_name, String> {
             unsafe {
                 Ok($table_name {
