@@ -364,7 +364,9 @@ macro_rules! load_function {
 const std::string extension_table_ctor_macro = R"(
 macro_rules! table_ctor {
     (instance, $table_name:ident $(, $fun_type:ident, $fun:ident)*) => (
+        #[allow(unused_variables)] // Yes, vulkan_entry and instance are used
         pub fn new(vulkan_entry: &VulkanEntry, instance: VkInstance) -> Result<$table_name, String> {
+            #[allow(unused_unsafe)]            
             unsafe {
                 Ok($table_name {
                     $(
