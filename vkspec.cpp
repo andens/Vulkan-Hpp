@@ -9,8 +9,9 @@
 
 namespace vkspec {
 
-	void Registry::add_c_type(std::string const& c, std::string const& translation) {
+	void Registry::add_c_type(std::string const& c, std::string const& translation, bool opaque) {
 		CType* c_type = new CType(c, translation);
+		c_type->_opaque = opaque;
 		assert(_items.insert(std::make_pair(c, c_type)).second == true);
 		assert(_types.insert(std::make_pair(c, c_type)).second == true);
 		assert(_c_types.insert(std::make_pair(c, c_type)).second == true);
@@ -533,7 +534,7 @@ namespace vkspec {
 		auto type_it = _types.find(match[1].str());
 		assert(type_it != _types.end());
 		Type* return_type = type_it->second;
-		std::string return_type_complete = match[2].matched ? _translator->pointer_to(return_type->name(), PointerType::T_P) : return_type->name();
+		std::string return_type_complete = match[2].matched ? _translator->pointer_to(return_type, PointerType::T_P) : return_type->name();
 
 		// Text node after name tag beginning parameter list. Note that for void
 		// functions this is the last node that also ends the function definition.
@@ -605,7 +606,7 @@ namespace vkspec {
 			}
 
 			if (pointer) {
-				p.complete_type = _translator->pointer_to(param_type->name(), constModifier ? PointerType::CONST_T_P : PointerType::T_P);
+				p.complete_type = _translator->pointer_to(param_type, constModifier ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else {
 				p.complete_type = param_type->name();
@@ -742,14 +743,14 @@ namespace vkspec {
 			std::string value = _trim_end(element->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				complete_type = _translator->pointer_to(pure_type->name(), constant ? PointerType::CONST_T_P : PointerType::T_P);
+				complete_type = _translator->pointer_to(pure_type, constant ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				complete_type = _translator->pointer_to(pure_type->name(), constant ? PointerType::CONST_T_PP : PointerType::T_PP);
+				complete_type = _translator->pointer_to(pure_type, constant ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				complete_type = _translator->pointer_to(pure_type->name(), constant ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
+				complete_type = _translator->pointer_to(pure_type, constant ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			element = element->NextSibling();
 		}
@@ -955,14 +956,14 @@ namespace vkspec {
 			std::string value = _trim_end(node->Value());
 			assert((value == "*") || (value == "**") || (value == "* const*"));
 			if (value == "*") {
-				complete_type = _translator->pointer_to(pure_type->name(), const_modifier ? PointerType::CONST_T_P : PointerType::T_P);
+				complete_type = _translator->pointer_to(pure_type, const_modifier ? PointerType::CONST_T_P : PointerType::T_P);
 			}
 			else if (value == "**") {
-				complete_type = _translator->pointer_to(pure_type->name(), const_modifier ? PointerType::CONST_T_PP : PointerType::T_PP);
+				complete_type = _translator->pointer_to(pure_type, const_modifier ? PointerType::CONST_T_PP : PointerType::T_PP);
 			}
 			else {
 				assert(value == "* const*");
-				complete_type = _translator->pointer_to(pure_type->name(), const_modifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
+				complete_type = _translator->pointer_to(pure_type, const_modifier ? PointerType::CONST_T_P_CONST_P : PointerType::T_P_CONST_P);
 			}
 			node = node->NextSibling();
 		}

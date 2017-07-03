@@ -149,6 +149,7 @@ class CType : public Type {
 public:
 	virtual std::string const& name(void) const { return _translation; }
 	virtual CType* to_c() { return this; }
+	bool opaque() { return _opaque; }
 
 private:
 	CType(std::string const& c, std::string const& translation) : Type(c, nullptr), _translation(translation) {}
@@ -162,6 +163,7 @@ private:
 
 private:
 	std::string _translation;
+	bool _opaque = false; // Here it means we have no actual translation and expect use via pointers
 };
 
 class ScalarTypedef : public Type {
@@ -943,7 +945,7 @@ enum class PointerType {
 
 class ITranslator {
 public:
-	virtual std::string pointer_to(std::string const& type_name, PointerType pointer_type) = 0;
+	virtual std::string pointer_to(Type* type, PointerType pointer_type) = 0;
 	virtual std::string array_member(std::string const& type_name, std::string const& array_size) = 0;
 	virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) = 0;
 	virtual std::string bitwise_not(std::string const& value) = 0;
@@ -961,7 +963,7 @@ public:
 	// this map will be checked, resulting in a runtime error if a type is not
 	// present. Thus the user will have to provide translations for C types
 	// before parsing the spec.
-	void add_c_type(std::string const& c, std::string const& translation);
+	void add_c_type(std::string const& c, std::string const& translation, bool opaque = false);
 	void parse(std::string const& spec);
 	Feature* build_feature(std::string const& feature);
 

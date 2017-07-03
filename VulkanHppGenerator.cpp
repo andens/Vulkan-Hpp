@@ -101,7 +101,7 @@ macro_rules! vk_fun {
 const std::string use_statements = R"(use super::macros::*;
 extern crate libloading;
 use ::std::{ptr};
-pub use ::std::os::raw::{c_void, c_char, c_int};)";
+pub use ::std::os::raw::{c_void, c_char, c_int, c_ulong};)";
 
 const std::string flags_macro_comment = R"(/*
 For regular enums, a repr(C) enum is used, which seems to be the way to go.
@@ -925,11 +925,25 @@ private:
 };
 
 class RustTranslator : public vkspec::ITranslator {
-	virtual std::string pointer_to(std::string const& type, vkspec::PointerType pointer_type) override final {
-		// void as in no parameters or return value is not the same as void
-		// pointer and have different syntax in Rust
-		std::string t = type;
+	virtual std::string pointer_to(vkspec::Type* type, vkspec::PointerType pointer_type) override final {
+		// Registry expects us to manipulate the translated value if a C type.
+		// That value is returned via the name method.
+		std::string t = type->name();
+
+		// The keyword void is translated into an empty tuple, but void as in
+		// no parameters or return value is not the same as void pointer and
+		// have different syntax in Rust. Here we catch void pointers and make
+		// them point to c_void instead of an empty tuple.
 		if (t == "()") {
+			t = "c_void";
+		}
+
+		// The type name of non-trivial C types is set to something that will
+		// fail compilation. That way we can catch those used directly and deal
+		// with their translation. However, oftentimes the API use pointers for
+		// these types, in which case opaque pointers are sufficients. That's
+		// what we do here; make pointers to c_void instead.
+		if (type->to_c() && type->to_c()->opaque()) {
 			t = "c_void";
 		}
 
@@ -973,6 +987,14 @@ int main(int argc, char **argv)
 		RustTranslator translator;
 		vkspec::Registry reg(&translator);
 
+		// The question marks are used to result in compilation errors of the
+		// bindings in the case a complex C type is used directly, as opposed
+		// to indirectly via a pointer. That way we can catch those and do
+		// something about them. Other than that, the translator should take
+		// care of making pointers to opaque types become pointers to c_void.
+		// https://msdn.microsoft.com/en-us/library/windows/desktop/aa383751(v=vs.85).aspx
+		// http://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Desktop-generic/LSB-Desktop-generic/libx11-ddefs.html
+		// https://xcb.freedesktop.org/tutorial/basicwindowsanddrawing/
 		reg.add_c_type("void", "()");
 		reg.add_c_type("char", "c_char");
 		reg.add_c_type("float", "f32");
@@ -982,24 +1004,24 @@ int main(int argc, char **argv)
 		reg.add_c_type("int32_t", "i32");
 		reg.add_c_type("size_t", "usize"); // unsigned according to reference
 		reg.add_c_type("int", "c_int");
-		reg.add_c_type("Display", "Display");
-		reg.add_c_type("VisualID", "VisualID");
-		reg.add_c_type("Window", "Window");
-		reg.add_c_type("RROutput", "RROutput");
-		reg.add_c_type("ANativeWindow", "ANativeWindow");
-		reg.add_c_type("MirConnection", "MirConnection");
-		reg.add_c_type("MirSurface", "MirSurface");
-		reg.add_c_type("wl_display", "wl_display");
-		reg.add_c_type("wl_surface", "wl_surface");
-		reg.add_c_type("HINSTANCE", "HINSTANCE");
-		reg.add_c_type("HWND", "HWND");
-		reg.add_c_type("HANDLE", "HANDLE");
-		reg.add_c_type("SECURITY_ATTRIBUTES", "SECURITY_ATTRIBUTES");
-		reg.add_c_type("DWORD", "DWORD");
-		reg.add_c_type("LPCWSTR", "LPCWSTR");
-		reg.add_c_type("xcb_connection_t", "xcb_connection_t");
-		reg.add_c_type("xcb_visualid_t", "xcb_visualid_t");
-		reg.add_c_type("xcb_window_t", "xcb_window_t");
+		reg.add_c_type("Display", "?", true);
+		reg.add_c_type("VisualID", "c_ulong");
+		reg.add_c_type("Window", "c_ulong");
+		reg.add_c_type("RROutput", "c_ulong");
+		reg.add_c_type("ANativeWindow", "?", true);
+		reg.add_c_type("MirConnection", "?", true);
+		reg.add_c_type("MirSurface", "?", true);
+		reg.add_c_type("wl_display", "?", true);
+		reg.add_c_type("wl_surface", "?", true);
+		reg.add_c_type("HINSTANCE", "*mut c_void"); // typedefed pointer
+		reg.add_c_type("HWND", "*mut c_void"); // typedefed pointer
+		reg.add_c_type("HANDLE", "*mut c_void"); // typedefed pointer
+		reg.add_c_type("SECURITY_ATTRIBUTES", "?", true);
+		reg.add_c_type("DWORD", "u32"); // 32-bit unsigned integer
+		reg.add_c_type("LPCWSTR", "*const u16"); // typedefed pointer
+		reg.add_c_type("xcb_connection_t", "?", true);
+		reg.add_c_type("xcb_visualid_t", "u32");
+		reg.add_c_type("xcb_window_t", "u32");
 
 		reg.parse(filename);
 		vkspec::Feature* feature = reg.build_feature("vulkan");
