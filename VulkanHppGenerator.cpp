@@ -100,7 +100,6 @@ macro_rules! vk_fun {
 
 const std::string use_statements = R"(use super::macros::*;
 extern crate libloading;
-use ::std::{ptr};
 pub use ::std::os::raw::{c_void, c_char, c_int, c_ulong};)";
 
 const std::string flags_macro_comment = R"(/*
