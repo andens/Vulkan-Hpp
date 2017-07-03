@@ -246,7 +246,7 @@ macro_rules! global_dispatch_table {
                         // of failure assures that success means that all
                         // pointers are valid to call.
                         $(
-                            $fun: match vulkan_entry.vkGetInstanceProcAddr(ptr::null_mut(), CString::new(stringify!($fun)).unwrap().as_ptr()) {
+                            $fun: match vulkan_entry.vkGetInstanceProcAddr(0, CString::new(stringify!($fun)).unwrap().as_ptr()) {
                                 Some(f) => mem::transmute(f),
                                 None => return Err(String::from(concat!("Could not load ", stringify!($fun)))),
                             },
