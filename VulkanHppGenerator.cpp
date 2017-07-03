@@ -377,6 +377,7 @@ macro_rules! table_ctor {
     (device, $table_name:ident $(, $fun_type:ident, $fun:ident)*) => (
         #[allow(unused_variables)] // For device extensions, instance and device functions use different parameters
         pub fn new(vulkan_entry: &VulkanEntry, instance: VkInstance, instance_table: &InstanceDispatchTable, device: VkDevice) -> Result<$table_name, String> {
+            #[allow(unused_unsafe)] // Yes, it is necessary. Don't know why it says it isn't
             unsafe {
                 Ok($table_name {
                     $(
