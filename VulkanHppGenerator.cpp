@@ -928,6 +928,32 @@ private:
 };
 
 class RustTranslator : public vkspec::ITranslator {
+    virtual std::string translate_c(std::string const& c) override final {
+      // https://msdn.microsoft.com/en-us/library/windows/desktop/aa383751(v=vs.85).aspx
+      // http://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Desktop-generic/LSB-Desktop-generic/libx11-ddefs.html
+      // https://xcb.freedesktop.org/tutorial/basicwindowsanddrawing/
+      if (c == "void") return "()";
+      else if (c == "char") return "c_char";
+      else if (c == "float") return "f32";
+      else if (c == "uint8_t") return "u8";
+      else if (c == "uint32_t") return "u32";
+      else if (c == "uint64_t") return "u64";
+      else if (c == "int32_t") return "i32";
+      else if (c == "size_t") return "usize"; // unsigned according to reference
+      else if (c == "int") return "c_int";
+      else if (c == "VisualID") return "c_ulong";
+      else if (c == "Window") return "c_ulong";
+      else if (c == "RROutput") return "c_ulong";
+      else if (c == "HINSTANCE") return "*mut c_void"; // typedefed pointer
+      else if (c == "HWND") return "*mut c_void"; // typedefed pointer
+      else if (c == "HANDLE") return "*mut c_void"; // typedefed pointer
+      else if (c == "DWORD") return "u32"; // 32-bit unsigned integer
+      else if (c == "LPCWSTR") return "*const u16"; // typedefed pointer
+      else if (c == "xcb_visualid_t") return "u32";
+      else if (c == "xcb_window_t") return "u32";
+      else throw std::runtime_error("Not translated: " + c);
+    }
+
 	virtual std::string pointer_to(vkspec::Type* type, vkspec::PointerType pointer_type) override final {
 		// Registry expects us to manipulate the translated value if a C type.
 		// That value is returned via the name method.
@@ -987,54 +1013,17 @@ int main(int argc, char **argv)
 	try {
 		std::string filename = (argc == 1) ? VK_SPEC : argv[1];
 
-		RustTranslator translator;
-		vkspec::Registry reg(&translator);
+        {
+          RustTranslator translator;
+          vkspec::Registry reg(&translator);
+          reg.parse(filename);
+          vkspec::Feature* feature = reg.build_feature("vulkan");
 
-		// The question marks are used to result in compilation errors of the
-		// bindings in the case a complex C type is used directly, as opposed
-		// to indirectly via a pointer. That way we can catch those and do
-		// something about them. Other than that, the translator should take
-		// care of making pointers to opaque types become pointers to c_void.
-		// https://msdn.microsoft.com/en-us/library/windows/desktop/aa383751(v=vs.85).aspx
-		// http://refspecs.linuxfoundation.org/LSB_3.1.1/LSB-Desktop-generic/LSB-Desktop-generic/libx11-ddefs.html
-		// https://xcb.freedesktop.org/tutorial/basicwindowsanddrawing/
-		reg.add_c_type("void", "()");
-		reg.add_c_type("char", "c_char");
-		reg.add_c_type("float", "f32");
-		reg.add_c_type("uint8_t", "u8");
-		reg.add_c_type("uint32_t", "u32");
-		reg.add_c_type("uint64_t", "u64");
-		reg.add_c_type("int32_t", "i32");
-		reg.add_c_type("size_t", "usize"); // unsigned according to reference
-		reg.add_c_type("int", "c_int");
-		reg.add_c_type("Display", "?", true);
-		reg.add_c_type("VisualID", "c_ulong");
-		reg.add_c_type("Window", "c_ulong");
-		reg.add_c_type("RROutput", "c_ulong");
-		reg.add_c_type("ANativeWindow", "?", true);
-		reg.add_c_type("MirConnection", "?", true);
-		reg.add_c_type("MirSurface", "?", true);
-		reg.add_c_type("wl_display", "?", true);
-		reg.add_c_type("wl_surface", "?", true);
-		reg.add_c_type("HINSTANCE", "*mut c_void"); // typedefed pointer
-		reg.add_c_type("HWND", "*mut c_void"); // typedefed pointer
-		reg.add_c_type("HANDLE", "*mut c_void"); // typedefed pointer
-		reg.add_c_type("SECURITY_ATTRIBUTES", "?", true);
-		reg.add_c_type("DWORD", "u32"); // 32-bit unsigned integer
-		reg.add_c_type("LPCWSTR", "*const u16"); // typedefed pointer
-		reg.add_c_type("xcb_connection_t", "?", true);
-		reg.add_c_type("xcb_visualid_t", "u32");
-		reg.add_c_type("xcb_window_t", "u32");
+          std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
 
-		reg.parse(filename);
-		vkspec::Feature* feature = reg.build_feature("vulkan");
-
-		std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
-
-		{
-			RustGenerator generator(VULKAN_HPP, reg.license(), feature->major(), feature->minor(), feature->patch());
-			feature->generate(&generator);
-		}
+          RustGenerator generator(VULKAN_HPP, reg.license(), feature->major(), feature->minor(), feature->patch());
+          feature->generate(&generator);
+        }
 	}
 	catch (std::exception const& e)
 	{

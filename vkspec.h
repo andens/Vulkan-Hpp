@@ -945,6 +945,7 @@ enum class PointerType {
 
 class ITranslator {
 public:
+    virtual std::string translate_c(std::string const& c) = 0;
 	virtual std::string pointer_to(Type* type, PointerType pointer_type) = 0;
 	virtual std::string array_member(std::string const& type_name, std::string const& array_size) = 0;
 	virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) = 0;
@@ -953,17 +954,8 @@ public:
 
 class Registry {
 public:
-	Registry(ITranslator* translator) : _translator(translator) {}
+    Registry(ITranslator* translator);
 
-	// I'm working under the assumption that the C and OS types used will
-	// be a comparatively small set so that I can deal with those manually.
-	// This way I can assume that types not existing at the time I need them
-	// are Vulkan types that don't need a specific translation, thus avoiding
-	// the need to analyze them at runtime. Where I expect to read a C type,
-	// this map will be checked, resulting in a runtime error if a type is not
-	// present. Thus the user will have to provide translations for C types
-	// before parsing the spec.
-	void add_c_type(std::string const& c, std::string const& translation, bool opaque = false);
 	void parse(std::string const& spec);
 	Feature* build_feature(std::string const& feature);
 

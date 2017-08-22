@@ -9,13 +9,58 @@
 
 namespace vkspec {
 
-	void Registry::add_c_type(std::string const& c, std::string const& translation, bool opaque) {
-		CType* c_type = new CType(c, translation);
-		c_type->_opaque = opaque;
-		assert(_items.insert(std::make_pair(c, c_type)).second == true);
-		assert(_types.insert(std::make_pair(c, c_type)).second == true);
-		assert(_c_types.insert(std::make_pair(c, c_type)).second == true);
-	}
+    Registry::Registry(ITranslator* translator) : _translator(translator) {
+      // I'm working under the assumption that the C and OS types used will
+      // be a comparatively small set so that I can deal with those manually.
+      // This way I can assume that types not existing at the time I need them
+      // are Vulkan types that don't need a specific translation, thus avoiding
+      // the need to analyze them at runtime. Analyzing C types wouldn't work
+      // anyway because they need manual translations that we can't possibly
+      // deduce here.
+      auto define_c = [this](std::string const& c, bool opaque = false) {
+        // A question mark translation is used to hopefully fail compilation
+        // when a translation is forgotten.
+        CType* c_type = new CType(c, "?");
+        c_type->_opaque = opaque;
+        assert(_items.insert(std::make_pair(c, c_type)).second == true);
+        assert(_types.insert(std::make_pair(c, c_type)).second == true);
+        assert(_c_types.insert(std::make_pair(c, c_type)).second == true);
+      };
+      
+      define_c("void");
+      define_c("char");
+      define_c("float");
+      define_c("uint8_t");
+      define_c("uint32_t");
+      define_c("uint64_t");
+      define_c("int32_t");
+      define_c("size_t");
+      define_c("int");
+      define_c("Display", true);
+      define_c("VisualID");
+      define_c("Window");
+      define_c("RROutput");
+      define_c("ANativeWindow", true);
+      define_c("MirConnection", true);
+      define_c("MirSurface", true);
+      define_c("wl_display", true);
+      define_c("wl_surface", true);
+      define_c("HINSTANCE");
+      define_c("HWND");
+      define_c("HANDLE");
+      define_c("SECURITY_ATTRIBUTES", true);
+      define_c("DWORD");
+      define_c("LPCWSTR");
+      define_c("xcb_connection_t", true);
+      define_c("xcb_visualid_t");
+      define_c("xcb_window_t");
+
+      for (auto c : _c_types) {
+        if (!c.second->_opaque) {
+          c.second->_translation = std::move(translator->translate_c(c.first));
+        }
+      }
+    }
 
 	void Registry::parse(std::string const& spec) {
 		if (_parsed) {
