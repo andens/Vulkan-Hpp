@@ -1019,9 +1019,10 @@ int main(int argc, char **argv)
           reg.parse(filename);
           vkspec::Feature* feature = reg.build_feature("vulkan");
 
-          std::cout << "Writing vulkan.rs to " << VULKAN_HPP << std::endl;
+          std::string out = std::string(VULKAN_DIR) + "/vulkan.rs";
+          std::cout << "Writing vulkan.rs to " << out << std::endl;
 
-          RustGenerator generator(VULKAN_HPP, reg.license(), feature->major(), feature->minor(), feature->patch());
+          RustGenerator generator(out, reg.license(), feature->major(), feature->minor(), feature->patch());
           feature->generate(&generator);
         }
 	}

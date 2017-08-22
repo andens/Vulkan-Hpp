@@ -32,9 +32,9 @@ file(TO_NATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-Docs/src/spec/vk.xml vk_s
 string(REPLACE "\\" "\\\\" vk_spec ${vk_spec})
 add_definitions(-DVK_SPEC="${vk_spec}")
 
-file(TO_NATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/vulkan.rs vulkan_hpp)
-string(REPLACE "\\" "\\\\" vulkan_hpp ${vulkan_hpp})
-add_definitions(-DVULKAN_HPP="${vulkan_hpp}")
+file(TO_NATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/vulkan vulkan_dir)
+string(REPLACE "\\" "\\\\" vulkan_dir ${vulkan_dir})
+add_definitions(-DVULKAN_DIR="${vulkan_dir}")
 
 set(HEADERS
   vkspec.h
