@@ -41,7 +41,7 @@ set(HEADERS
 )
 
 set(SOURCES
-  VulkanHppGenerator.cpp
+  main.cpp
   vkspec.cpp
 )
 
