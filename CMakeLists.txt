@@ -38,6 +38,8 @@ add_definitions(-DVULKAN_DIR="${vulkan_dir}")
 
 set(HEADERS
   vkspec.h
+  rust_generator.h
+  indenting_stream_buf.h
 )
 
 set(SOURCES
