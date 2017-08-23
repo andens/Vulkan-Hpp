@@ -966,6 +966,8 @@ namespace vkspec {
 		p.pure_type = pure_type;
 		p.name = name;
 		p.array_dependency = a;
+        p.const_modifier = const_modifier;
+        p.array_size = array_size;
 
 		c->_params.push_back(p);
 	}

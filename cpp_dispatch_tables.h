@@ -29,8 +29,8 @@ public:
   virtual void gen_instance_command(vkspec::Command* c) override final;
   virtual void end_instance_commands() override final;
   virtual void begin_device_commands() override final {}
-  virtual void gen_device_command(vkspec::Command* c) override final {}
-  virtual void end_device_commands() override final {}
+  virtual void gen_device_command(vkspec::Command* c) override final;
+  virtual void end_device_commands() override final;
   virtual void begin_extensions() override final {}
   virtual void end_extensions() override final {}
   virtual void begin_extension(vkspec::Extension* e) override final {}
@@ -44,6 +44,7 @@ private:
   vkspec::Command* _entry_command = nullptr;
   std::vector<vkspec::Command*> _global_commands;
   std::vector<vkspec::Command*> _instance_commands;
+  std::vector<vkspec::Command*> _device_commands;
 };
 
 class CppTranslator : public vkspec::ITranslator {
@@ -77,7 +78,8 @@ class CppTranslator : public vkspec::ITranslator {
   }
 
   virtual std::string array_param(std::string const& type_name, std::string const& array_size, bool const_modifier) override final {
-    return ""; // Not implemented
+    // Array size is dealt with when printing
+    return (const_modifier ? "const " : "") + type_name;
   }
 
   virtual std::string bitwise_not(std::string const& value) {

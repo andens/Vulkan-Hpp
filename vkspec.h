@@ -425,6 +425,8 @@ public:
 		Type* pure_type;
 		std::string name;
 		ApiConstant* array_dependency;
+        bool const_modifier;
+        std::string array_size;
 	};
 
 	CommandClassification classification() {

@@ -7,6 +7,9 @@ void print_func_wrapper_h(ofstream& file, vkspec::Command* c) {
   std::string comma = "";
   for (auto& p : c->params()) {
     file << comma << p.complete_type << " " << p.name;
+    if (p.array_size != "") {
+      file << "[" << p.array_size << "]";
+    }
     comma = ", ";
   }
   file << ") const;" << std::endl;
@@ -17,6 +20,9 @@ void print_func_wrapper_cpp(ofstream& file, IndentingOStreambuf* ind, vkspec::Co
   string comma = "";
   for (auto& p : c->params()) {
     file << comma << p.complete_type << " " << p.name;
+    if (p.array_size != "") {
+      file << "[" << p.array_size << "]";
+    }
     comma = ", ";
   }
   file << ") const {" << endl;
@@ -236,7 +242,6 @@ public:
   cpp << " * " << "VulkanInstanceTable" << endl;
   cpp << " * ------------------------------------------------------" << endl;
   cpp << "*/" << endl;
-  cpp << endl;
 
   cpp << R"(
 VulkanInstanceTable::VulkanInstanceTable(VulkanGlobalTable const* globals, VkInstance instance) : instance_(instance) {
@@ -258,5 +263,63 @@ VulkanInstanceTable::VulkanInstanceTable(VulkanGlobalTable const* globals, VkIns
   cpp << endl;
   for (auto c : _instance_commands) {
     print_func_wrapper_cpp(cpp, ind_cpp, c, "VulkanInstanceTable");
+  }
+}
+
+void CppDispatchTableGenerator::gen_device_command(vkspec::Command* c) {
+  _device_commands.push_back(c);
+}
+
+void CppDispatchTableGenerator::end_device_commands() {
+  header << R"(
+class VulkanDeviceTable {
+public:
+  VulkanDeviceTable(VulkanInstanceTable const* instance, VkDevice device);
+  VkDevice device() const { return device_; }
+)";
+
+  ind_h->increase();
+  for (auto c : _device_commands) {
+    print_func_wrapper_h(header, c);
+  }
+  ind_h->decrease();
+
+  header << endl;
+  header << "private:" << endl;
+  ind_h->increase();
+  header << "VkDevice device_ = VK_NULL_HANDLE;" << endl;
+  for (auto c : _device_commands) {
+    header << "PFN_" << c->name() << " " << c->name() << "_ = nullptr;" << endl;
+  }
+  ind_h->decrease();
+
+  header << "};" << endl;
+
+  cpp << "/*" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << " * " << "VulkanDeviceTable" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << "*/" << endl;
+
+  cpp << R"(
+VulkanDeviceTable::VulkanDeviceTable(VulkanInstanceTable const* instance, VkDevice device) : device_(device) {
+#define LOAD_DEVICE_FUNC(fun)\
+  this->##fun##_ = reinterpret_cast<PFN_##fun>(instance->vkGetDeviceProcAddr(\
+      device, #fun));\
+  if (!this->##fun##_) {\
+    throw VulkanProcNotFound(#fun);\
+  }
+)" << endl;
+
+  ind_cpp->increase();
+  for (auto c : _device_commands) {
+    cpp << "LOAD_DEVICE_FUNC(" << c->name() << ");" << endl;
+  }
+  ind_cpp->decrease();
+  cpp << "}" << endl;
+
+  cpp << endl;
+  for (auto c : _device_commands) {
+    print_func_wrapper_cpp(cpp, ind_cpp, c, "VulkanDeviceTable");
   }
 }
