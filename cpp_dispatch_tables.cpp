@@ -201,3 +201,62 @@ VulkanGlobalTable::VulkanGlobalTable(std::string const& vulkan_library) {
     print_func_wrapper_cpp(cpp, ind_cpp, c, "VulkanGlobalTable");
   }
 }
+
+void CppDispatchTableGenerator::gen_instance_command(vkspec::Command* c) {
+  _instance_commands.push_back(c);
+}
+
+void CppDispatchTableGenerator::end_instance_commands() {
+  header << R"(
+class VulkanInstanceTable {
+public:
+  VulkanInstanceTable(VulkanGlobalTable const* globals, VkInstance instance);
+  VkInstance instance() const { return instance_; }
+)";
+
+  ind_h->increase();
+  for (auto c : _instance_commands) {
+    print_func_wrapper_h(header, c);
+  }
+  ind_h->decrease();
+
+  header << endl;
+  header << "private:" << endl;
+  ind_h->increase();
+  header << "VkInstance instance_ = VK_NULL_HANDLE;" << endl;
+  for (auto c : _instance_commands) {
+    header << "PFN_" << c->name() << " " << c->name() << "_ = nullptr;" << endl;
+  }
+  ind_h->decrease();
+
+  header << "};" << endl;
+
+  cpp << "/*" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << " * " << "VulkanInstanceTable" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << "*/" << endl;
+  cpp << endl;
+
+  cpp << R"(
+VulkanInstanceTable::VulkanInstanceTable(VulkanGlobalTable const* globals, VkInstance instance) : instance_(instance) {
+#define LOAD_INSTANCE_FUNC(fun)\
+  this->##fun##_ = reinterpret_cast<PFN_##fun>(globals->vkGetInstanceProcAddr(\
+      instance, #fun));\
+  if (!this->##fun##_) {\
+    throw VulkanProcNotFound(#fun);\
+  }
+)" << endl;
+
+  ind_cpp->increase();
+  for (auto c : _instance_commands) {
+    cpp << "LOAD_INSTANCE_FUNC(" << c->name() << ");" << endl;
+  }
+  ind_cpp->decrease();
+  cpp << "}" << endl;
+
+  cpp << endl;
+  for (auto c : _instance_commands) {
+    print_func_wrapper_cpp(cpp, ind_cpp, c, "VulkanInstanceTable");
+  }
+}

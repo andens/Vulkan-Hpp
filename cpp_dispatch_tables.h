@@ -26,8 +26,8 @@ public:
   virtual void gen_global_command(vkspec::Command* c) override final;
   virtual void end_global_commands() override final;
   virtual void begin_instance_commands() override final {}
-  virtual void gen_instance_command(vkspec::Command* c) override final {}
-  virtual void end_instance_commands() override final {}
+  virtual void gen_instance_command(vkspec::Command* c) override final;
+  virtual void end_instance_commands() override final;
   virtual void begin_device_commands() override final {}
   virtual void gen_device_command(vkspec::Command* c) override final {}
   virtual void end_device_commands() override final {}
@@ -43,6 +43,7 @@ private:
   IndentingOStreambuf* ind_cpp = nullptr;
   vkspec::Command* _entry_command = nullptr;
   std::vector<vkspec::Command*> _global_commands;
+  std::vector<vkspec::Command*> _instance_commands;
 };
 
 class CppTranslator : public vkspec::ITranslator {

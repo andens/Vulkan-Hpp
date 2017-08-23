@@ -67,4 +67,86 @@ VkResult VulkanGlobalTable::vkEnumerateInstanceLayerProperties(uint32_t* pProper
   return this->vkEnumerateInstanceLayerProperties_(pPropertyCount, pProperties);
 }
 
+/*
+ * ------------------------------------------------------
+ * VulkanInstanceTable
+ * ------------------------------------------------------
+*/
+
+
+VulkanInstanceTable::VulkanInstanceTable(VulkanGlobalTable const* globals, VkInstance instance) : instance_(instance) {
+#define LOAD_INSTANCE_FUNC(fun)\
+  this->##fun##_ = reinterpret_cast<PFN_##fun>(globals->vkGetInstanceProcAddr(\
+      instance, #fun));\
+  if (!this->##fun##_) {\
+    throw VulkanProcNotFound(#fun);\
+  }
+
+  LOAD_INSTANCE_FUNC(vkDestroyInstance);
+  LOAD_INSTANCE_FUNC(vkEnumeratePhysicalDevices);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceFeatures);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceFormatProperties);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceImageFormatProperties);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceProperties);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceQueueFamilyProperties);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceMemoryProperties);
+  LOAD_INSTANCE_FUNC(vkGetDeviceProcAddr);
+  LOAD_INSTANCE_FUNC(vkCreateDevice);
+  LOAD_INSTANCE_FUNC(vkEnumerateDeviceExtensionProperties);
+  LOAD_INSTANCE_FUNC(vkEnumerateDeviceLayerProperties);
+  LOAD_INSTANCE_FUNC(vkGetPhysicalDeviceSparseImageFormatProperties);
+}
+
+void VulkanInstanceTable::vkDestroyInstance(VkInstance instance, const VkAllocationCallbacks* pAllocator) const {
+  return this->vkDestroyInstance_(instance, pAllocator);
+}
+
+VkResult VulkanInstanceTable::vkEnumeratePhysicalDevices(VkInstance instance, uint32_t* pPhysicalDeviceCount, VkPhysicalDevice* pPhysicalDevices) const {
+  return this->vkEnumeratePhysicalDevices_(instance, pPhysicalDeviceCount, pPhysicalDevices);
+}
+
+void VulkanInstanceTable::vkGetPhysicalDeviceFeatures(VkPhysicalDevice physicalDevice, VkPhysicalDeviceFeatures* pFeatures) const {
+  return this->vkGetPhysicalDeviceFeatures_(physicalDevice, pFeatures);
+}
+
+void VulkanInstanceTable::vkGetPhysicalDeviceFormatProperties(VkPhysicalDevice physicalDevice, VkFormat format, VkFormatProperties* pFormatProperties) const {
+  return this->vkGetPhysicalDeviceFormatProperties_(physicalDevice, format, pFormatProperties);
+}
+
+VkResult VulkanInstanceTable::vkGetPhysicalDeviceImageFormatProperties(VkPhysicalDevice physicalDevice, VkFormat format, VkImageType type, VkImageTiling tiling, VkImageUsageFlags usage, VkImageCreateFlags flags, VkImageFormatProperties* pImageFormatProperties) const {
+  return this->vkGetPhysicalDeviceImageFormatProperties_(physicalDevice, format, type, tiling, usage, flags, pImageFormatProperties);
+}
+
+void VulkanInstanceTable::vkGetPhysicalDeviceProperties(VkPhysicalDevice physicalDevice, VkPhysicalDeviceProperties* pProperties) const {
+  return this->vkGetPhysicalDeviceProperties_(physicalDevice, pProperties);
+}
+
+void VulkanInstanceTable::vkGetPhysicalDeviceQueueFamilyProperties(VkPhysicalDevice physicalDevice, uint32_t* pQueueFamilyPropertyCount, VkQueueFamilyProperties* pQueueFamilyProperties) const {
+  return this->vkGetPhysicalDeviceQueueFamilyProperties_(physicalDevice, pQueueFamilyPropertyCount, pQueueFamilyProperties);
+}
+
+void VulkanInstanceTable::vkGetPhysicalDeviceMemoryProperties(VkPhysicalDevice physicalDevice, VkPhysicalDeviceMemoryProperties* pMemoryProperties) const {
+  return this->vkGetPhysicalDeviceMemoryProperties_(physicalDevice, pMemoryProperties);
+}
+
+PFN_vkVoidFunction VulkanInstanceTable::vkGetDeviceProcAddr(VkDevice device, const char* pName) const {
+  return this->vkGetDeviceProcAddr_(device, pName);
+}
+
+VkResult VulkanInstanceTable::vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDevice* pDevice) const {
+  return this->vkCreateDevice_(physicalDevice, pCreateInfo, pAllocator, pDevice);
+}
+
+VkResult VulkanInstanceTable::vkEnumerateDeviceExtensionProperties(VkPhysicalDevice physicalDevice, const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties) const {
+  return this->vkEnumerateDeviceExtensionProperties_(physicalDevice, pLayerName, pPropertyCount, pProperties);
+}
+
+VkResult VulkanInstanceTable::vkEnumerateDeviceLayerProperties(VkPhysicalDevice physicalDevice, uint32_t* pPropertyCount, VkLayerProperties* pProperties) const {
+  return this->vkEnumerateDeviceLayerProperties_(physicalDevice, pPropertyCount, pProperties);
+}
+
+void VulkanInstanceTable::vkGetPhysicalDeviceSparseImageFormatProperties(VkPhysicalDevice physicalDevice, VkFormat format, VkImageType type, VkSampleCountFlagBits samples, VkImageUsageFlags usage, VkImageTiling tiling, uint32_t* pPropertyCount, VkSparseImageFormatProperties* pProperties) const {
+  return this->vkGetPhysicalDeviceSparseImageFormatProperties_(physicalDevice, format, type, samples, usage, tiling, pPropertyCount, pProperties);
+}
+
 } // vkgen
