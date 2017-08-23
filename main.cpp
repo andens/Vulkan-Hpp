@@ -19,9 +19,13 @@
 
 #include "vkspec.h"
 #include "rust_generator.h"
+#include "cpp_dispatch_tables.h"
 
 int main(int argc, char **argv)
 {
+  // TODO:
+  // Extract translators to themselves
+  // Probably useful with something like factory that can run a certain generator
 	try {
 		std::string filename = (argc == 1) ? VK_SPEC : argv[1];
 
@@ -35,6 +39,16 @@ int main(int argc, char **argv)
           std::cout << "Writing vulkan.rs to " << out << std::endl;
 
           RustGenerator generator(out, reg.license(), feature->major(), feature->minor(), feature->patch());
+          feature->generate(&generator);
+        }
+
+        {
+          CppTranslator translator;
+          vkspec::Registry reg(&translator);
+          reg.parse(filename);
+          vkspec::Feature* feature = reg.build_feature("vulkan");
+
+          CppDispatchTableGenerator generator(VULKAN_DIR, reg.license(), feature->major(), feature->minor(), feature->patch());
           feature->generate(&generator);
         }
 	}

@@ -352,7 +352,7 @@ public:
       throw std::runtime_error("Failed to open file for output");
     }
 
-    _indent = new IndentingOStreambuf(_file, 0);
+    _indent = new IndentingOStreambuf(_file, 4);
 
     _file << license << std::endl;
     _file << std::endl;

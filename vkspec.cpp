@@ -430,6 +430,10 @@ namespace vkspec {
 		std::string supported = element->Attribute("supported");
 		
 		Extension* e = new Extension(name, number, supported, element);
+        if (element->Attribute("protect")) {
+          e->_protect = element->Attribute("protect");
+        }
+
 		assert(_items.insert(std::make_pair(name, e)).second == true);
 		// Note: not a type, so no insertion to _types
 		_extensions.push_back(e);

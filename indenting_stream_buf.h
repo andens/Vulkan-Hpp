@@ -10,6 +10,7 @@ class IndentingOStreambuf : public std::streambuf
   //std::string         myIndent;
   int                 myIndent;
   std::ostream*       myOwner;
+  int                 myIndentStep;
 protected:
   virtual int         overflow(int ch)
   {
@@ -28,8 +29,9 @@ public:
     : myDest(dest)
     , myIsAtStartOfLine(true)
     //, myIndent(indent, ' ')
-    , myIndent(indent)
+    , myIndent(0)
     , myOwner(NULL)
+    , myIndentStep(indent)
   {
   }
   explicit            IndentingOStreambuf(
@@ -37,8 +39,9 @@ public:
     : myDest(dest.rdbuf())
     , myIsAtStartOfLine(true)
     //, myIndent(indent, ' ')
-    , myIndent(indent)
+    , myIndent(0)
     , myOwner(&dest)
+    , myIndentStep(indent)
   {
     myOwner->rdbuf(this);
   }
@@ -48,11 +51,11 @@ public:
       myOwner->rdbuf(myDest);
     }
   }
-  void increase(int indent = 4) {
-    myIndent += indent;
+  void increase() {
+    myIndent += myIndentStep;
   }
-  void decrease(int indent = 4) {
-    myIndent -= indent;
+  void decrease() {
+    myIndent -= myIndentStep;
     if (myIndent < 0) {
       myIndent = 0;
     }

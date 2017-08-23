@@ -449,16 +449,18 @@ class Extension : public Item {
 	friend class Feature;
 
 public:
+    std::string const& protect() { return _protect; }
 	ExtensionClassification classification() { return _classification; }
 	std::vector<Command*> const& commands() { return _commands; }
 
 private:
-	Extension(std::string const& name, int number, std::string const& supported, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number), _supported(supported) {}
+	Extension(std::string const& name, int number, std::string const& supported, tinyxml2::XMLElement* extension_element) : Item(name, extension_element), _number(number), _supported(supported), _protect("") {}
 
 private:
 	int _number = 0;
 	std::string _supported;
 	std::string _tag;
+    std::string _protect;
 	ExtensionClassification _classification = ExtensionClassification::Unspecified;
 	std::vector<Command*> _commands;
 	std::vector<Type*> _required_types; // Provided explicitly by registry

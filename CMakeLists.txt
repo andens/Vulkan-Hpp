@@ -40,11 +40,13 @@ set(HEADERS
   vkspec.h
   rust_generator.h
   indenting_stream_buf.h
+  cpp_dispatch_tables.h
 )
 
 set(SOURCES
   main.cpp
   vkspec.cpp
+  cpp_dispatch_tables.cpp
 )
 
 set(TINYXML2_SOURCES
