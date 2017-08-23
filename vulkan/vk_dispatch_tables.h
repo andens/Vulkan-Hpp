@@ -56,10 +56,10 @@ class VulkanGlobalTable {
 
 public:
   VulkanGlobalTable(std::string const& vulkan_library);
-  PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char* pName);
-  VkResult vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance);
-  VkResult vkEnumerateInstanceExtensionProperties(const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties);
-  VkResult vkEnumerateInstanceLayerProperties(uint32_t* pPropertyCount, VkLayerProperties* pProperties);
+  PFN_vkVoidFunction vkGetInstanceProcAddr(VkInstance instance, const char* pName) const;
+  VkResult vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance) const;
+  VkResult vkEnumerateInstanceExtensionProperties(const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties) const;
+  VkResult vkEnumerateInstanceLayerProperties(uint32_t* pPropertyCount, VkLayerProperties* pProperties) const;
 
 private:
   library_handle library_ = nullptr;

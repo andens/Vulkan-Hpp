@@ -9,7 +9,7 @@ void print_func_wrapper_h(ofstream& file, vkspec::Command* c) {
     file << comma << p.complete_type << " " << p.name;
     comma = ", ";
   }
-  file << ");" << std::endl;
+  file << ") const;" << std::endl;
 }
 
 void print_func_wrapper_cpp(ofstream& file, IndentingOStreambuf* ind, vkspec::Command* c, string const& class_name) {
@@ -19,9 +19,9 @@ void print_func_wrapper_cpp(ofstream& file, IndentingOStreambuf* ind, vkspec::Co
     file << comma << p.complete_type << " " << p.name;
     comma = ", ";
   }
-  file << ") {" << endl;
+  file << ") const {" << endl;
   ind->increase();
-  file << "this->" << c->name() << "_(";
+  file << "return this->" << c->name() << "_(";
   comma = "";
   for (auto& p : c->params()) {
     file << comma << p.name;
@@ -140,6 +140,13 @@ public:
   }
   ind_h->decrease();
   header << "};" << endl; // End GlobalDispatchTable class
+
+  cpp << endl;
+  cpp << "/*" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << " * " << "VulkanGlobalTable" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << "*/" << endl;
 
   cpp << R"(
 VulkanGlobalTable::VulkanGlobalTable(std::string const& vulkan_library) {

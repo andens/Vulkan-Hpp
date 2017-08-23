@@ -4,6 +4,12 @@
 
 namespace vkgen {
 
+/*
+ * ------------------------------------------------------
+ * VulkanGlobalTable
+ * ------------------------------------------------------
+*/
+
 VulkanGlobalTable::VulkanGlobalTable(std::string const& vulkan_library) {
 #if defined(_WIN32)
   library_ = LoadLibraryA(vulkan_library.c_str());
@@ -45,20 +51,20 @@ VulkanGlobalTable::VulkanGlobalTable(std::string const& vulkan_library) {
   LOAD_GLOBAL_FUNC(vkEnumerateInstanceLayerProperties);
 }
 
-PFN_vkVoidFunction VulkanGlobalTable::vkGetInstanceProcAddr(VkInstance instance, const char* pName) {
-  this->vkGetInstanceProcAddr_(instance, pName);
+PFN_vkVoidFunction VulkanGlobalTable::vkGetInstanceProcAddr(VkInstance instance, const char* pName) const {
+  return this->vkGetInstanceProcAddr_(instance, pName);
 }
 
-VkResult VulkanGlobalTable::vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance) {
-  this->vkCreateInstance_(pCreateInfo, pAllocator, pInstance);
+VkResult VulkanGlobalTable::vkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkInstance* pInstance) const {
+  return this->vkCreateInstance_(pCreateInfo, pAllocator, pInstance);
 }
 
-VkResult VulkanGlobalTable::vkEnumerateInstanceExtensionProperties(const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties) {
-  this->vkEnumerateInstanceExtensionProperties_(pLayerName, pPropertyCount, pProperties);
+VkResult VulkanGlobalTable::vkEnumerateInstanceExtensionProperties(const char* pLayerName, uint32_t* pPropertyCount, VkExtensionProperties* pProperties) const {
+  return this->vkEnumerateInstanceExtensionProperties_(pLayerName, pPropertyCount, pProperties);
 }
 
-VkResult VulkanGlobalTable::vkEnumerateInstanceLayerProperties(uint32_t* pPropertyCount, VkLayerProperties* pProperties) {
-  this->vkEnumerateInstanceLayerProperties_(pPropertyCount, pProperties);
+VkResult VulkanGlobalTable::vkEnumerateInstanceLayerProperties(uint32_t* pPropertyCount, VkLayerProperties* pProperties) const {
+  return this->vkEnumerateInstanceLayerProperties_(pPropertyCount, pProperties);
 }
 
 } // vkgen
