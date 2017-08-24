@@ -129,17 +129,19 @@ namespace vkspec {
 		// them. While at it, we also collect general independent information
 		// such as license header and tags. To avoid parsing again, the XML node
 		// is saved to easily start reading definitions later.
+      {
+        tinyxml2::XMLElement* first_child = registry_element->FirstChildElement();
+        assert(first_child && first_child->Value() && strcmp(first_child->Value(), "comment") == 0);
+        // Get the vulkan license header and skip any leading spaces
+        _read_comment(first_child);
+        _license_header.erase(_license_header.begin(), std::find_if(_license_header.begin(), _license_header.end(), [](char c) { return !std::isspace(c); }));
+      }
 		for (tinyxml2::XMLElement * child = registry_element->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
 			assert(child->Value());
 			const std::string value = child->Value();
 
-			if (value == "comment") {
-				// Get the vulkan license header and skip any leading spaces
-				_read_comment(child);
-				_license_header.erase(_license_header.begin(), std::find_if(_license_header.begin(), _license_header.end(), [](char c) { return !std::isspace(c); }));
-			}
-			else if (value == "tags") {
+			if (value == "tags") {
 				// Author IDs for extensions and layers
 				_read_tags(child);
 			}
@@ -163,7 +165,15 @@ namespace vkspec {
 				_read_feature(child);
 			}
 			else {
-				assert(value == "vendorids");
+              // If the very first child element is a comment we treat it as
+              // the license text. Other comments are ignored because I don't
+              // know what they would be. This is just one of the many guesses
+              // one has to make because the registry structure is not very
+              // clean and there are not too many guarantees about it. It would
+              // be great if Khronos could just provide clear rules about which
+              // order things happen in and generally structure the registry in
+              // a way that makes parsing straight forward without guesswork.
+				assert(value == "vendorids" || value == "comment");
 			}
 		}
 	}
@@ -204,8 +214,11 @@ namespace vkspec {
 		// The types tag consists of individual type tags that each describe types used in the API.
 		for (tinyxml2::XMLElement * child = element->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
-			assert(child->Value() && strcmp(child->Value(), "type") == 0);
+			assert(child->Value() && (strcmp(child->Value(), "type") == 0 || strcmp(child->Value(), "comment") == 0));
 			std::string type = child->Value();
+            if (type == "comment") {
+              continue;
+            }
 
 			// A present category indicates a type has a more complex definition.
 			// I.e, it's not just a basic C type.
@@ -719,8 +732,12 @@ namespace vkspec {
 
 		for (tinyxml2::XMLElement * child = s->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement())
 		{
-			assert(child->Value() && strcmp(child->Value(), "member") == 0);
-			_read_type_struct_member(s, child);
+          assert(child->Value());
+          if (strcmp(child->Value(), "comment") == 0) {
+            continue;
+          }
+          assert(strcmp(child->Value(), "member") == 0);
+          _read_type_struct_member(s, child);
 		}
 	}
 
@@ -872,7 +889,8 @@ namespace vkspec {
 	void Registry::_parse_enum_definition(Enum* e) {
 		// read the names of the enum values
 		for (tinyxml2::XMLElement * child = e->_xml_node->FirstChildElement(); child; child = child->NextSiblingElement()) {
-			if (strcmp(child->Value(), "unused") == 0) {
+          assert(child->Value());
+			if (strcmp(child->Value(), "unused") == 0 || strcmp(child->Value(), "comment") == 0) {
 				continue;
 			}
 
@@ -1055,7 +1073,10 @@ namespace vkspec {
 					api_constant = enum_it->second->to_api_constant();
 					assert(api_constant);
 					node = node->NextSibling();
-					assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0) && !node->NextSibling());
+					assert(node && node->ToText() && (strcmp(node->Value(), "]") == 0));
+                    if (node->NextSibling()) {
+                      assert(node->NextSibling()->ToElement() && strcmp(node->NextSibling()->Value(), "comment") == 0);
+                    }
 				}
 				else
 				{
@@ -1063,7 +1084,9 @@ namespace vkspec {
 					assert((value.front() == '[') && (value.back() == ']'));
 					arraySize = value.substr(1, value.length() - 2);
 					assert(!arraySize.empty() && arraySize.find_first_not_of("0123456789") == std::string::npos); // should be unsigned int
-					assert(!node->NextSibling());
+                    if (node->NextSibling()) {
+                      assert(node->NextSibling()->ToElement() && strcmp(node->NextSibling()->Value(), "comment") == 0);
+                    }
 				}
 			}
 		}
@@ -1253,15 +1276,26 @@ namespace vkspec {
 		e->_tag = _extract_tag(e->_name);
 		assert(_tags.find(e->_tag) != _tags.end());
 
+        // Remove this and the else body below when this one has a type
+        if (e->_name == "VK_AMD_mixed_attachment_samples") {
+          assert(!e->_xml_node->Attribute("type"));
+        }
+
 		if (e->_xml_node->Attribute("type")) {
 			std::string extension_type = e->_xml_node->Attribute("type");
 			assert(extension_type == "instance" || extension_type == "device");
 			e->_classification = extension_type == "instance" ? ExtensionClassification::Instance : ExtensionClassification::Device;
 		}
 		else {
-			// Omission of type attribute only seems to happen for disabled extensions
-			assert(strcmp(e->_xml_node->Attribute("supported"), "disabled") == 0);
-			e->_classification = ExtensionClassification::Disabled;
+          // Omission of type attribute only seems to happen mostly for
+          // disabled extensions.
+          if (strcmp(e->_xml_node->Attribute("supported"), "disabled") == 0) {
+            e->_classification = ExtensionClassification::Disabled;
+          }
+          else {
+            assert(e->_name == "VK_AMD_mixed_attachment_samples");
+            e->_classification = ExtensionClassification::Device;
+          }
 		}
 
 		// The original code used protect, which is a preprocessor define that must be
