@@ -323,3 +323,101 @@ VulkanDeviceTable::VulkanDeviceTable(VulkanInstanceTable const* instance, VkDevi
     print_func_wrapper_cpp(cpp, ind_cpp, c, "VulkanDeviceTable");
   }
 }
+
+void CppDispatchTableGenerator::begin_extensions() {
+  cpp << R"(#undef LOAD_INSTANCE_FUNC
+#define LOAD_INSTANCE_FUNC(fun)\
+  this->##fun##_ = reinterpret_cast<PFN_##fun>(globals->vkGetInstanceProcAddr(\
+      instance->instance(), #fun));\
+  if (!this->##fun##_) {\
+    throw VulkanProcNotFound(#fun);\
+  }
+
+#undef LOAD_DEVICE_FUNC
+#define LOAD_DEVICE_FUNC(fun)\
+  this->##fun##_ = reinterpret_cast<PFN_##fun>(instance->vkGetDeviceProcAddr(\
+      device->device(), #fun));\
+  if (!this->##fun##_) {\
+    throw VulkanProcNotFound(#fun);\
+  }
+)" << endl;
+}
+
+void CppDispatchTableGenerator::end_extension(vkspec::Extension* e) {
+  header << endl;
+  if (e->protect() != "") {
+    header << "#if defined(" << e->protect() << ")" << endl;
+  }
+
+  header << "#undef " << e->name() << endl;
+  header << "class " << e->name() << " {" << endl;
+  header << "public:" << endl;
+
+  ind_h->increase();
+  header << e->name() << "(VulkanGlobalTable const* globals, VulkanInstanceTable const* instance";
+  if (e->classification() == vkspec::ExtensionClassification::Device) {
+    header << ", VulkanDeviceTable const* device";
+  }
+  header << ");" << endl;
+  for (auto c : e->commands()) {
+    print_func_wrapper_h(header, c);
+  }
+  
+  ind_h->decrease();
+  header << endl;
+  header << "private:" << endl;
+  ind_h->increase();
+  for (auto c : e->commands()) {
+    header << "PFN_" << c->name() << " " << c->name() << "_ = nullptr;" << endl;
+  }
+  ind_h->decrease();
+
+  header << "};" << endl;
+
+  if (e->protect() != "") {
+    header << "#endif // " << e->protect() << endl;
+  }
+
+  cpp << "/*" << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << " * " << e->name() << endl;
+  cpp << " * ------------------------------------------------------" << endl;
+  cpp << "*/" << endl;
+
+  if (e->protect() != "") {
+    cpp << endl;
+    cpp << "#if defined(" << e->protect() << ")" << endl;
+  }
+  cpp << endl;
+
+  cpp << e->name() << "::" << e->name() << "(VulkanGlobalTable const* globals, VulkanInstanceTable const* instance";
+  if (e->classification() == vkspec::ExtensionClassification::Device) {
+    cpp << ", VulkanDeviceTable const* device";
+  }
+  cpp << ") {" << endl;
+
+  ind_cpp->increase();
+  for (auto c : e->commands()) {
+    if (c->classification() == vkspec::CommandClassification::Instance) {
+      cpp << "LOAD_INSTANCE_FUNC(" << c->name() << ");" << endl;
+    }
+    else if (c->classification() == vkspec::CommandClassification::Device) {
+      cpp << "LOAD_DEVICE_FUNC(" << c->name() << ");" << endl;
+    }
+    else {
+      assert(false);
+    }
+  }
+  ind_cpp->decrease();
+  cpp << "}" << endl;
+
+  cpp << endl;
+  for (auto c : e->commands()) {
+    print_func_wrapper_cpp(cpp, ind_cpp, c, e->name());
+  }
+
+  if (e->protect() != "") {
+    cpp << "#endif // " << e->protect() << endl;
+    cpp << endl;
+  }
+}

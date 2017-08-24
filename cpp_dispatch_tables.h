@@ -31,10 +31,10 @@ public:
   virtual void begin_device_commands() override final {}
   virtual void gen_device_command(vkspec::Command* c) override final;
   virtual void end_device_commands() override final;
-  virtual void begin_extensions() override final {}
+  virtual void begin_extensions() override final;
   virtual void end_extensions() override final {}
   virtual void begin_extension(vkspec::Extension* e) override final {}
-  virtual void end_extension(vkspec::Extension* e) override final {}
+  virtual void end_extension(vkspec::Extension* e) override final;
 
 private:
   std::ofstream header;
