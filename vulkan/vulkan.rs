@@ -1,25 +1,18 @@
 // Copyright (c) 2015-2017 The Khronos Group Inc.
 // 
-// Permission is hereby granted, free of charge, to any person obtaining a
-// copy of this software and/or associated documentation files (the
-// "Materials"), to deal in the Materials without restriction, including
-// without limitation the rights to use, copy, modify, merge, publish,
-// distribute, sublicense, and/or sell copies of the Materials, and to
-// permit persons to whom the Materials are furnished to do so, subject to
-// the following conditions:
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 // 
-// The above copyright notice and this permission notice shall be included
-// in all copies or substantial portions of the Materials.
+//     http://www.apache.org/licenses/LICENSE-2.0
 // 
-// THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-// MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-// IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-// CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-// TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
-// MATERIALS OR THE USE OR OTHER DEALINGS IN THE MATERIALS.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-// Rust bindings for Vulkan 1.0.48, generated from the Khronos Vulkan API XML Registry.
+// Rust bindings for Vulkan 1.0.57, generated from the Khronos Vulkan API XML Registry.
 // See https://github.com/andens/Vulkan-Hpp for generator details.
 
 #![allow(non_camel_case_types)]
@@ -443,7 +436,7 @@ pub mod core {
         VK_ERROR_VALIDATION_FAILED_EXT = -1000011001,
         VK_ERROR_INVALID_SHADER_NV = -1000012000,
         VK_ERROR_OUT_OF_POOL_MEMORY_KHR = -1000069000,
-        VK_ERROR_INVALID_EXTERNAL_HANDLE_KHX = -1000072003,
+        VK_ERROR_INVALID_EXTERNAL_HANDLE_KHR = -1000072003,
     }
 
     #[repr(C)]
@@ -516,6 +509,7 @@ pub mod core {
         VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_IMAGE_CREATE_INFO_NV = 1000026000,
         VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_BUFFER_CREATE_INFO_NV = 1000026001,
         VK_STRUCTURE_TYPE_DEDICATED_ALLOCATION_MEMORY_ALLOCATE_INFO_NV = 1000026002,
+        VK_STRUCTURE_TYPE_TEXTURE_LOD_GATHER_FORMAT_PROPERTIES_AMD = 1000041000,
         VK_STRUCTURE_TYPE_RENDER_PASS_MULTIVIEW_CREATE_INFO_KHX = 1000053000,
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES_KHX = 1000053001,
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_PROPERTIES_KHX = 1000053002,
@@ -550,28 +544,33 @@ pub mod core {
         VK_STRUCTURE_TYPE_VI_SURFACE_CREATE_INFO_NN = 1000062000,
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES_KHX = 1000070000,
         VK_STRUCTURE_TYPE_DEVICE_GROUP_DEVICE_CREATE_INFO_KHX = 1000070001,
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHX = 1000071000,
-        VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES_KHX = 1000071001,
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO_KHX = 1000071002,
-        VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES_KHX = 1000071003,
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES_KHX = 1000071004,
-        VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO_KHX = 1000072000,
-        VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHX = 1000072001,
-        VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHX = 1000072002,
-        VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHX = 1000073000,
-        VK_STRUCTURE_TYPE_EXPORT_MEMORY_WIN32_HANDLE_INFO_KHX = 1000073001,
-        VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHX = 1000073002,
-        VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHX = 1000074000,
-        VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHX = 1000074001,
-        VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHX = 1000075000,
-        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO_KHX = 1000076000,
-        VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES_KHX = 1000076001,
-        VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHX = 1000077000,
-        VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHX = 1000078000,
-        VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHX = 1000078001,
-        VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHX = 1000078002,
-        VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHX = 1000079000,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO_KHR = 1000071000,
+        VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES_KHR = 1000071001,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO_KHR = 1000071002,
+        VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES_KHR = 1000071003,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES_KHR = 1000071004,
+        VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_BUFFER_CREATE_INFO_KHR = 1000072000,
+        VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR = 1000072001,
+        VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR = 1000072002,
+        VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR = 1000073000,
+        VK_STRUCTURE_TYPE_EXPORT_MEMORY_WIN32_HANDLE_INFO_KHR = 1000073001,
+        VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR = 1000073002,
+        VK_STRUCTURE_TYPE_MEMORY_GET_WIN32_HANDLE_INFO_KHR = 1000073003,
+        VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR = 1000074000,
+        VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR = 1000074001,
+        VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR = 1000074002,
+        VK_STRUCTURE_TYPE_WIN32_KEYED_MUTEX_ACQUIRE_RELEASE_INFO_KHR = 1000075000,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_SEMAPHORE_INFO_KHR = 1000076000,
+        VK_STRUCTURE_TYPE_EXTERNAL_SEMAPHORE_PROPERTIES_KHR = 1000076001,
+        VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO_KHR = 1000077000,
+        VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR = 1000078000,
+        VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_WIN32_HANDLE_INFO_KHR = 1000078001,
+        VK_STRUCTURE_TYPE_D3D12_FENCE_SUBMIT_INFO_KHR = 1000078002,
+        VK_STRUCTURE_TYPE_SEMAPHORE_GET_WIN32_HANDLE_INFO_KHR = 1000078003,
+        VK_STRUCTURE_TYPE_IMPORT_SEMAPHORE_FD_INFO_KHR = 1000079000,
+        VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR = 1000079001,
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PUSH_DESCRIPTOR_PROPERTIES_KHR = 1000080000,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_16BIT_STORAGE_FEATURES_KHR = 1000083000,
         VK_STRUCTURE_TYPE_PRESENT_REGIONS_KHR = 1000084000,
         VK_STRUCTURE_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_CREATE_INFO_KHR = 1000085000,
         VK_STRUCTURE_TYPE_OBJECT_TABLE_CREATE_INFO_NVX = 1000086000,
@@ -592,8 +591,35 @@ pub mod core {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DISCARD_RECTANGLE_PROPERTIES_EXT = 1000099000,
         VK_STRUCTURE_TYPE_PIPELINE_DISCARD_RECTANGLE_STATE_CREATE_INFO_EXT = 1000099001,
         VK_STRUCTURE_TYPE_HDR_METADATA_EXT = 1000105000,
+        VK_STRUCTURE_TYPE_SHARED_PRESENT_SURFACE_CAPABILITIES_KHR = 1000111000,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_FENCE_INFO_KHR = 1000112000,
+        VK_STRUCTURE_TYPE_EXTERNAL_FENCE_PROPERTIES_KHR = 1000112001,
+        VK_STRUCTURE_TYPE_EXPORT_FENCE_CREATE_INFO_KHR = 1000113000,
+        VK_STRUCTURE_TYPE_IMPORT_FENCE_WIN32_HANDLE_INFO_KHR = 1000114000,
+        VK_STRUCTURE_TYPE_EXPORT_FENCE_WIN32_HANDLE_INFO_KHR = 1000114001,
+        VK_STRUCTURE_TYPE_FENCE_GET_WIN32_HANDLE_INFO_KHR = 1000114002,
+        VK_STRUCTURE_TYPE_IMPORT_FENCE_FD_INFO_KHR = 1000115000,
+        VK_STRUCTURE_TYPE_FENCE_GET_FD_INFO_KHR = 1000115001,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR = 1000119000,
+        VK_STRUCTURE_TYPE_SURFACE_CAPABILITIES_2_KHR = 1000119001,
+        VK_STRUCTURE_TYPE_SURFACE_FORMAT_2_KHR = 1000119002,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VARIABLE_POINTER_FEATURES_KHR = 1000120000,
         VK_STRUCTURE_TYPE_IOS_SURFACE_CREATE_INFO_MVK = 1000122000,
         VK_STRUCTURE_TYPE_MACOS_SURFACE_CREATE_INFO_MVK = 1000123000,
+        VK_STRUCTURE_TYPE_MEMORY_DEDICATED_REQUIREMENTS_KHR = 1000127000,
+        VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO_KHR = 1000127001,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SAMPLER_FILTER_MINMAX_PROPERTIES_EXT = 1000130000,
+        VK_STRUCTURE_TYPE_SAMPLER_REDUCTION_MODE_CREATE_INFO_EXT = 1000130001,
+        VK_STRUCTURE_TYPE_BUFFER_MEMORY_REQUIREMENTS_INFO_2_KHR = 1000146000,
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_REQUIREMENTS_INFO_2_KHR = 1000146001,
+        VK_STRUCTURE_TYPE_IMAGE_SPARSE_MEMORY_REQUIREMENTS_INFO_2_KHR = 1000146002,
+        VK_STRUCTURE_TYPE_MEMORY_REQUIREMENTS_2_KHR = 1000146003,
+        VK_STRUCTURE_TYPE_SPARSE_IMAGE_MEMORY_REQUIREMENTS_2_KHR = 1000146004,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_FEATURES_EXT = 1000148000,
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BLEND_OPERATION_ADVANCED_PROPERTIES_EXT = 1000148001,
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_ADVANCED_STATE_CREATE_INFO_EXT = 1000148002,
+        VK_STRUCTURE_TYPE_PIPELINE_COVERAGE_TO_COLOR_STATE_CREATE_INFO_NV = 1000149000,
+        VK_STRUCTURE_TYPE_PIPELINE_COVERAGE_MODULATION_STATE_CREATE_INFO_NV = 1000152000,
     }
 
     #[repr(C)]
@@ -854,6 +880,7 @@ pub mod core {
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL = 7,
         VK_IMAGE_LAYOUT_PREINITIALIZED = 8,
         VK_IMAGE_LAYOUT_PRESENT_SRC_KHR = 1000001002,
+        VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR = 1000111000,
     }
 
     #[repr(C)]
@@ -904,6 +931,7 @@ pub mod core {
         VK_POLYGON_MODE_FILL = 0,
         VK_POLYGON_MODE_LINE = 1,
         VK_POLYGON_MODE_POINT = 2,
+        VK_POLYGON_MODE_FILL_RECTANGLE_NV = 1000153000,
     }
 
     #[repr(C)]
@@ -986,6 +1014,52 @@ pub mod core {
         VK_BLEND_OP_REVERSE_SUBTRACT = 2,
         VK_BLEND_OP_MIN = 3,
         VK_BLEND_OP_MAX = 4,
+        VK_BLEND_OP_ZERO_EXT = 1000148000,
+        VK_BLEND_OP_SRC_EXT = 1000148001,
+        VK_BLEND_OP_DST_EXT = 1000148002,
+        VK_BLEND_OP_SRC_OVER_EXT = 1000148003,
+        VK_BLEND_OP_DST_OVER_EXT = 1000148004,
+        VK_BLEND_OP_SRC_IN_EXT = 1000148005,
+        VK_BLEND_OP_DST_IN_EXT = 1000148006,
+        VK_BLEND_OP_SRC_OUT_EXT = 1000148007,
+        VK_BLEND_OP_DST_OUT_EXT = 1000148008,
+        VK_BLEND_OP_SRC_ATOP_EXT = 1000148009,
+        VK_BLEND_OP_DST_ATOP_EXT = 1000148010,
+        VK_BLEND_OP_XOR_EXT = 1000148011,
+        VK_BLEND_OP_MULTIPLY_EXT = 1000148012,
+        VK_BLEND_OP_SCREEN_EXT = 1000148013,
+        VK_BLEND_OP_OVERLAY_EXT = 1000148014,
+        VK_BLEND_OP_DARKEN_EXT = 1000148015,
+        VK_BLEND_OP_LIGHTEN_EXT = 1000148016,
+        VK_BLEND_OP_COLORDODGE_EXT = 1000148017,
+        VK_BLEND_OP_COLORBURN_EXT = 1000148018,
+        VK_BLEND_OP_HARDLIGHT_EXT = 1000148019,
+        VK_BLEND_OP_SOFTLIGHT_EXT = 1000148020,
+        VK_BLEND_OP_DIFFERENCE_EXT = 1000148021,
+        VK_BLEND_OP_EXCLUSION_EXT = 1000148022,
+        VK_BLEND_OP_INVERT_EXT = 1000148023,
+        VK_BLEND_OP_INVERT_RGB_EXT = 1000148024,
+        VK_BLEND_OP_LINEARDODGE_EXT = 1000148025,
+        VK_BLEND_OP_LINEARBURN_EXT = 1000148026,
+        VK_BLEND_OP_VIVIDLIGHT_EXT = 1000148027,
+        VK_BLEND_OP_LINEARLIGHT_EXT = 1000148028,
+        VK_BLEND_OP_PINLIGHT_EXT = 1000148029,
+        VK_BLEND_OP_HARDMIX_EXT = 1000148030,
+        VK_BLEND_OP_HSL_HUE_EXT = 1000148031,
+        VK_BLEND_OP_HSL_SATURATION_EXT = 1000148032,
+        VK_BLEND_OP_HSL_COLOR_EXT = 1000148033,
+        VK_BLEND_OP_HSL_LUMINOSITY_EXT = 1000148034,
+        VK_BLEND_OP_PLUS_EXT = 1000148035,
+        VK_BLEND_OP_PLUS_CLAMPED_EXT = 1000148036,
+        VK_BLEND_OP_PLUS_CLAMPED_ALPHA_EXT = 1000148037,
+        VK_BLEND_OP_PLUS_DARKER_EXT = 1000148038,
+        VK_BLEND_OP_MINUS_EXT = 1000148039,
+        VK_BLEND_OP_MINUS_CLAMPED_EXT = 1000148040,
+        VK_BLEND_OP_CONTRAST_EXT = 1000148041,
+        VK_BLEND_OP_INVERT_OVG_EXT = 1000148042,
+        VK_BLEND_OP_RED_EXT = 1000148043,
+        VK_BLEND_OP_GREEN_EXT = 1000148044,
+        VK_BLEND_OP_BLUE_EXT = 1000148045,
     }
 
     #[repr(C)]
@@ -1087,6 +1161,44 @@ pub mod core {
         VK_SUBPASS_CONTENTS_SECONDARY_COMMAND_BUFFERS = 1,
     }
 
+    #[repr(C)]
+    pub enum VkObjectType {
+        VK_OBJECT_TYPE_UNKNOWN = 0,
+        VK_OBJECT_TYPE_INSTANCE = 1,
+        VK_OBJECT_TYPE_PHYSICAL_DEVICE = 2,
+        VK_OBJECT_TYPE_DEVICE = 3,
+        VK_OBJECT_TYPE_QUEUE = 4,
+        VK_OBJECT_TYPE_SEMAPHORE = 5,
+        VK_OBJECT_TYPE_COMMAND_BUFFER = 6,
+        VK_OBJECT_TYPE_FENCE = 7,
+        VK_OBJECT_TYPE_DEVICE_MEMORY = 8,
+        VK_OBJECT_TYPE_BUFFER = 9,
+        VK_OBJECT_TYPE_IMAGE = 10,
+        VK_OBJECT_TYPE_EVENT = 11,
+        VK_OBJECT_TYPE_QUERY_POOL = 12,
+        VK_OBJECT_TYPE_BUFFER_VIEW = 13,
+        VK_OBJECT_TYPE_IMAGE_VIEW = 14,
+        VK_OBJECT_TYPE_SHADER_MODULE = 15,
+        VK_OBJECT_TYPE_PIPELINE_CACHE = 16,
+        VK_OBJECT_TYPE_PIPELINE_LAYOUT = 17,
+        VK_OBJECT_TYPE_RENDER_PASS = 18,
+        VK_OBJECT_TYPE_PIPELINE = 19,
+        VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT = 20,
+        VK_OBJECT_TYPE_SAMPLER = 21,
+        VK_OBJECT_TYPE_DESCRIPTOR_POOL = 22,
+        VK_OBJECT_TYPE_DESCRIPTOR_SET = 23,
+        VK_OBJECT_TYPE_FRAMEBUFFER = 24,
+        VK_OBJECT_TYPE_COMMAND_POOL = 25,
+        VK_OBJECT_TYPE_SURFACE_KHR = 1000000000,
+        VK_OBJECT_TYPE_SWAPCHAIN_KHR = 1000001000,
+        VK_OBJECT_TYPE_DISPLAY_KHR = 1000002000,
+        VK_OBJECT_TYPE_DISPLAY_MODE_KHR = 1000002001,
+        VK_OBJECT_TYPE_DEBUG_REPORT_CALLBACK_EXT = 1000011000,
+        VK_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_KHR = 1000085000,
+        VK_OBJECT_TYPE_OBJECT_TABLE_NVX = 1000086000,
+        VK_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NVX = 1000086001,
+    }
+
     vulkan_flags!(VkInstanceCreateFlags);
     vulkan_flags!(VkFormatFeatureFlags, VkFormatFeatureFlagBits, {
         VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT = 0x00000001,
@@ -1105,6 +1217,7 @@ pub mod core {
         VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_CUBIC_BIT_IMG = 0x00002000,
         VK_FORMAT_FEATURE_TRANSFER_SRC_BIT_KHR = 0x00004000,
         VK_FORMAT_FEATURE_TRANSFER_DST_BIT_KHR = 0x00008000,
+        VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_MINMAX_BIT_EXT = 0x00010000,
     });
     vulkan_flags!(VkImageUsageFlags, VkImageUsageFlagBits, {
         VK_IMAGE_USAGE_TRANSFER_SRC_BIT = 0x00000001,
@@ -1310,6 +1423,7 @@ pub mod core {
         VK_ACCESS_MEMORY_WRITE_BIT = 0x00010000,
         VK_ACCESS_COMMAND_PROCESS_READ_BIT_NVX = 0x00020000,
         VK_ACCESS_COMMAND_PROCESS_WRITE_BIT_NVX = 0x00040000,
+        VK_ACCESS_COLOR_ATTACHMENT_READ_NONCOHERENT_BIT_EXT = 0x00080000,
     });
     vulkan_flags!(VkDependencyFlags, VkDependencyFlagBits, {
         VK_DEPENDENCY_BY_REGION_BIT = 0x00000001,
@@ -2793,6 +2907,7 @@ pub mod extensions {
         VK_COLOR_SPACE_ADOBERGB_LINEAR_EXT = 1000104011,
         VK_COLOR_SPACE_ADOBERGB_NONLINEAR_EXT = 1000104012,
         VK_COLOR_SPACE_PASS_THROUGH_EXT = 1000104013,
+        VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT = 1000104014,
     }
 
     #[repr(C)]
@@ -2801,6 +2916,8 @@ pub mod extensions {
         VK_PRESENT_MODE_MAILBOX_KHR = 1,
         VK_PRESENT_MODE_FIFO_KHR = 2,
         VK_PRESENT_MODE_FIFO_RELAXED_KHR = 3,
+        VK_PRESENT_MODE_SHARED_DEMAND_REFRESH_KHR = 1000111000,
+        VK_PRESENT_MODE_SHARED_CONTINUOUS_REFRESH_KHR = 1000111001,
     }
 
     vulkan_flags!(VkSurfaceTransformFlagsKHR, VkSurfaceTransformFlagBitsKHR, {
@@ -3182,18 +3299,12 @@ pub mod extensions {
         VK_DEBUG_REPORT_OBJECT_TYPE_COMMAND_POOL_EXT = 25,
         VK_DEBUG_REPORT_OBJECT_TYPE_SURFACE_KHR_EXT = 26,
         VK_DEBUG_REPORT_OBJECT_TYPE_SWAPCHAIN_KHR_EXT = 27,
-        VK_DEBUG_REPORT_OBJECT_TYPE_DEBUG_REPORT_EXT = 28,
+        VK_DEBUG_REPORT_OBJECT_TYPE_DEBUG_REPORT_CALLBACK_EXT_EXT = 28,
         VK_DEBUG_REPORT_OBJECT_TYPE_DISPLAY_KHR_EXT = 29,
         VK_DEBUG_REPORT_OBJECT_TYPE_DISPLAY_MODE_KHR_EXT = 30,
         VK_DEBUG_REPORT_OBJECT_TYPE_OBJECT_TABLE_NVX_EXT = 31,
         VK_DEBUG_REPORT_OBJECT_TYPE_INDIRECT_COMMANDS_LAYOUT_NVX_EXT = 32,
         VK_DEBUG_REPORT_OBJECT_TYPE_DESCRIPTOR_UPDATE_TEMPLATE_KHR_EXT = 1000085000,
-    }
-
-    #[repr(C)]
-    pub enum VkDebugReportErrorEXT {
-        VK_DEBUG_REPORT_ERROR_NONE_EXT = 0,
-        VK_DEBUG_REPORT_ERROR_CALLBACK_REF_EXT = 1,
     }
 
     vulkan_flags!(VkDebugReportFlagsEXT, VkDebugReportFlagBitsEXT, {
@@ -3228,6 +3339,15 @@ pub mod extensions {
     */
 
     extension_dispatch_table!{VK_NV_glsl_shader | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_EXT_depth_range_unrestricted
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_EXT_depth_range_unrestricted | device, {
     }}
 
     /*
@@ -3323,11 +3443,11 @@ pub mod extensions {
     }
 
     extension_dispatch_table!{VK_EXT_debug_marker | device, {
-        [device] vkDebugMarkerSetObjectTagEXT => (device: VkDevice, pTagInfo: *mut VkDebugMarkerObjectTagInfoEXT) -> VkResult,
-        [device] vkDebugMarkerSetObjectNameEXT => (device: VkDevice, pNameInfo: *mut VkDebugMarkerObjectNameInfoEXT) -> VkResult,
-        [device] vkCmdDebugMarkerBeginEXT => (commandBuffer: VkCommandBuffer, pMarkerInfo: *mut VkDebugMarkerMarkerInfoEXT) -> (),
+        [device] vkDebugMarkerSetObjectTagEXT => (device: VkDevice, pTagInfo: *const VkDebugMarkerObjectTagInfoEXT) -> VkResult,
+        [device] vkDebugMarkerSetObjectNameEXT => (device: VkDevice, pNameInfo: *const VkDebugMarkerObjectNameInfoEXT) -> VkResult,
+        [device] vkCmdDebugMarkerBeginEXT => (commandBuffer: VkCommandBuffer, pMarkerInfo: *const VkDebugMarkerMarkerInfoEXT) -> (),
         [device] vkCmdDebugMarkerEndEXT => (commandBuffer: VkCommandBuffer) -> (),
-        [device] vkCmdDebugMarkerInsertEXT => (commandBuffer: VkCommandBuffer, pMarkerInfo: *mut VkDebugMarkerMarkerInfoEXT) -> (),
+        [device] vkCmdDebugMarkerInsertEXT => (commandBuffer: VkCommandBuffer, pMarkerInfo: *const VkDebugMarkerMarkerInfoEXT) -> (),
     }}
 
     /*
@@ -3406,6 +3526,22 @@ pub mod extensions {
     */
 
     extension_dispatch_table!{VK_AMD_shader_ballot | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_AMD_texture_gather_bias_lod
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkTextureLODGatherFormatPropertiesAMD {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub supportsTextureGatherLODBiasAMD: VkBool32,
+    }
+
+    extension_dispatch_table!{VK_AMD_texture_gather_bias_lod | device, {
     }}
 
     /*
@@ -3806,6 +3942,7 @@ pub mod extensions {
     #[repr(C)]
     pub enum VkValidationCheckEXT {
         VK_VALIDATION_CHECK_ALL_EXT = 0,
+        VK_VALIDATION_CHECK_SHADERS_EXT = 1,
     }
 
     #[repr(C)]
@@ -3907,131 +4044,141 @@ pub mod extensions {
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_memory_capabilities
+     * VK_KHR_external_memory_capabilities
      * ------------------------------------------------------
     */
 
-    pub const VK_LUID_SIZE_KHX: u32 = 8;
+    pub const VK_LUID_SIZE_KHR: u32 = 8;
 
-    vulkan_flags!(VkExternalMemoryFeatureFlagsKHX, VkExternalMemoryFeatureFlagBitsKHX, {
-        VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHX = 0x00000001,
-        VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT_KHX = 0x00000002,
-        VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHX = 0x00000004,
+    vulkan_flags!(VkExternalMemoryFeatureFlagsKHR, VkExternalMemoryFeatureFlagBitsKHR, {
+        VK_EXTERNAL_MEMORY_FEATURE_DEDICATED_ONLY_BIT_KHR = 0x00000001,
+        VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT_KHR = 0x00000002,
+        VK_EXTERNAL_MEMORY_FEATURE_IMPORTABLE_BIT_KHR = 0x00000004,
     });
-    vulkan_flags!(VkExternalMemoryHandleTypeFlagsKHX, VkExternalMemoryHandleTypeFlagBitsKHX, {
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHX = 0x00000001,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHX = 0x00000002,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT_KHX = 0x00000004,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT_KHX = 0x00000008,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHX = 0x00000010,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_HEAP_BIT_KHX = 0x00000020,
-        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT_KHX = 0x00000040,
+    vulkan_flags!(VkExternalMemoryHandleTypeFlagsKHR, VkExternalMemoryHandleTypeFlagBitsKHR, {
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR = 0x00000001,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR = 0x00000002,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT_KHR = 0x00000004,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT_KHR = 0x00000008,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_KMT_BIT_KHR = 0x00000010,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_HEAP_BIT_KHR = 0x00000020,
+        VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D12_RESOURCE_BIT_KHR = 0x00000040,
     });
 
     #[repr(C)]
-    pub struct VkPhysicalDeviceExternalBufferInfoKHX {
+    pub struct VkPhysicalDeviceExternalBufferInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub flags: VkBufferCreateFlags,
         pub usage: VkBufferUsageFlags,
-        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHX,
+        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHR,
     }
 
     #[repr(C)]
-    pub struct VkExternalMemoryPropertiesKHX {
-        pub externalMemoryFeatures: VkExternalMemoryFeatureFlagsKHX,
-        pub exportFromImportedHandleTypes: VkExternalMemoryHandleTypeFlagsKHX,
-        pub compatibleHandleTypes: VkExternalMemoryHandleTypeFlagsKHX,
+    pub struct VkExternalMemoryPropertiesKHR {
+        pub externalMemoryFeatures: VkExternalMemoryFeatureFlagsKHR,
+        pub exportFromImportedHandleTypes: VkExternalMemoryHandleTypeFlagsKHR,
+        pub compatibleHandleTypes: VkExternalMemoryHandleTypeFlagsKHR,
     }
 
     #[repr(C)]
-    pub struct VkExternalBufferPropertiesKHX {
+    pub struct VkExternalBufferPropertiesKHR {
         pub sType: VkStructureType,
         pub pNext: *mut c_void,
-        pub externalMemoryProperties: VkExternalMemoryPropertiesKHX,
+        pub externalMemoryProperties: VkExternalMemoryPropertiesKHR,
     }
 
     #[repr(C)]
-    pub struct VkPhysicalDeviceExternalImageFormatInfoKHX {
+    pub struct VkPhysicalDeviceExternalImageFormatInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHX,
+        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHR,
     }
 
     #[repr(C)]
-    pub struct VkExternalImageFormatPropertiesKHX {
+    pub struct VkExternalImageFormatPropertiesKHR {
         pub sType: VkStructureType,
         pub pNext: *mut c_void,
-        pub externalMemoryProperties: VkExternalMemoryPropertiesKHX,
+        pub externalMemoryProperties: VkExternalMemoryPropertiesKHR,
     }
 
     #[repr(C)]
-    pub struct VkPhysicalDeviceIDPropertiesKHX {
+    pub struct VkPhysicalDeviceIDPropertiesKHR {
         pub sType: VkStructureType,
         pub pNext: *mut c_void,
         pub deviceUUID: [u8; VK_UUID_SIZE as usize],
         pub driverUUID: [u8; VK_UUID_SIZE as usize],
-        pub deviceLUID: [u8; VK_LUID_SIZE_KHX as usize],
+        pub deviceLUID: [u8; VK_LUID_SIZE_KHR as usize],
+        pub deviceNodeMask: u32,
         pub deviceLUIDValid: VkBool32,
     }
 
-    extension_dispatch_table!{VK_KHX_external_memory_capabilities | instance, {
-        [instance] vkGetPhysicalDeviceExternalBufferPropertiesKHX => (physicalDevice: VkPhysicalDevice, pExternalBufferInfo: *const VkPhysicalDeviceExternalBufferInfoKHX, pExternalBufferProperties: *mut VkExternalBufferPropertiesKHX) -> (),
+    extension_dispatch_table!{VK_KHR_external_memory_capabilities | instance, {
+        [instance] vkGetPhysicalDeviceExternalBufferPropertiesKHR => (physicalDevice: VkPhysicalDevice, pExternalBufferInfo: *const VkPhysicalDeviceExternalBufferInfoKHR, pExternalBufferProperties: *mut VkExternalBufferPropertiesKHR) -> (),
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_memory
+     * VK_KHR_external_memory
      * ------------------------------------------------------
     */
 
     #[repr(C)]
-    pub struct VkExternalMemoryImageCreateInfoKHX {
+    pub struct VkExternalMemoryImageCreateInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleTypes: VkExternalMemoryHandleTypeFlagsKHX,
+        pub handleTypes: VkExternalMemoryHandleTypeFlagsKHR,
     }
 
     #[repr(C)]
-    pub struct VkExternalMemoryBufferCreateInfoKHX {
+    pub struct VkExternalMemoryBufferCreateInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleTypes: VkExternalMemoryHandleTypeFlagsKHX,
+        pub handleTypes: VkExternalMemoryHandleTypeFlagsKHR,
     }
 
     #[repr(C)]
-    pub struct VkExportMemoryAllocateInfoKHX {
+    pub struct VkExportMemoryAllocateInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleTypes: VkExternalMemoryHandleTypeFlagsKHX,
+        pub handleTypes: VkExternalMemoryHandleTypeFlagsKHR,
     }
 
-    extension_dispatch_table!{VK_KHX_external_memory | device, {
+    extension_dispatch_table!{VK_KHR_external_memory | device, {
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_memory_win32
+     * VK_KHR_external_memory_win32
      * ------------------------------------------------------
     */
 
     #[repr(C)]
-    pub struct VkMemoryWin32HandlePropertiesKHX {
+    pub struct VkMemoryGetWin32HandleInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub memory: VkDeviceMemory,
+        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkMemoryWin32HandlePropertiesKHR {
         pub sType: VkStructureType,
         pub pNext: *mut c_void,
         pub memoryTypeBits: u32,
     }
 
     #[repr(C)]
-    pub struct VkImportMemoryWin32HandleInfoKHX {
+    pub struct VkImportMemoryWin32HandleInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHX,
+        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHR,
         pub handle: *mut c_void,
+        pub name: *const u16,
     }
 
     #[repr(C)]
-    pub struct VkExportMemoryWin32HandleInfoKHX {
+    pub struct VkExportMemoryWin32HandleInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub pAttributes: *const c_void,
@@ -4039,45 +4186,53 @@ pub mod extensions {
         pub name: *const u16,
     }
 
-    extension_dispatch_table!{VK_KHX_external_memory_win32 | device, {
-        [device] vkGetMemoryWin32HandleKHX => (device: VkDevice, memory: VkDeviceMemory, handleType: VkExternalMemoryHandleTypeFlagBitsKHX, pHandle: *mut *mut c_void) -> VkResult,
-        [device] vkGetMemoryWin32HandlePropertiesKHX => (device: VkDevice, handleType: VkExternalMemoryHandleTypeFlagBitsKHX, handle: *mut c_void, pMemoryWin32HandleProperties: *mut VkMemoryWin32HandlePropertiesKHX) -> VkResult,
+    extension_dispatch_table!{VK_KHR_external_memory_win32 | device, {
+        [device] vkGetMemoryWin32HandleKHR => (device: VkDevice, pGetWin32HandleInfo: *const VkMemoryGetWin32HandleInfoKHR, pHandle: *mut *mut c_void) -> VkResult,
+        [device] vkGetMemoryWin32HandlePropertiesKHR => (device: VkDevice, handleType: VkExternalMemoryHandleTypeFlagBitsKHR, handle: *mut c_void, pMemoryWin32HandleProperties: *mut VkMemoryWin32HandlePropertiesKHR) -> VkResult,
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_memory_fd
+     * VK_KHR_external_memory_fd
      * ------------------------------------------------------
     */
 
     #[repr(C)]
-    pub struct VkMemoryFdPropertiesKHX {
+    pub struct VkMemoryGetFdInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub memory: VkDeviceMemory,
+        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkMemoryFdPropertiesKHR {
         pub sType: VkStructureType,
         pub pNext: *mut c_void,
         pub memoryTypeBits: u32,
     }
 
     #[repr(C)]
-    pub struct VkImportMemoryFdInfoKHX {
+    pub struct VkImportMemoryFdInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHX,
+        pub handleType: VkExternalMemoryHandleTypeFlagBitsKHR,
         pub fd: c_int,
     }
 
-    extension_dispatch_table!{VK_KHX_external_memory_fd | device, {
-        [device] vkGetMemoryFdKHX => (device: VkDevice, memory: VkDeviceMemory, handleType: VkExternalMemoryHandleTypeFlagBitsKHX, pFd: *mut c_int) -> VkResult,
-        [device] vkGetMemoryFdPropertiesKHX => (device: VkDevice, handleType: VkExternalMemoryHandleTypeFlagBitsKHX, fd: c_int, pMemoryFdProperties: *mut VkMemoryFdPropertiesKHX) -> VkResult,
+    extension_dispatch_table!{VK_KHR_external_memory_fd | device, {
+        [device] vkGetMemoryFdKHR => (device: VkDevice, pGetFdInfo: *const VkMemoryGetFdInfoKHR, pFd: *mut c_int) -> VkResult,
+        [device] vkGetMemoryFdPropertiesKHR => (device: VkDevice, handleType: VkExternalMemoryHandleTypeFlagBitsKHR, fd: c_int, pMemoryFdProperties: *mut VkMemoryFdPropertiesKHR) -> VkResult,
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_win32_keyed_mutex
+     * VK_KHR_win32_keyed_mutex
      * ------------------------------------------------------
     */
 
     #[repr(C)]
-    pub struct VkWin32KeyedMutexAcquireReleaseInfoKHX {
+    pub struct VkWin32KeyedMutexAcquireReleaseInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub acquireCount: u32,
@@ -4089,80 +4244,94 @@ pub mod extensions {
         pub pReleaseKeys: *const u64,
     }
 
-    extension_dispatch_table!{VK_KHX_win32_keyed_mutex | device, {
+    extension_dispatch_table!{VK_KHR_win32_keyed_mutex | device, {
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_semaphore_capabilities
+     * VK_KHR_external_semaphore_capabilities
      * ------------------------------------------------------
     */
 
-    vulkan_flags!(VkExternalSemaphoreHandleTypeFlagsKHX, VkExternalSemaphoreHandleTypeFlagBitsKHX, {
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT_KHX = 0x00000001,
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHX = 0x00000002,
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT_KHX = 0x00000004,
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT_KHX = 0x00000008,
-        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_FENCE_FD_BIT_KHX = 0x00000010,
+    vulkan_flags!(VkExternalSemaphoreHandleTypeFlagsKHR, VkExternalSemaphoreHandleTypeFlagBitsKHR, {
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT_KHR = 0x00000001,
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR = 0x00000002,
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT_KHR = 0x00000004,
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_D3D12_FENCE_BIT_KHR = 0x00000008,
+        VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT_KHR = 0x00000010,
     });
-    vulkan_flags!(VkExternalSemaphoreFeatureFlagsKHX, VkExternalSemaphoreFeatureFlagBitsKHX, {
-        VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT_KHX = 0x00000001,
-        VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT_KHX = 0x00000002,
+    vulkan_flags!(VkExternalSemaphoreFeatureFlagsKHR, VkExternalSemaphoreFeatureFlagBitsKHR, {
+        VK_EXTERNAL_SEMAPHORE_FEATURE_EXPORTABLE_BIT_KHR = 0x00000001,
+        VK_EXTERNAL_SEMAPHORE_FEATURE_IMPORTABLE_BIT_KHR = 0x00000002,
     });
 
     #[repr(C)]
-    pub struct VkPhysicalDeviceExternalSemaphoreInfoKHX {
+    pub struct VkPhysicalDeviceExternalSemaphoreInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHX,
+        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHR,
     }
 
     #[repr(C)]
-    pub struct VkExternalSemaphorePropertiesKHX {
+    pub struct VkExternalSemaphorePropertiesKHR {
         pub sType: VkStructureType,
         pub pNext: *mut c_void,
-        pub exportFromImportedHandleTypes: VkExternalSemaphoreHandleTypeFlagsKHX,
-        pub compatibleHandleTypes: VkExternalSemaphoreHandleTypeFlagsKHX,
-        pub externalSemaphoreFeatures: VkExternalSemaphoreFeatureFlagsKHX,
+        pub exportFromImportedHandleTypes: VkExternalSemaphoreHandleTypeFlagsKHR,
+        pub compatibleHandleTypes: VkExternalSemaphoreHandleTypeFlagsKHR,
+        pub externalSemaphoreFeatures: VkExternalSemaphoreFeatureFlagsKHR,
     }
 
-    extension_dispatch_table!{VK_KHX_external_semaphore_capabilities | instance, {
-        [instance] vkGetPhysicalDeviceExternalSemaphorePropertiesKHX => (physicalDevice: VkPhysicalDevice, pExternalSemaphoreInfo: *const VkPhysicalDeviceExternalSemaphoreInfoKHX, pExternalSemaphoreProperties: *mut VkExternalSemaphorePropertiesKHX) -> (),
+    extension_dispatch_table!{VK_KHR_external_semaphore_capabilities | instance, {
+        [instance] vkGetPhysicalDeviceExternalSemaphorePropertiesKHR => (physicalDevice: VkPhysicalDevice, pExternalSemaphoreInfo: *const VkPhysicalDeviceExternalSemaphoreInfoKHR, pExternalSemaphoreProperties: *mut VkExternalSemaphorePropertiesKHR) -> (),
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_semaphore
+     * VK_KHR_external_semaphore
      * ------------------------------------------------------
     */
 
+    vulkan_flags!(VkSemaphoreImportFlagsKHR, VkSemaphoreImportFlagBitsKHR, {
+        VK_SEMAPHORE_IMPORT_TEMPORARY_BIT_KHR = 0x00000001,
+    });
+
     #[repr(C)]
-    pub struct VkExportSemaphoreCreateInfoKHX {
+    pub struct VkExportSemaphoreCreateInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
-        pub handleTypes: VkExternalSemaphoreHandleTypeFlagsKHX,
+        pub handleTypes: VkExternalSemaphoreHandleTypeFlagsKHR,
     }
 
-    extension_dispatch_table!{VK_KHX_external_semaphore | device, {
+    extension_dispatch_table!{VK_KHR_external_semaphore | device, {
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_semaphore_win32
+     * VK_KHR_external_semaphore_win32
      * ------------------------------------------------------
     */
 
     #[repr(C)]
-    pub struct VkImportSemaphoreWin32HandleInfoKHX {
+    pub struct VkImportSemaphoreWin32HandleInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub semaphore: VkSemaphore,
-        pub handleType: VkExternalSemaphoreHandleTypeFlagsKHX,
+        pub flags: VkSemaphoreImportFlagsKHR,
+        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHR,
         pub handle: *mut c_void,
+        pub name: *const u16,
     }
 
     #[repr(C)]
-    pub struct VkExportSemaphoreWin32HandleInfoKHX {
+    pub struct VkSemaphoreGetWin32HandleInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub semaphore: VkSemaphore,
+        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkExportSemaphoreWin32HandleInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub pAttributes: *const c_void,
@@ -4171,7 +4340,7 @@ pub mod extensions {
     }
 
     #[repr(C)]
-    pub struct VkD3D12FenceSubmitInfoKHX {
+    pub struct VkD3D12FenceSubmitInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub waitSemaphoreValuesCount: u32,
@@ -4180,29 +4349,38 @@ pub mod extensions {
         pub pSignalSemaphoreValues: *const u64,
     }
 
-    extension_dispatch_table!{VK_KHX_external_semaphore_win32 | device, {
-        [device] vkImportSemaphoreWin32HandleKHX => (device: VkDevice, pImportSemaphoreWin32HandleInfo: *const VkImportSemaphoreWin32HandleInfoKHX) -> VkResult,
-        [device] vkGetSemaphoreWin32HandleKHX => (device: VkDevice, semaphore: VkSemaphore, handleType: VkExternalSemaphoreHandleTypeFlagBitsKHX, pHandle: *mut *mut c_void) -> VkResult,
+    extension_dispatch_table!{VK_KHR_external_semaphore_win32 | device, {
+        [device] vkImportSemaphoreWin32HandleKHR => (device: VkDevice, pImportSemaphoreWin32HandleInfo: *const VkImportSemaphoreWin32HandleInfoKHR) -> VkResult,
+        [device] vkGetSemaphoreWin32HandleKHR => (device: VkDevice, pGetWin32HandleInfo: *const VkSemaphoreGetWin32HandleInfoKHR, pHandle: *mut *mut c_void) -> VkResult,
     }}
 
     /*
      * ------------------------------------------------------
-     * VK_KHX_external_semaphore_fd
+     * VK_KHR_external_semaphore_fd
      * ------------------------------------------------------
     */
 
     #[repr(C)]
-    pub struct VkImportSemaphoreFdInfoKHX {
+    pub struct VkImportSemaphoreFdInfoKHR {
         pub sType: VkStructureType,
         pub pNext: *const c_void,
         pub semaphore: VkSemaphore,
-        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHX,
+        pub flags: VkSemaphoreImportFlagsKHR,
+        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHR,
         pub fd: c_int,
     }
 
-    extension_dispatch_table!{VK_KHX_external_semaphore_fd | device, {
-        [device] vkImportSemaphoreFdKHX => (device: VkDevice, pImportSemaphoreFdInfo: *const VkImportSemaphoreFdInfoKHX) -> VkResult,
-        [device] vkGetSemaphoreFdKHX => (device: VkDevice, semaphore: VkSemaphore, handleType: VkExternalSemaphoreHandleTypeFlagBitsKHX, pFd: *mut c_int) -> VkResult,
+    #[repr(C)]
+    pub struct VkSemaphoreGetFdInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub semaphore: VkSemaphore,
+        pub handleType: VkExternalSemaphoreHandleTypeFlagBitsKHR,
+    }
+
+    extension_dispatch_table!{VK_KHR_external_semaphore_fd | device, {
+        [device] vkImportSemaphoreFdKHR => (device: VkDevice, pImportSemaphoreFdInfo: *const VkImportSemaphoreFdInfoKHR) -> VkResult,
+        [device] vkGetSemaphoreFdKHR => (device: VkDevice, pGetFdInfo: *const VkSemaphoreGetFdInfoKHR, pFd: *mut c_int) -> VkResult,
     }}
 
     /*
@@ -4220,6 +4398,25 @@ pub mod extensions {
 
     extension_dispatch_table!{VK_KHR_push_descriptor | device, {
         [device] vkCmdPushDescriptorSetKHR => (commandBuffer: VkCommandBuffer, pipelineBindPoint: VkPipelineBindPoint, layout: VkPipelineLayout, set: u32, descriptorWriteCount: u32, pDescriptorWrites: *const VkWriteDescriptorSet) -> (),
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_16bit_storage
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkPhysicalDevice16BitStorageFeaturesKHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub storageBuffer16BitAccess: VkBool32,
+        pub uniformAndStorageBuffer16BitAccess: VkBool32,
+        pub storagePushConstant16: VkBool32,
+        pub storageInputOutput16: VkBool32,
+    }
+
+    extension_dispatch_table!{VK_KHR_16bit_storage | device, {
     }}
 
     /*
@@ -4310,23 +4507,23 @@ pub mod extensions {
 
     #[repr(C)]
     pub enum VkIndirectCommandsTokenTypeNVX {
-        VK_INDIRECT_COMMANDS_TOKEN_PIPELINE_NVX = 0,
-        VK_INDIRECT_COMMANDS_TOKEN_DESCRIPTOR_SET_NVX = 1,
-        VK_INDIRECT_COMMANDS_TOKEN_INDEX_BUFFER_NVX = 2,
-        VK_INDIRECT_COMMANDS_TOKEN_VERTEX_BUFFER_NVX = 3,
-        VK_INDIRECT_COMMANDS_TOKEN_PUSH_CONSTANT_NVX = 4,
-        VK_INDIRECT_COMMANDS_TOKEN_DRAW_INDEXED_NVX = 5,
-        VK_INDIRECT_COMMANDS_TOKEN_DRAW_NVX = 6,
-        VK_INDIRECT_COMMANDS_TOKEN_DISPATCH_NVX = 7,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_PIPELINE_NVX = 0,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_DESCRIPTOR_SET_NVX = 1,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_INDEX_BUFFER_NVX = 2,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_VERTEX_BUFFER_NVX = 3,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_PUSH_CONSTANT_NVX = 4,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_INDEXED_NVX = 5,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_DRAW_NVX = 6,
+        VK_INDIRECT_COMMANDS_TOKEN_TYPE_DISPATCH_NVX = 7,
     }
 
     #[repr(C)]
     pub enum VkObjectEntryTypeNVX {
-        VK_OBJECT_ENTRY_DESCRIPTOR_SET_NVX = 0,
-        VK_OBJECT_ENTRY_PIPELINE_NVX = 1,
-        VK_OBJECT_ENTRY_INDEX_BUFFER_NVX = 2,
-        VK_OBJECT_ENTRY_VERTEX_BUFFER_NVX = 3,
-        VK_OBJECT_ENTRY_PUSH_CONSTANT_NVX = 4,
+        VK_OBJECT_ENTRY_TYPE_DESCRIPTOR_SET_NVX = 0,
+        VK_OBJECT_ENTRY_TYPE_PIPELINE_NVX = 1,
+        VK_OBJECT_ENTRY_TYPE_INDEX_BUFFER_NVX = 2,
+        VK_OBJECT_ENTRY_TYPE_VERTEX_BUFFER_NVX = 3,
+        VK_OBJECT_ENTRY_TYPE_PUSH_CONSTANT_NVX = 4,
     }
 
     vulkan_flags!(VkIndirectCommandsLayoutUsageFlagsNVX, VkIndirectCommandsLayoutUsageFlagBitsNVX, {
@@ -4812,6 +5009,197 @@ pub mod extensions {
 
     /*
      * ------------------------------------------------------
+     * VK_KHR_shared_presentable_image
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkSharedPresentSurfaceCapabilitiesKHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub sharedPresentSupportedUsageFlags: VkImageUsageFlags,
+    }
+
+    extension_dispatch_table!{VK_KHR_shared_presentable_image | device, {
+        [device] vkGetSwapchainStatusKHR => (device: VkDevice, swapchain: VkSwapchainKHR) -> VkResult,
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_external_fence_capabilities
+     * ------------------------------------------------------
+    */
+
+    vulkan_flags!(VkExternalFenceHandleTypeFlagsKHR, VkExternalFenceHandleTypeFlagBitsKHR, {
+        VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_FD_BIT_KHR = 0x00000001,
+        VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_BIT_KHR = 0x00000002,
+        VK_EXTERNAL_FENCE_HANDLE_TYPE_OPAQUE_WIN32_KMT_BIT_KHR = 0x00000004,
+        VK_EXTERNAL_FENCE_HANDLE_TYPE_SYNC_FD_BIT_KHR = 0x00000008,
+    });
+    vulkan_flags!(VkExternalFenceFeatureFlagsKHR, VkExternalFenceFeatureFlagBitsKHR, {
+        VK_EXTERNAL_FENCE_FEATURE_EXPORTABLE_BIT_KHR = 0x00000001,
+        VK_EXTERNAL_FENCE_FEATURE_IMPORTABLE_BIT_KHR = 0x00000002,
+    });
+
+    #[repr(C)]
+    pub struct VkPhysicalDeviceExternalFenceInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub handleType: VkExternalFenceHandleTypeFlagBitsKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkExternalFencePropertiesKHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub exportFromImportedHandleTypes: VkExternalFenceHandleTypeFlagsKHR,
+        pub compatibleHandleTypes: VkExternalFenceHandleTypeFlagsKHR,
+        pub externalFenceFeatures: VkExternalFenceFeatureFlagsKHR,
+    }
+
+    extension_dispatch_table!{VK_KHR_external_fence_capabilities | instance, {
+        [instance] vkGetPhysicalDeviceExternalFencePropertiesKHR => (physicalDevice: VkPhysicalDevice, pExternalFenceInfo: *const VkPhysicalDeviceExternalFenceInfoKHR, pExternalFenceProperties: *mut VkExternalFencePropertiesKHR) -> (),
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_external_fence
+     * ------------------------------------------------------
+    */
+
+    vulkan_flags!(VkFenceImportFlagsKHR, VkFenceImportFlagBitsKHR, {
+        VK_FENCE_IMPORT_TEMPORARY_BIT_KHR = 0x00000001,
+    });
+
+    #[repr(C)]
+    pub struct VkExportFenceCreateInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub handleTypes: VkExternalFenceHandleTypeFlagsKHR,
+    }
+
+    extension_dispatch_table!{VK_KHR_external_fence | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_external_fence_win32
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkImportFenceWin32HandleInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub fence: VkFence,
+        pub flags: VkFenceImportFlagsKHR,
+        pub handleType: VkExternalFenceHandleTypeFlagBitsKHR,
+        pub handle: *mut c_void,
+        pub name: *const u16,
+    }
+
+    #[repr(C)]
+    pub struct VkFenceGetWin32HandleInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub fence: VkFence,
+        pub handleType: VkExternalFenceHandleTypeFlagBitsKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkExportFenceWin32HandleInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub pAttributes: *const c_void,
+        pub dwAccess: u32,
+        pub name: *const u16,
+    }
+
+    extension_dispatch_table!{VK_KHR_external_fence_win32 | device, {
+        [device] vkImportFenceWin32HandleKHR => (device: VkDevice, pImportFenceWin32HandleInfo: *const VkImportFenceWin32HandleInfoKHR) -> VkResult,
+        [device] vkGetFenceWin32HandleKHR => (device: VkDevice, pGetWin32HandleInfo: *const VkFenceGetWin32HandleInfoKHR, pHandle: *mut *mut c_void) -> VkResult,
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_external_fence_fd
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkImportFenceFdInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub fence: VkFence,
+        pub flags: VkFenceImportFlagsKHR,
+        pub handleType: VkExternalFenceHandleTypeFlagBitsKHR,
+        pub fd: c_int,
+    }
+
+    #[repr(C)]
+    pub struct VkFenceGetFdInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub fence: VkFence,
+        pub handleType: VkExternalFenceHandleTypeFlagBitsKHR,
+    }
+
+    extension_dispatch_table!{VK_KHR_external_fence_fd | device, {
+        [device] vkImportFenceFdKHR => (device: VkDevice, pImportFenceFdInfo: *const VkImportFenceFdInfoKHR) -> VkResult,
+        [device] vkGetFenceFdKHR => (device: VkDevice, pGetFdInfo: *const VkFenceGetFdInfoKHR, pFd: *mut c_int) -> VkResult,
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_get_surface_capabilities2
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkPhysicalDeviceSurfaceInfo2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub surface: VkSurfaceKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkSurfaceCapabilities2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub surfaceCapabilities: VkSurfaceCapabilitiesKHR,
+    }
+
+    #[repr(C)]
+    pub struct VkSurfaceFormat2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub surfaceFormat: VkSurfaceFormatKHR,
+    }
+
+    extension_dispatch_table!{VK_KHR_get_surface_capabilities2 | instance, {
+        [instance] vkGetPhysicalDeviceSurfaceCapabilities2KHR => (physicalDevice: VkPhysicalDevice, pSurfaceInfo: *const VkPhysicalDeviceSurfaceInfo2KHR, pSurfaceCapabilities: *mut VkSurfaceCapabilities2KHR) -> VkResult,
+        [instance] vkGetPhysicalDeviceSurfaceFormats2KHR => (physicalDevice: VkPhysicalDevice, pSurfaceInfo: *const VkPhysicalDeviceSurfaceInfo2KHR, pSurfaceFormatCount: *mut u32, pSurfaceFormats: *mut VkSurfaceFormat2KHR) -> VkResult,
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_variable_pointers
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkPhysicalDeviceVariablePointerFeaturesKHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub variablePointersStorageBuffer: VkBool32,
+        pub variablePointers: VkBool32,
+    }
+
+    extension_dispatch_table!{VK_KHR_variable_pointers | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
      * VK_MVK_ios_surface
      * ------------------------------------------------------
     */
@@ -4848,5 +5236,256 @@ pub mod extensions {
 
     extension_dispatch_table!{VK_MVK_macos_surface | instance, {
         [instance] vkCreateMacOSSurfaceMVK => (instance: VkInstance, pCreateInfo: *const VkMacOSSurfaceCreateInfoMVK, pAllocator: *const VkAllocationCallbacks, pSurface: *mut VkSurfaceKHR) -> VkResult,
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_dedicated_allocation
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkMemoryDedicatedRequirementsKHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub prefersDedicatedAllocation: VkBool32,
+        pub requiresDedicatedAllocation: VkBool32,
+    }
+
+    #[repr(C)]
+    pub struct VkMemoryDedicatedAllocateInfoKHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub image: VkImage,
+        pub buffer: VkBuffer,
+    }
+
+    extension_dispatch_table!{VK_KHR_dedicated_allocation | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_EXT_sampler_filter_minmax
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub enum VkSamplerReductionModeEXT {
+        VK_SAMPLER_REDUCTION_MODE_WEIGHTED_AVERAGE_EXT = 0,
+        VK_SAMPLER_REDUCTION_MODE_MIN_EXT = 1,
+        VK_SAMPLER_REDUCTION_MODE_MAX_EXT = 2,
+    }
+
+    #[repr(C)]
+    pub struct VkSamplerReductionModeCreateInfoEXT {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub reductionMode: VkSamplerReductionModeEXT,
+    }
+
+    #[repr(C)]
+    pub struct VkPhysicalDeviceSamplerFilterMinmaxPropertiesEXT {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub filterMinmaxSingleComponentFormats: VkBool32,
+        pub filterMinmaxImageComponentMapping: VkBool32,
+    }
+
+    extension_dispatch_table!{VK_EXT_sampler_filter_minmax | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_storage_buffer_storage_class
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_KHR_storage_buffer_storage_class | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_AMD_gpu_shader_int16
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_AMD_gpu_shader_int16 | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_AMD_mixed_attachment_samples
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_AMD_mixed_attachment_samples | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_relaxed_block_layout
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_KHR_relaxed_block_layout | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_KHR_get_memory_requirements2
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub struct VkImageMemoryRequirementsInfo2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub image: VkImage,
+    }
+
+    #[repr(C)]
+    pub struct VkMemoryRequirements2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub memoryRequirements: VkMemoryRequirements,
+    }
+
+    #[repr(C)]
+    pub struct VkBufferMemoryRequirementsInfo2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub buffer: VkBuffer,
+    }
+
+    #[repr(C)]
+    pub struct VkImageSparseMemoryRequirementsInfo2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub image: VkImage,
+    }
+
+    #[repr(C)]
+    pub struct VkSparseImageMemoryRequirements2KHR {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub memoryRequirements: VkSparseImageMemoryRequirements,
+    }
+
+    extension_dispatch_table!{VK_KHR_get_memory_requirements2 | device, {
+        [device] vkGetImageMemoryRequirements2KHR => (device: VkDevice, pInfo: *const VkImageMemoryRequirementsInfo2KHR, pMemoryRequirements: *mut VkMemoryRequirements2KHR) -> (),
+        [device] vkGetBufferMemoryRequirements2KHR => (device: VkDevice, pInfo: *const VkBufferMemoryRequirementsInfo2KHR, pMemoryRequirements: *mut VkMemoryRequirements2KHR) -> (),
+        [device] vkGetImageSparseMemoryRequirements2KHR => (device: VkDevice, pInfo: *const VkImageSparseMemoryRequirementsInfo2KHR, pSparseMemoryRequirementCount: *mut u32, pSparseMemoryRequirements: *mut VkSparseImageMemoryRequirements2KHR) -> (),
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_EXT_blend_operation_advanced
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub enum VkBlendOverlapEXT {
+        VK_BLEND_OVERLAP_UNCORRELATED_EXT = 0,
+        VK_BLEND_OVERLAP_DISJOINT_EXT = 1,
+        VK_BLEND_OVERLAP_CONJOINT_EXT = 2,
+    }
+
+    #[repr(C)]
+    pub struct VkPhysicalDeviceBlendOperationAdvancedFeaturesEXT {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub advancedBlendCoherentOperations: VkBool32,
+    }
+
+    #[repr(C)]
+    pub struct VkPhysicalDeviceBlendOperationAdvancedPropertiesEXT {
+        pub sType: VkStructureType,
+        pub pNext: *mut c_void,
+        pub advancedBlendMaxColorAttachments: u32,
+        pub advancedBlendIndependentBlend: VkBool32,
+        pub advancedBlendNonPremultipliedSrcColor: VkBool32,
+        pub advancedBlendNonPremultipliedDstColor: VkBool32,
+        pub advancedBlendCorrelatedOverlap: VkBool32,
+        pub advancedBlendAllOperations: VkBool32,
+    }
+
+    #[repr(C)]
+    pub struct VkPipelineColorBlendAdvancedStateCreateInfoEXT {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub srcPremultiplied: VkBool32,
+        pub dstPremultiplied: VkBool32,
+        pub blendOverlap: VkBlendOverlapEXT,
+    }
+
+    extension_dispatch_table!{VK_EXT_blend_operation_advanced | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_NV_fragment_coverage_to_color
+     * ------------------------------------------------------
+    */
+
+    vulkan_flags!(VkPipelineCoverageToColorStateCreateFlagsNV);
+
+    #[repr(C)]
+    pub struct VkPipelineCoverageToColorStateCreateInfoNV {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub flags: VkPipelineCoverageToColorStateCreateFlagsNV,
+        pub coverageToColorEnable: VkBool32,
+        pub coverageToColorLocation: u32,
+    }
+
+    extension_dispatch_table!{VK_NV_fragment_coverage_to_color | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_NV_framebuffer_mixed_samples
+     * ------------------------------------------------------
+    */
+
+    #[repr(C)]
+    pub enum VkCoverageModulationModeNV {
+        VK_COVERAGE_MODULATION_MODE_NONE_NV = 0,
+        VK_COVERAGE_MODULATION_MODE_RGB_NV = 1,
+        VK_COVERAGE_MODULATION_MODE_ALPHA_NV = 2,
+        VK_COVERAGE_MODULATION_MODE_RGBA_NV = 3,
+    }
+
+    vulkan_flags!(VkPipelineCoverageModulationStateCreateFlagsNV);
+
+    #[repr(C)]
+    pub struct VkPipelineCoverageModulationStateCreateInfoNV {
+        pub sType: VkStructureType,
+        pub pNext: *const c_void,
+        pub flags: VkPipelineCoverageModulationStateCreateFlagsNV,
+        pub coverageModulationMode: VkCoverageModulationModeNV,
+        pub coverageModulationTableEnable: VkBool32,
+        pub coverageModulationTableCount: u32,
+        pub pCoverageModulationTable: *const f32,
+    }
+
+    extension_dispatch_table!{VK_NV_framebuffer_mixed_samples | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_NV_fill_rectangle
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_NV_fill_rectangle | device, {
+    }}
+
+    /*
+     * ------------------------------------------------------
+     * VK_EXT_post_depth_coverage
+     * ------------------------------------------------------
+    */
+
+    extension_dispatch_table!{VK_EXT_post_depth_coverage | device, {
     }}
 } // mod extensions
