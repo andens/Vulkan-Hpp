@@ -71,6 +71,7 @@ public:
 	// Returns the type name, which is translated for C types. When parsing the
 	// registry, the parser should access _name for the type used in the spec.
 	virtual std::string const& name(void) const { return _name; }
+    Extension* extension(void) const { return _extension; }
 
 protected:
 	Item(std::string const& name, tinyxml2::XMLElement* xml_node) : _name(name), _xml_node(xml_node) {}
@@ -243,6 +244,7 @@ class HandleTypedef : public Type {
 public:
 	virtual HandleTypedef* to_handle_typedef() { return this; }
 	Type* actual_type() { return _actual_type; }
+    bool dispatchable() const { return _dispatchable; }
 
 private:
 	HandleTypedef(std::string const& name, tinyxml2::XMLElement* type_element) : Type(name, type_element) {}

@@ -876,6 +876,14 @@ class RustTranslator : public vkspec::ITranslator {
     else if (c == "LPCWSTR") return "*const u16"; // typedefed pointer
     else if (c == "xcb_visualid_t") return "u32";
     else if (c == "xcb_window_t") return "u32";
+    else if (c == "ANativeWindow") return "ANativeWindow";
+    else if (c == "Display") return "Display";
+    else if (c == "MirConnection") return "MirConnection";
+    else if (c == "MirSurface") return "MirSurface";
+    else if (c == "SECURITY_ATTRIBUTES") return "SECURITY_ATTRIBUTES";
+    else if (c == "wl_display") return "wl_display";
+    else if (c == "wl_surface") return "wl_surface";
+    else if (c == "xcb_connection_t") return "xcb_connection_t";
     else throw std::runtime_error("Not translated: " + c);
   }
 

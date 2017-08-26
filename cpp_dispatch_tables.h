@@ -27,14 +27,25 @@ public:
   virtual void end_global_commands() override final;
   virtual void begin_instance_commands() override final {}
   virtual void gen_instance_command(vkspec::Command* c) override final;
-  virtual void end_instance_commands() override final;
+  virtual void end_instance_commands() override final {}
   virtual void begin_device_commands() override final {}
   virtual void gen_device_command(vkspec::Command* c) override final;
-  virtual void end_device_commands() override final;
-  virtual void begin_extensions() override final;
-  virtual void end_extensions() override final {}
+  virtual void end_device_commands() override final {}
+  virtual void begin_extensions() override final {}
+  virtual void end_extensions() override final;
   virtual void begin_extension(vkspec::Extension* e) override final {}
   virtual void end_extension(vkspec::Extension* e) override final;
+
+private:
+  struct DispatchTable {
+    std::string dispatchable_object = "";
+    std::string dispatchable_object_snake_case = "";
+    std::vector<vkspec::Command*> commands;
+    vkspec::CommandClassification classification;
+  };
+
+private:
+  void preprocess_command(vkspec::Command* c);
 
 private:
   std::ofstream header;
@@ -43,8 +54,8 @@ private:
   IndentingOStreambuf* ind_cpp = nullptr;
   vkspec::Command* _entry_command = nullptr;
   std::vector<vkspec::Command*> _global_commands;
-  std::vector<vkspec::Command*> _instance_commands;
-  std::vector<vkspec::Command*> _device_commands;
+  vkspec::Command* get_device_proc_ = nullptr;
+  std::vector<DispatchTable> tables_;
 };
 
 class CppTranslator : public vkspec::ITranslator {

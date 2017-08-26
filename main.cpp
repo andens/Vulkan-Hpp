@@ -55,11 +55,13 @@ int main(int argc, char **argv)
 	catch (std::exception const& e)
 	{
 		std::cout << "caught exception: " << e.what() << std::endl;
+        std::cin.get();
 		return -1;
 	}
 	catch (...)
 	{
 		std::cout << "caught unknown exception" << std::endl;
+        std::cin.get();
 		return -1;
 	}
 }

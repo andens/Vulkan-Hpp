@@ -56,9 +56,7 @@ namespace vkspec {
       define_c("xcb_window_t");
 
       for (auto c : _c_types) {
-        if (!c.second->_opaque) {
-          c.second->_translation = std::move(translator->translate_c(c.first));
-        }
+        c.second->_translation = std::move(translator->translate_c(c.first));
       }
     }
 
